@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -78,14 +79,16 @@ class ReadingStore:
             row = await cursor.fetchone()
             return row[0] if row and row[0] else None
 
-    async def get_readings(self, hours: int = 24, limit: int = 5000) -> list[OwletReading]:
+    async def get_readings(self, hours: int | None = 24, limit: int = 5000) -> list[OwletReading]:
         await self.init()
         latest = await self._latest_timestamp()
         where = ""
         params: list[Any] = []
-        if latest:
-            where = "WHERE recorded_at >= datetime(?, ?)"
-            params.extend([latest, f"-{int(hours)} hours"])
+        if latest and hours is not None:
+            latest_dt = datetime.fromisoformat(latest)
+            cutoff = latest_dt - timedelta(hours=int(hours))
+            where = "WHERE recorded_at >= ?"
+            params.append(cutoff.isoformat())
         params.append(limit)
 
         async with aiosqlite.connect(self.db_path) as db:
@@ -104,11 +107,16 @@ class ReadingStore:
 
         return [self._row_to_reading(row) for row in rows]
 
-    async def get_summary(self, hours: int = 24) -> dict[str, Any]:
+    async def get_summary(self, hours: int | None = 24) -> dict[str, Any]:
         readings = await self.get_readings(hours=hours)
+        first_recorded_at = readings[0].recorded_at.isoformat() if readings else None
+        last_recorded_at = readings[-1].recorded_at.isoformat() if readings else None
         return {
             "hours": hours,
+            "window": "all" if hours is None else f"{hours}h",
             "count": len(readings),
+            "first_recorded_at": first_recorded_at,
+            "last_recorded_at": last_recorded_at,
             "heart_rate": _metric_summary([r.heart_rate for r in readings]),
             "oxygen_saturation": _metric_summary([r.oxygen_saturation for r in readings]),
             "battery": _metric_summary([r.battery for r in readings]),

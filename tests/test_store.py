@@ -75,3 +75,33 @@ async def test_store_inserts_and_queries_recent_readings(tmp_path):
     assert summary["heart_rate"]["avg"] == 125
     assert summary["heart_rate"]["trend"] == "up"
     assert summary["oxygen_saturation"]["trend"] == "down"
+
+
+@pytest.mark.asyncio
+async def test_store_can_return_all_readings_or_recent_window(tmp_path):
+    db_path = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db_path)
+    await store.init()
+
+    for timestamp, hr in [
+        ("2026-06-30T02:00:00Z", 110),
+        ("2026-07-02T01:00:00Z", 120),
+        ("2026-07-02T02:00:00Z", 130),
+    ]:
+        await store.insert_reading(
+            normalize_reading(
+                {"heart_rate": hr, "oxygen_saturation": 97, "last_updated": timestamp},
+                device_serial="AC123",
+            )
+        )
+
+    all_rows = await store.get_readings(hours=None)
+    recent_rows = await store.get_readings(hours=24)
+    summary = await store.get_summary(hours=None)
+
+    assert [row.heart_rate for row in all_rows] == [110, 120, 130]
+    assert [row.heart_rate for row in recent_rows] == [120, 130]
+    assert summary["count"] == 3
+    assert summary["window"] == "all"
+    assert summary["first_recorded_at"].startswith("2026-06-30")
+    assert summary["last_recorded_at"].startswith("2026-07-02")

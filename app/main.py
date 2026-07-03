@@ -72,14 +72,16 @@ def create_app(
 
     @app.get("/api/readings")
     async def readings(
-        hours: int = Query(default=24, ge=1, le=24 * 365),
+        hours: int | None = Query(default=None, ge=1, le=24 * 365),
         limit: int = Query(default=5000, ge=1, le=100_000),
+        include_raw: bool = Query(default=False),
     ):
         rows = await store.get_readings(hours=hours, limit=limit)
-        return [row.model_dump(mode="json") for row in rows]
+        exclude = None if include_raw else {"raw"}
+        return [row.model_dump(mode="json", exclude=exclude) for row in rows]
 
     @app.get("/api/summary")
-    async def summary(hours: int = Query(default=24, ge=1, le=24 * 365)):
+    async def summary(hours: int | None = Query(default=None, ge=1, le=24 * 365)):
         return await store.get_summary(hours=hours)
 
     return app

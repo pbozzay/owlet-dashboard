@@ -47,8 +47,20 @@ Open:
 
 - Dashboard: <http://127.0.0.1:8788/>
 - Health: <http://127.0.0.1:8788/api/health>
-- Readings JSON: <http://127.0.0.1:8788/api/readings?hours=24>
-- Summary JSON: <http://127.0.0.1:8788/api/summary?hours=24>
+- All readings JSON: <http://127.0.0.1:8788/api/readings>
+- Recent readings JSON: <http://127.0.0.1:8788/api/readings?hours=24>
+- Summary JSON: <http://127.0.0.1:8788/api/summary>
+
+Dashboard features:
+
+- all-time / recent-window selector
+- current metric cards
+- heart-rate, SpO₂, and movement chart
+- sleep/state mix chart
+- daily rollups
+- searchable readings table
+- click a row to inspect that normalized reading
+- CSV download for the current filtered view
 
 ## Run tests
 
