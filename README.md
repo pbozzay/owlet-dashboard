@@ -112,7 +112,6 @@ Libraries I checked while scaffolding:
 
 ## Next improvements
 
-- Configure Cloudflare Access for `owlet.bozzay.app`, then start the prepared tunnel LaunchAgent.
 - Add daily sleep rollups in a `sessions` table.
 - Add CSV export endpoint.
 - Add Grafana/Prometheus option if you want more powerful charts.

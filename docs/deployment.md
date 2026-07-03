@@ -7,7 +7,7 @@ Current durable deployment target:
 - GitHub repo: `https://github.com/pbozzay/owlet-dashboard`
 - Supervisor: macOS `launchd`
 - Tunnel: Cloudflare named tunnel `owlet-dashboard`
-- Auth target: Cloudflare Access allowlist for `paulbzzy@gmail.com`
+- Auth: Cloudflare Access allowlist for `paulbzzy@gmail.com`
 
 ## Local app service
 
@@ -42,19 +42,18 @@ id: 3d14f878-6353-4df0-b217-18d958c3ca01
 config: ~/.cloudflared/owlet-dashboard.yml
 ```
 
-`owlet.bozzay.app` has been routed to this tunnel. Start the tunnel only after Cloudflare Access is protecting the hostname.
-
-Tunnel LaunchAgent prepared locally:
+`owlet.bozzay.app` is routed to this tunnel. The tunnel is supervised by this LaunchAgent:
 
 ```text
 ~/Library/LaunchAgents/com.paulbozzay.owlet-dashboard-tunnel.plist
 ```
 
-Start after Access is configured:
+Useful commands:
 
 ```bash
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.paulbozzay.owlet-dashboard-tunnel.plist
+launchctl print gui/$(id -u)/com.paulbozzay.owlet-dashboard-tunnel
 launchctl kickstart -k gui/$(id -u)/com.paulbozzay.owlet-dashboard-tunnel
+cloudflared tunnel info owlet-dashboard
 ```
 
 Logs:
@@ -66,20 +65,21 @@ Logs:
 
 ## Cloudflare Access
 
-Create a self-hosted Access application for:
+Cloudflare Access is configured as a self-hosted application:
 
 ```text
-owlet.bozzay.app
+Application: Owlet Dashboard
+Domain: owlet.bozzay.app
+Policy: Allow email = paulbzzy@gmail.com
 ```
 
-Recommended policy:
+Verification target:
 
-```text
-Decision: Allow
-Include: Email = paulbzzy@gmail.com
+```bash
+curl -L https://owlet.bozzay.app/
 ```
 
-After Access is configured and the tunnel is started, verify unauthenticated requests are blocked by Cloudflare Access before reaching FastAPI.
+Unauthenticated requests should redirect to a Cloudflare Access login page at `bozzay.cloudflareaccess.com`, not return the FastAPI dashboard HTML directly.
 
 ## Local deployment registry
 
