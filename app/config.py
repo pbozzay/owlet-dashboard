@@ -14,9 +14,15 @@ class Settings(BaseSettings):
     database_path: Path = Field(default=Path("data/owlet.sqlite3"), alias="DATABASE_PATH")
     host: str = Field(default="127.0.0.1", alias="HOST")
     port: int = Field(default=8788, alias="PORT")
+    owlet_basic_auth_username: str | None = Field(default=None, alias="OWLET_BASIC_AUTH_USERNAME")
+    owlet_basic_auth_password: str | None = Field(default=None, alias="OWLET_BASIC_AUTH_PASSWORD")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     @property
     def has_owlet_credentials(self) -> bool:
         return bool(self.owlet_email and self.owlet_password)
+
+    @property
+    def basic_auth_enabled(self) -> bool:
+        return bool(self.owlet_basic_auth_username and self.owlet_basic_auth_password)

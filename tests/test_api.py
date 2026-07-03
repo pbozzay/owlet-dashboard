@@ -1,9 +1,14 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app.config import Settings
 from app.main import create_app
 from app.models import normalize_reading
 from app.store import ReadingStore
+
+
+def _test_settings(**kwargs):
+    return Settings(_env_file=None, **kwargs)  # type: ignore[call-arg]
 
 
 async def _seed_reading(store: ReadingStore, timestamp: str, *, hr=120, spo2=96, sleep_state=1):
@@ -39,7 +44,7 @@ async def test_api_returns_readings_and_summary(tmp_path):
         )
     )
 
-    app = create_app(store=store, start_poller=False)
+    app = create_app(store=store, settings=_test_settings(), start_poller=False)
 
     with TestClient(app) as client:
         readings = client.get("/api/readings?hours=24").json()
@@ -76,7 +81,7 @@ async def test_api_defaults_to_all_data_and_still_supports_hours_filter(tmp_path
             )
         )
 
-    app = create_app(store=store, start_poller=False)
+    app = create_app(store=store, settings=_test_settings(), start_poller=False)
 
     with TestClient(app) as client:
         all_readings = client.get("/api/readings").json()
@@ -99,7 +104,7 @@ async def test_api_exposes_insights_and_rollups(tmp_path):
     await _seed_reading(store, "2026-07-03T11:00:00Z", hr=120, spo2=96, sleep_state=1)
     await _seed_reading(store, "2026-07-03T11:30:00Z", hr=130, spo2=97, sleep_state=1)
 
-    app = create_app(store=store, start_poller=False)
+    app = create_app(store=store, settings=_test_settings(), start_poller=False)
 
     with TestClient(app) as client:
         insights = client.get("/api/insights").json()
@@ -113,7 +118,7 @@ async def test_api_exposes_insights_and_rollups(tmp_path):
 
 def test_dashboard_endpoint_serves_html(tmp_path):
     store = ReadingStore(tmp_path / "owlet.sqlite3")
-    app = create_app(store=store, start_poller=False)
+    app = create_app(store=store, settings=_test_settings(), start_poller=False)
 
     with TestClient(app) as client:
         response = client.get("/")
@@ -122,6 +127,31 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "Owlet History" in response.text
     assert "/api/readings" in response.text
     assert "All stored data" in response.text
+    assert "data-range=\"24\"" in response.text
+    assert "data-range=\"72\"" in response.text
+    assert "data-range=\"168\"" in response.text
+    assert "data-range=\"all\"" in response.text
+    assert response.text.index("id=\"vitalsChart\"") < response.text.index("Today at a glance")
+    assert response.text.index("id=\"rollupChart\"") < response.text.index("id=\"stateChart\"")
     assert "Today at a glance" in response.text
     assert "Breathing trend" in response.text
     assert "Drill-down" in response.text
+
+
+def test_basic_auth_protects_dashboard_and_api_when_configured(tmp_path):
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    settings = _test_settings(
+        owlet_basic_auth_username="parent",
+        owlet_basic_auth_password="secret-pass",
+    )
+    app = create_app(store=store, settings=settings, start_poller=False)
+
+    with TestClient(app) as client:
+        unauthenticated = client.get("/")
+        wrong_password = client.get("/api/health", auth=("parent", "wrong"))
+        authenticated = client.get("/api/health", auth=("parent", "secret-pass"))
+
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.headers["www-authenticate"] == 'Basic realm="Owlet History"'
+    assert wrong_password.status_code == 401
+    assert authenticated.status_code == 200

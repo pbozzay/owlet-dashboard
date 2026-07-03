@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from typing import Literal
 
-from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Query, Request
+from fastapi.responses import HTMLResponse, Response
 
 from app.analytics import build_insights, build_rollups
 from app.config import Settings
@@ -59,6 +61,40 @@ def create_app(
     app = FastAPI(title="Owlet History Server", lifespan=lifespan)
     app.state.owlet_state = state
 
+    @app.middleware("http")
+    async def require_basic_auth(request: Request, call_next):
+        if not settings.basic_auth_enabled:
+            return await call_next(request)
+
+        expected_username = settings.owlet_basic_auth_username or ""
+        expected_password = settings.owlet_basic_auth_password or ""
+        expected_cookie = _basic_auth_cookie_value(expected_username, expected_password)
+        cookie_authenticated = secrets.compare_digest(
+            request.cookies.get("owlet_auth", ""),
+            expected_cookie,
+        )
+        if cookie_authenticated:
+            return await call_next(request)
+
+        username, password = _parse_basic_auth(request.headers.get("authorization"))
+        authenticated = secrets.compare_digest(username, expected_username) and secrets.compare_digest(
+            password,
+            expected_password,
+        )
+        if not authenticated:
+            return Response(
+                status_code=401,
+                headers={"WWW-Authenticate": 'Basic realm="Owlet History"'},
+            )
+        response = await call_next(request)
+        response.set_cookie(
+            "owlet_auth",
+            expected_cookie,
+            httponly=True,
+            samesite="lax",
+        )
+        return response
+
     @app.get("/", response_class=HTMLResponse)
     async def dashboard() -> str:
         return DASHBOARD_HTML
@@ -103,3 +139,23 @@ def create_app(
 
 
 app = create_app()
+
+
+def _parse_basic_auth(header: str | None) -> tuple[str, str]:
+    if not header or not header.lower().startswith("basic "):
+        return "", ""
+    import base64
+    import binascii
+
+    try:
+        decoded = base64.b64decode(header.split(" ", 1)[1]).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError):
+        return "", ""
+    username, separator, password = decoded.partition(":")
+    if not separator:
+        return "", ""
+    return username, password
+
+
+def _basic_auth_cookie_value(username: str, password: str) -> str:
+    return hashlib.sha256(f"{username}:{password}".encode()).hexdigest()

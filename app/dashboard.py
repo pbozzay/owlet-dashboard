@@ -9,7 +9,7 @@ DASHBOARD_HTML = r"""
   <style>
     :root {
       --bg: #f5f7fb;
-      --panel: rgba(255, 255, 255, .94);
+      --panel: rgba(255, 255, 255, .95);
       --text: #122033;
       --muted: #64748b;
       --line: #e2e8f0;
@@ -31,7 +31,7 @@ DASHBOARD_HTML = r"""
         var(--bg);
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    .shell { width: min(1460px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 48px; }
+    .shell { width: min(1500px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 48px; }
     .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
     h1 { margin: 0; letter-spacing: -.045em; font-size: clamp(2.3rem, 5vw, 4.4rem); line-height: .92; }
     h2 { margin: 0; font-size: 1.06rem; letter-spacing: -.02em; }
@@ -47,7 +47,7 @@ DASHBOARD_HTML = r"""
       backdrop-filter: blur(14px);
       border-radius: 24px;
     }
-    .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 12px; margin: 18px 0; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 12px; margin: 18px 0; position: sticky; top: 10px; z-index: 10; }
     .control-group { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     label { color: var(--muted); font-size: .9rem; font-weight: 700; }
     select, input, button {
@@ -56,9 +56,18 @@ DASHBOARD_HTML = r"""
     }
     button { cursor: pointer; font-weight: 800; }
     button.primary { background: var(--dark); color: #fff; border-color: var(--dark); }
+    .quick-range { display: flex; gap: 6px; flex-wrap: wrap; }
+    .quick-range button { padding: .54rem .7rem; color: var(--muted); background: #f8fafc; }
+    .quick-range button.active { color: #fff; background: var(--blue); border-color: var(--blue); }
     .grid { display: grid; gap: 14px; }
-    .today-grid { grid-template-columns: 1.1fr 1fr 1fr; margin-bottom: 14px; }
-    .metric-grid { grid-template-columns: repeat(4, minmax(140px, 1fr)); }
+    .chart-stack { display: grid; gap: 14px; }
+    .chart-panel { padding: 16px; }
+    .chart-frame { position: relative; width: 100%; }
+    .chart-frame.main { height: 440px; }
+    .chart-frame.secondary { height: 230px; }
+    .chart-frame canvas { display: block; width: 100% !important; height: 100% !important; }
+    .insight-grid { grid-template-columns: 1.1fr 1fr 1fr; margin-top: 14px; }
+    .metric-grid { grid-template-columns: repeat(4, minmax(140px, 1fr)); margin-top: 14px; }
     .card, .panel { padding: 16px; }
     .hero-card { min-height: 172px; }
     .eyebrow { color: var(--muted); font-size: .77rem; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
@@ -72,11 +81,10 @@ DASHBOARD_HTML = r"""
     .trend-worsening, .trend-down { color: var(--red); }
     .trend-stable, .trend-flat { color: var(--blue); }
     .trend-unknown { color: var(--muted); }
-    .charts { grid-template-columns: minmax(0, 1.3fr) minmax(420px, .7fr); align-items: start; }
     .panel-title { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }
     .small { color: var(--muted); font-size: .88rem; }
     .insight-text { font-size: 1.08rem; font-weight: 750; line-height: 1.35; margin: 12px 0; }
-    .drill-grid { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); margin-top: 14px; }
+    .details-grid { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); margin-top: 14px; }
     table { width: 100%; border-collapse: collapse; font-size: .9rem; }
     th, td { padding: 10px 9px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
     th { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; background: #f8fafc; position: sticky; top: 0; z-index: 1; }
@@ -90,8 +98,11 @@ DASHBOARD_HTML = r"""
     .progress span:nth-child(3) { background: var(--amber); }
     @media (max-width: 1080px) {
       .hero { align-items: flex-start; flex-direction: column; }
-      .today-grid, .metric-grid, .charts, .drill-grid { grid-template-columns: 1fr; }
+      .insight-grid, .metric-grid, .details-grid { grid-template-columns: 1fr; }
       .status { white-space: normal; }
+      .toolbar { position: static; }
+      .chart-frame.main { height: 340px; }
+      .chart-frame.secondary { height: 220px; }
     }
   </style>
 </head>
@@ -108,9 +119,16 @@ DASHBOARD_HTML = r"""
       <div class="status" id="status"><span class="status-dot"></span>Checking collector…</div>
     </section>
 
-    <section class="toolbar">
+    <section class="toolbar" aria-label="Date and data controls">
       <div class="control-group">
-        <label for="window">Window</label>
+        <label>Range</label>
+        <div class="quick-range" id="quickRange">
+          <button type="button" data-range="24" class="active">24h</button>
+          <button type="button" data-range="72">3 days</button>
+          <button type="button" data-range="168">Week</button>
+          <button type="button" data-range="all">All time</button>
+        </div>
+        <label for="window">More</label>
         <select id="window">
           <option value="6">6 hours</option>
           <option value="12">12 hours</option>
@@ -120,22 +138,46 @@ DASHBOARD_HTML = r"""
           <option value="720">30 days</option>
           <option value="all">All stored data</option>
         </select>
-        <label for="bucket">Drill-down</label>
+        <label for="bucket">Averages</label>
         <select id="bucket">
           <option selected value="hour">Hourly</option>
           <option value="day">Daily</option>
         </select>
-        <label for="search">Search</label>
-        <input id="search" placeholder="sleep state, serial, value…" />
       </div>
       <div class="control-group">
+        <label for="search">Search</label>
+        <input id="search" placeholder="sleep state, serial, value…" />
         <span class="small" id="refreshNote">Refreshing…</span>
         <button id="refresh" class="primary">Refresh now</button>
         <button id="download">Download CSV</button>
       </div>
     </section>
 
-    <section class="grid today-grid">
+    <section class="chart-stack" aria-label="Primary charts">
+      <div class="panel chart-panel primary-chart">
+        <div class="panel-title">
+          <h2>Main vitals trace</h2>
+          <span class="small" id="coverage">—</span>
+        </div>
+        <div class="chart-frame main"><canvas id="vitalsChart"></canvas></div>
+      </div>
+      <div class="panel chart-panel secondary-chart">
+        <div class="panel-title">
+          <h2 id="rollupLabel">Hourly averages</h2>
+          <span class="small">Avg O₂, min O₂, and avg heart rate</span>
+        </div>
+        <div class="chart-frame secondary"><canvas id="rollupChart"></canvas></div>
+      </div>
+      <div class="panel chart-panel secondary-chart">
+        <div class="panel-title">
+          <h2>Sleep / wake by period</h2>
+          <span class="small">light sleep, deep sleep, awake estimates</span>
+        </div>
+        <div class="chart-frame secondary"><canvas id="stateChart"></canvas></div>
+      </div>
+    </section>
+
+    <section class="grid insight-grid">
       <article class="card hero-card">
         <h3>Today at a glance</h3>
         <div class="big" id="latestOxygen">—</div>
@@ -146,7 +188,6 @@ DASHBOARD_HTML = r"""
           <div class="mini"><span class="eyebrow">Move</span><b id="latestMove">—</b></div>
         </div>
       </article>
-
       <article class="card hero-card">
         <h3>Breathing trend</h3>
         <div class="big" id="breathingDirection">—</div>
@@ -157,7 +198,6 @@ DASHBOARD_HTML = r"""
           <div class="mini"><span class="eyebrow">Low O₂ samples</span><b id="lowOxygen">—</b></div>
         </div>
       </article>
-
       <article class="card hero-card">
         <h3>Sleep / awake estimate</h3>
         <div class="big" id="sleepTotal">—</div>
@@ -175,47 +215,13 @@ DASHBOARD_HTML = r"""
 
     <section class="grid metric-grid" id="metricCards"></section>
 
-    <section class="grid charts" style="margin-top: 14px;">
-      <div class="panel">
-        <div class="panel-title">
-          <h2>Live vitals trace</h2>
-          <span class="small" id="coverage">—</span>
-        </div>
-        <canvas id="vitalsChart" height="130"></canvas>
-      </div>
-      <div class="panel">
-        <div class="panel-title">
-          <h2>Sleep / state mix</h2>
-          <span class="small">by estimated duration</span>
-        </div>
-        <canvas id="stateChart" height="220"></canvas>
-      </div>
-    </section>
-
-    <section class="grid drill-grid">
-      <div class="panel">
-        <div class="panel-title">
-          <h2>Drill-down averages</h2>
-          <span class="small" id="rollupLabel">Hourly</span>
-        </div>
-        <canvas id="rollupChart" height="190"></canvas>
-      </div>
+    <section class="grid details-grid">
       <div class="panel">
         <div class="panel-title">
           <h2>Drill-down table</h2>
           <span class="small">averages + sleep/awake estimates</span>
         </div>
         <div class="table-wrap"><table id="rollupTable"></table></div>
-      </div>
-    </section>
-
-    <section class="grid drill-grid">
-      <div class="panel">
-        <div class="panel-title">
-          <h2>Readings table</h2>
-          <span class="small" id="tableCount">—</span>
-        </div>
-        <div class="table-wrap"><table id="readingsTable"></table></div>
       </div>
       <div class="panel">
         <div class="panel-title">
@@ -224,6 +230,14 @@ DASHBOARD_HTML = r"""
         </div>
         <pre id="raw" class="raw-box">No reading selected yet.</pre>
       </div>
+    </section>
+
+    <section class="panel" style="margin-top: 14px;">
+      <div class="panel-title">
+        <h2>Readings table</h2>
+        <span class="small" id="tableCount">—</span>
+      </div>
+      <div class="table-wrap"><table id="readingsTable"></table></div>
     </section>
   </main>
 
@@ -244,8 +258,36 @@ DASHBOARD_HTML = r"""
     const num = (value, digits = 1) => value === null || value === undefined ? '—' : Number(value).toFixed(digits).replace(/\.0$/, '');
     const hours = (seconds) => seconds ? `${(seconds / 3600).toFixed(1).replace(/\.0$/, '')}h` : '0h';
     const trendClass = (trend) => `trend-${trend || 'unknown'}`;
-    const localTime = (iso) => iso ? new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'medium' }) : '—';
     const stateLabel = (value) => ({ '0': 'inactive', '1': 'awake', '8': 'light sleep', '15': 'deep sleep' }[String(value)] || `state ${value ?? 'unknown'}`);
+
+    function selectedHours() {
+      const value = el('window').value;
+      return value === 'all' ? null : Number(value);
+    }
+
+    function localTime(iso, compact = false) {
+      if (!iso) return '—';
+      const date = new Date(iso);
+      if (compact) return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      return date.toLocaleString([], { dateStyle: 'short', timeStyle: 'medium' });
+    }
+
+    function chartLabel(iso) {
+      const hours = selectedHours();
+      const date = new Date(iso);
+      if (hours && hours <= 24) return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric' });
+    }
+
+    function rollupLabel(row) {
+      const hours = selectedHours();
+      const date = new Date(row.bucket_start);
+      if (row.bucket === 'hour' && hours && hours <= 24) {
+        return date.toLocaleTimeString([], { hour: 'numeric' });
+      }
+      if (row.bucket === 'day') return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric' });
+    }
 
     function queryParams(extra = {}) {
       const window = el('window').value;
@@ -254,16 +296,22 @@ DASHBOARD_HTML = r"""
       return params.toString();
     }
 
+    async function fetchJson(url) {
+      const response = await fetch(url, { credentials: 'include' });
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText} while fetching ${url}`);
+      return response.json();
+    }
+
     async function refresh() {
       secondsUntilRefresh = REFRESH_SECONDS;
       const qs = queryParams();
       const rollupQs = queryParams({ bucket: el('bucket').value });
       const [health, rows, stats, insightData, rollupData] = await Promise.all([
-        fetch('/api/health').then(r => r.json()),
-        fetch(`/api/readings?${qs}`).then(r => r.json()),
-        fetch(`/api/summary?${qs}`).then(r => r.json()),
-        fetch(`/api/insights?${qs}`).then(r => r.json()),
-        fetch(`/api/rollups?${rollupQs}`).then(r => r.json())
+        fetchJson('/api/health'),
+        fetchJson(`/api/readings?${qs}`),
+        fetchJson(`/api/summary?${qs}`),
+        fetchJson(`/api/insights?${qs}`),
+        fetchJson(`/api/rollups?${rollupQs}`)
       ]);
       readings = rows;
       summary = stats;
@@ -275,10 +323,18 @@ DASHBOARD_HTML = r"""
       renderMetricCards();
       renderCharts();
       renderRollups();
+      renderQuickRanges();
     }
 
     function renderStatus(health) {
       el('status').innerHTML = `<span class="status-dot ${health.collecting ? 'good' : ''}"></span>${health.collecting ? 'Collecting live' : 'Stored data only'} · ${health.database_path}`;
+    }
+
+    function renderQuickRanges() {
+      const current = el('window').value;
+      document.querySelectorAll('#quickRange button').forEach(button => {
+        button.classList.toggle('active', button.dataset.range === current);
+      });
     }
 
     function renderInsights() {
@@ -325,7 +381,7 @@ DASHBOARD_HTML = r"""
       el('coverage').textContent = `${summary.window} · ${summary.count} readings`;
     }
 
-    function downsample(rows, maxPoints = 900) {
+    function downsample(rows, maxPoints = 1200) {
       if (rows.length <= maxPoints) return rows;
       const step = Math.ceil(rows.length / maxPoints);
       return rows.filter((_, index) => index % step === 0 || index === rows.length - 1);
@@ -337,7 +393,7 @@ DASHBOARD_HTML = r"""
       vitalsChart = new Chart(el('vitalsChart'), {
         type: 'line',
         data: {
-          labels: sampled.map(r => localTime(r.recorded_at)),
+          labels: sampled.map(r => chartLabel(r.recorded_at)),
           datasets: [
             { label: 'Heart rate', data: sampled.map(r => r.heart_rate), borderColor: '#dc2626', backgroundColor: '#dc262620', yAxisID: 'hr', spanGaps: true, pointRadius: 0, tension: .25 },
             { label: 'SpO₂', data: sampled.map(r => r.oxygen_saturation), borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'spo2', spanGaps: true, pointRadius: 0, tension: .25 },
@@ -346,52 +402,69 @@ DASHBOARD_HTML = r"""
         },
         options: {
           responsive: true,
+          maintainAspectRatio: false,
           interaction: { mode: 'index', intersect: false },
           plugins: { legend: { position: 'bottom' } },
           scales: {
+            x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 14 } },
             hr: { type: 'linear', position: 'left', title: { display: true, text: 'BPM' } },
-            spo2: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'SpO₂' } },
+            spo2: { type: 'linear', position: 'right', suggestedMin: 88, suggestedMax: 100, grid: { drawOnChartArea: false }, title: { display: true, text: 'SpO₂' } },
             move: { display: false }
           }
         }
       });
-
-      const sleep = insights.sleep;
-      if (stateChart) stateChart.destroy();
-      stateChart = new Chart(el('stateChart'), {
-        type: 'doughnut',
-        data: {
-          labels: ['Light sleep', 'Deep sleep', 'Awake'],
-          datasets: [{ data: [sleep.light_sleep_seconds, sleep.deep_sleep_seconds, sleep.awake_seconds], backgroundColor: ['#7c3aed', '#2563eb', '#b45309'] }]
-        },
-        options: { plugins: { legend: { position: 'bottom' } } }
-      });
     }
 
     function renderRollups() {
-      el('rollupLabel').textContent = el('bucket').selectedOptions[0].textContent;
+      el('rollupLabel').textContent = `${el('bucket').selectedOptions[0].textContent} averages`;
+      const labels = rollups.map(rollupLabel);
       if (rollupChart) rollupChart.destroy();
       rollupChart = new Chart(el('rollupChart'), {
-        type: 'bar',
+        type: 'line',
         data: {
-          labels: rollups.map(r => r.bucket_label),
+          labels,
           datasets: [
-            { type: 'line', label: 'Avg O₂', data: rollups.map(r => r.avg_oxygen_saturation), borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25 },
-            { type: 'bar', label: 'Sleep hrs', data: rollups.map(r => r.sleep_seconds / 3600), backgroundColor: '#7c3aed80', yAxisID: 'hours' },
-            { type: 'bar', label: 'Awake hrs', data: rollups.map(r => r.awake_seconds / 3600), backgroundColor: '#b4530980', yAxisID: 'hours' }
+            { label: 'Avg O₂', data: rollups.map(r => r.avg_oxygen_saturation), borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25, pointRadius: 2 },
+            { label: 'Min O₂', data: rollups.map(r => r.min_oxygen_saturation), borderColor: '#7c3aed', backgroundColor: '#7c3aed20', yAxisID: 'oxygen', tension: .25, pointRadius: 2 },
+            { label: 'Avg HR', data: rollups.map(r => r.avg_heart_rate), borderColor: '#dc2626', backgroundColor: '#dc262620', yAxisID: 'hr', tension: .25, pointRadius: 2 }
           ]
         },
         options: {
           responsive: true,
+          maintainAspectRatio: false,
           interaction: { mode: 'index', intersect: false },
           plugins: { legend: { position: 'bottom' } },
           scales: {
-            oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100, title: { display: true, text: 'Avg O₂' } },
-            hours: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Hours' } }
+            x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 14 } },
+            oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100, title: { display: true, text: 'O₂' } },
+            hr: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'BPM' } }
           }
         }
       });
-      const rows = rollups.slice().reverse().map(row => `<tr><td>${row.bucket_label}</td><td>${row.samples}</td><td>${fmt(row.avg_oxygen_saturation, '%')}</td><td>${fmt(row.min_oxygen_saturation, '%')}</td><td>${fmt(row.avg_heart_rate, ' bpm')}</td><td>${hours(row.sleep_seconds)}</td><td>${hours(row.awake_seconds)}</td></tr>`).join('');
+
+      if (stateChart) stateChart.destroy();
+      stateChart = new Chart(el('stateChart'), {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Light sleep', data: rollups.map(r => r.light_sleep_seconds / 3600), backgroundColor: '#7c3aed80', stack: 'sleep' },
+            { label: 'Deep sleep', data: rollups.map(r => r.deep_sleep_seconds / 3600), backgroundColor: '#2563eb80', stack: 'sleep' },
+            { label: 'Awake', data: rollups.map(r => r.awake_seconds / 3600), backgroundColor: '#b4530980', stack: 'sleep' }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom' } },
+          scales: {
+            x: { stacked: true, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 14 } },
+            y: { stacked: true, title: { display: true, text: 'Hours' } }
+          }
+        }
+      });
+
+      const rows = rollups.slice().reverse().map(row => `<tr><td>${rollupLabel(row)}</td><td>${row.samples}</td><td>${fmt(row.avg_oxygen_saturation, '%')}</td><td>${fmt(row.min_oxygen_saturation, '%')}</td><td>${fmt(row.avg_heart_rate, ' bpm')}</td><td>${hours(row.sleep_seconds)}</td><td>${hours(row.awake_seconds)}</td></tr>`).join('');
       el('rollupTable').innerHTML = `<thead><tr><th>Window</th><th>Samples</th><th>Avg O₂</th><th>Min O₂</th><th>Avg HR</th><th>Sleep</th><th>Awake</th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="empty">No readings yet.</td></tr>'}</tbody>`;
     }
 
@@ -435,12 +508,21 @@ DASHBOARD_HTML = r"""
       URL.revokeObjectURL(url);
     }
 
+    function setRange(value) {
+      el('window').value = value;
+      if (value === '168' && el('bucket').value === 'hour') el('bucket').value = 'hour';
+      refresh();
+    }
+
     function tickCountdown() {
       secondsUntilRefresh = Math.max(0, secondsUntilRefresh - 1);
       el('refreshNote').textContent = `Auto-refresh in ${secondsUntilRefresh}s`;
       if (secondsUntilRefresh === 0) refresh();
     }
 
+    document.querySelectorAll('#quickRange button').forEach(button => {
+      button.addEventListener('click', () => setRange(button.dataset.range));
+    });
     el('window').addEventListener('change', refresh);
     el('bucket').addEventListener('change', refresh);
     el('search').addEventListener('input', applyFilter);
