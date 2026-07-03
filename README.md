@@ -1,6 +1,8 @@
-# Owlet History Server
+# Owlet Dashboard
 
-Local FastAPI + SQLite history collector for Owlet Dream Sock / Smart Sock data.
+Local FastAPI + SQLite history collector and dashboard for Owlet Dream Sock / Smart Sock data.
+
+Owlet Dashboard stores local historical vitals from the unofficial Owlet cloud API and shows oxygen, heart-rate, movement, and sleep/wake trends in a private web dashboard. It is designed for parents who want retrospective history beyond the short recent window shown in the Owlet app.
 
 The Owlet app only exposes a short recent window. This server polls Owlet's unofficial cloud API via [`pyowletapi`](https://pypi.org/project/pyowletapi/), stores readings locally, and serves a simple historical dashboard.
 

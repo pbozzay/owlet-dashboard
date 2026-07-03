@@ -1,7 +1,7 @@
 [project]
-name = "owlet-history-server"
+name = "owlet-dashboard"
 version = "0.1.0"
-description = "Local Owlet Dream Sock history collector and dashboard"
+description = "Local Owlet Dream Sock and Smart Sock history dashboard"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115.0",
