@@ -124,13 +124,16 @@ def test_dashboard_endpoint_serves_html(tmp_path):
         response = client.get("/")
 
     assert response.status_code == 200
-    assert "Owlet History" in response.text
+    assert "Owlet Dashboard" in response.text
     assert "/api/readings" in response.text
     assert "All stored data" in response.text
-    assert "data-range=\"24\"" in response.text
-    assert "data-range=\"72\"" in response.text
-    assert "data-range=\"168\"" in response.text
-    assert "data-range=\"all\"" in response.text
+    assert '<option selected value="24">24 hours</option>' in response.text
+    assert '<option value="72">3 days</option>' in response.text
+    assert '<option value="168">7 days</option>' in response.text
+    assert '<option value="all">All stored data</option>' in response.text
+    assert '<option value="5m">5 minutes</option>' in response.text
+    assert '<button id="download" class="icon-button"' in response.text
+    assert "chartjs-plugin-zoom" in response.text
     assert response.text.index("id=\"vitalsChart\"") < response.text.index("Today at a glance")
     assert response.text.index("id=\"rollupChart\"") < response.text.index("id=\"stateChart\"")
     assert "Today at a glance" in response.text

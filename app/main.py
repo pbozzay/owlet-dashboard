@@ -129,7 +129,7 @@ def create_app(
 
     @app.get("/api/rollups")
     async def rollups(
-        bucket: Literal["hour", "day"] = Query(default="hour"),
+        bucket: Literal["5m", "15m", "30m", "hour", "6h", "12h", "day"] = Query(default="hour"),
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
     ):
         rows = await store.get_readings(hours=hours, limit=100_000)

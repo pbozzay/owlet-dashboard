@@ -43,6 +43,30 @@ def test_build_rollups_computes_hourly_averages_and_duration_estimates():
     assert rollups[1]["awake_seconds"] == 1800
 
 
+def test_build_rollups_supports_requested_average_windows():
+    readings = [
+        _reading("2026-07-03T10:04:00Z", hr=100, spo2=93),
+        _reading("2026-07-03T10:06:00Z", hr=110, spo2=94),
+        _reading("2026-07-03T16:10:00Z", hr=120, spo2=96),
+        _reading("2026-07-03T23:55:00Z", hr=130, spo2=98),
+    ]
+
+    five_minute = build_rollups(readings, bucket="5m")
+    six_hour = build_rollups(readings, bucket="6h")
+    twelve_hour = build_rollups(readings, bucket="12h")
+
+    assert [row["bucket_label"] for row in five_minute[:2]] == [
+        "Jul 3, 10:00 AM",
+        "Jul 3, 10:05 AM",
+    ]
+    assert [row["bucket_label"] for row in six_hour] == [
+        "Jul 3, 6 AM",
+        "Jul 3, 12 PM",
+        "Jul 3, 6 PM",
+    ]
+    assert [row["bucket_label"] for row in twelve_hour] == ["Jul 3, 12 AM", "Jul 3, 12 PM"]
+
+
 def test_build_insights_answers_breathing_trend_and_sleep_totals():
     readings = [
         _reading("2026-07-03T10:00:00Z", spo2=92, sleep_state=8),

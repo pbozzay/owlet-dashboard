@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from app.models import OwletReading
 
-Bucket = Literal["hour", "day"]
+Bucket = Literal["5m", "15m", "30m", "hour", "6h", "12h", "day"]
 
 SLEEP_STATE_LABELS = {
     "0": "inactive",
@@ -193,15 +193,29 @@ def _duration_to_next(readings: list[OwletReading], index: int) -> int:
 def _bucket_start(dt: datetime, bucket: Bucket) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
+    if bucket in {"5m", "15m", "30m"}:
+        minutes = int(bucket.removesuffix("m"))
+        return dt.replace(
+            minute=(dt.minute // minutes) * minutes,
+            second=0,
+            microsecond=0,
+        )
     if bucket == "hour":
         return dt.replace(minute=0, second=0, microsecond=0)
+    if bucket in {"6h", "12h"}:
+        hours = int(bucket.removesuffix("h"))
+        return dt.replace(hour=(dt.hour // hours) * hours, minute=0, second=0, microsecond=0)
     if bucket == "day":
         return dt.replace(hour=0, minute=0, second=0, microsecond=0)
     raise ValueError(f"Unsupported bucket: {bucket}")
 
 
 def _bucket_label(dt: datetime, bucket: Bucket) -> str:
+    if bucket in {"5m", "15m", "30m"}:
+        return f"{dt.strftime('%b')} {dt.day}, {_hour_minute_label(dt)}"
     if bucket == "hour":
+        return f"{dt.strftime('%b')} {dt.day}, {_hour_label(dt)}"
+    if bucket in {"6h", "12h"}:
         return f"{dt.strftime('%b')} {dt.day}, {_hour_label(dt)}"
     return f"{dt.strftime('%b')} {dt.day}"
 
@@ -210,6 +224,12 @@ def _hour_label(dt: datetime) -> str:
     hour = dt.hour % 12 or 12
     suffix = "AM" if dt.hour < 12 else "PM"
     return f"{hour} {suffix}"
+
+
+def _hour_minute_label(dt: datetime) -> str:
+    hour = dt.hour % 12 or 12
+    suffix = "AM" if dt.hour < 12 else "PM"
+    return f"{hour}:{dt.minute:02d} {suffix}"
 
 
 def _normalized_sleep_state(reading: OwletReading) -> str | None:
