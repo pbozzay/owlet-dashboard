@@ -6,6 +6,21 @@ from app.models import normalize_reading
 from app.store import ReadingStore
 
 
+async def _seed_reading(store: ReadingStore, timestamp: str, *, hr=120, spo2=96, sleep_state=1):
+    await store.insert_reading(
+        normalize_reading(
+            {
+                "heart_rate": hr,
+                "oxygen_saturation": spo2,
+                "sleep_state": sleep_state,
+                "last_updated": timestamp,
+                "battery": 100,
+            },
+            "AC123",
+        )
+    )
+
+
 @pytest.mark.asyncio
 async def test_api_returns_readings_and_summary(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
@@ -74,6 +89,28 @@ async def test_api_defaults_to_all_data_and_still_supports_hours_filter(tmp_path
     assert all_summary["count"] == 3
 
 
+@pytest.mark.asyncio
+async def test_api_exposes_insights_and_rollups(tmp_path):
+    db_path = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db_path)
+    await store.init()
+    await _seed_reading(store, "2026-07-03T10:00:00Z", hr=100, spo2=92, sleep_state=8)
+    await _seed_reading(store, "2026-07-03T10:30:00Z", hr=110, spo2=93, sleep_state=15)
+    await _seed_reading(store, "2026-07-03T11:00:00Z", hr=120, spo2=96, sleep_state=1)
+    await _seed_reading(store, "2026-07-03T11:30:00Z", hr=130, spo2=97, sleep_state=1)
+
+    app = create_app(store=store, start_poller=False)
+
+    with TestClient(app) as client:
+        insights = client.get("/api/insights").json()
+        rollups = client.get("/api/rollups?bucket=hour").json()
+
+    assert insights["breathing"]["direction"] == "improving"
+    assert insights["sleep"]["sleep_seconds"] == 3600
+    assert rollups["bucket"] == "hour"
+    assert [row["avg_oxygen_saturation"] for row in rollups["rollups"]] == [92.5, 96.5]
+
+
 def test_dashboard_endpoint_serves_html(tmp_path):
     store = ReadingStore(tmp_path / "owlet.sqlite3")
     app = create_app(store=store, start_poller=False)
@@ -85,4 +122,6 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "Owlet History" in response.text
     assert "/api/readings" in response.text
     assert "All stored data" in response.text
-    assert "Readings table" in response.text
+    assert "Today at a glance" in response.text
+    assert "Breathing trend" in response.text
+    assert "Drill-down" in response.text

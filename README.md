@@ -53,14 +53,23 @@ Open:
 
 Dashboard features:
 
-- all-time / recent-window selector
-- current metric cards
-- heart-rate, SpO₂, and movement chart
-- sleep/state mix chart
-- daily rollups
+- live auto-refresh every 15 seconds with visible countdown
+- "today at a glance" latest vitals card
+- breathing trend card comparing recent vs prior oxygen averages
+- low-oxygen sample count for the selected window
+- sleep/awake estimate using Owlet sleep-state codes (`1=awake`, `8=light sleep`, `15=deep sleep`)
+- hourly/daily drill-down averages for oxygen, HR, sleep, and awake time
+- live vitals trace chart
+- sleep/state duration chart
 - searchable readings table
 - click a row to inspect that normalized reading
 - CSV download for the current filtered view
+
+Analytics endpoints:
+
+- Insights: <http://127.0.0.1:8788/api/insights?hours=24>
+- Hourly rollups: <http://127.0.0.1:8788/api/rollups?bucket=hour&hours=24>
+- Daily rollups: <http://127.0.0.1:8788/api/rollups?bucket=day&hours=168>
 
 ## Run tests
 

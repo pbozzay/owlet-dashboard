@@ -9,8 +9,7 @@ DASHBOARD_HTML = r"""
   <style>
     :root {
       --bg: #f5f7fb;
-      --panel: rgba(255, 255, 255, .92);
-      --panel-solid: #ffffff;
+      --panel: rgba(255, 255, 255, .94);
       --text: #122033;
       --muted: #64748b;
       --line: #e2e8f0;
@@ -19,6 +18,7 @@ DASHBOARD_HTML = r"""
       --green: #059669;
       --amber: #b45309;
       --purple: #7c3aed;
+      --dark: #0f172a;
       --shadow: 0 18px 50px rgba(15, 23, 42, .10);
     }
     * { box-sizing: border-box; }
@@ -26,60 +26,72 @@ DASHBOARD_HTML = r"""
       margin: 0;
       color: var(--text);
       background:
-        radial-gradient(circle at top left, rgba(59, 130, 246, .14), transparent 32rem),
-        radial-gradient(circle at top right, rgba(236, 72, 153, .10), transparent 30rem),
+        radial-gradient(circle at top left, rgba(37, 99, 235, .16), transparent 34rem),
+        radial-gradient(circle at top right, rgba(168, 85, 247, .12), transparent 32rem),
         var(--bg);
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    .shell { width: min(1440px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 48px; }
-    .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 20px; }
-    h1 { margin: 0; letter-spacing: -.04em; font-size: clamp(2rem, 5vw, 4.2rem); line-height: .95; }
-    .subtitle { color: var(--muted); max-width: 720px; margin: 12px 0 0; font-size: 1.02rem; }
-    .toolbar {
-      display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;
-      background: var(--panel); border: 1px solid rgba(226, 232, 240, .75); box-shadow: var(--shadow);
-      backdrop-filter: blur(14px); padding: 12px; border-radius: 22px; margin: 18px 0;
+    .shell { width: min(1460px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 48px; }
+    .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+    h1 { margin: 0; letter-spacing: -.045em; font-size: clamp(2.3rem, 5vw, 4.4rem); line-height: .92; }
+    h2 { margin: 0; font-size: 1.06rem; letter-spacing: -.02em; }
+    h3 { margin: 0 0 8px; font-size: .88rem; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
+    .subtitle { color: var(--muted); max-width: 760px; margin: 12px 0 0; font-size: 1.02rem; }
+    .status { display: flex; align-items: center; gap: 8px; padding: .55rem .8rem; border-radius: 999px; background: #eef2ff; color: #3730a3; font-weight: 800; font-size: .88rem; white-space: nowrap; }
+    .status-dot { width: 9px; height: 9px; border-radius: 50%; background: #94a3b8; display: inline-block; }
+    .status-dot.good { background: #22c55e; }
+    .toolbar, .panel, .card {
+      background: var(--panel);
+      border: 1px solid rgba(226, 232, 240, .9);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+      border-radius: 24px;
     }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 12px; margin: 18px 0; }
     .control-group { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-    label { color: var(--muted); font-size: .9rem; font-weight: 650; }
+    label { color: var(--muted); font-size: .9rem; font-weight: 700; }
     select, input, button {
-      border: 1px solid var(--line); background: #fff; color: var(--text); border-radius: 12px;
-      padding: .62rem .75rem; font: inherit;
+      border: 1px solid var(--line); background: #fff; color: var(--text); border-radius: 13px;
+      padding: .62rem .78rem; font: inherit;
     }
-    button { cursor: pointer; font-weight: 750; }
-    button.primary { background: #111827; color: #fff; border-color: #111827; }
-    .pill { padding: .45rem .7rem; border-radius: 999px; background: #eef2ff; color: #3730a3; font-weight: 750; font-size: .86rem; }
+    button { cursor: pointer; font-weight: 800; }
+    button.primary { background: var(--dark); color: #fff; border-color: var(--dark); }
     .grid { display: grid; gap: 14px; }
-    .cards { grid-template-columns: repeat(5, minmax(150px, 1fr)); margin-bottom: 14px; }
-    .card, .panel {
-      background: var(--panel-solid); border: 1px solid rgba(226, 232, 240, .9); border-radius: 22px;
-      box-shadow: 0 8px 28px rgba(15, 23, 42, .07); padding: 16px;
-    }
-    .metric-label { color: var(--muted); font-size: .82rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
-    .metric-value { font-size: clamp(1.7rem, 3vw, 2.7rem); line-height: 1; font-weight: 850; letter-spacing: -.04em; margin: 9px 0 6px; }
-    .metric-foot { color: var(--muted); font-size: .9rem; }
-    .trend-up { color: var(--amber); }
-    .trend-down { color: var(--blue); }
-    .trend-flat { color: var(--green); }
+    .today-grid { grid-template-columns: 1.1fr 1fr 1fr; margin-bottom: 14px; }
+    .metric-grid { grid-template-columns: repeat(4, minmax(140px, 1fr)); }
+    .card, .panel { padding: 16px; }
+    .hero-card { min-height: 172px; }
+    .eyebrow { color: var(--muted); font-size: .77rem; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
+    .big { font-size: clamp(2.1rem, 5vw, 4.1rem); line-height: .92; font-weight: 900; letter-spacing: -.05em; margin: 9px 0; }
+    .sub { color: var(--muted); font-size: .94rem; line-height: 1.35; }
+    .mini-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .mini { background: #f8fafc; border: 1px solid var(--line); border-radius: 14px; padding: 9px 10px; min-width: 98px; }
+    .mini b { display: block; font-size: 1.15rem; }
+    .metric-value { font-size: 2.1rem; line-height: 1; font-weight: 900; letter-spacing: -.04em; margin: 8px 0 5px; }
+    .trend-improving, .trend-up { color: var(--green); }
+    .trend-worsening, .trend-down { color: var(--red); }
+    .trend-stable, .trend-flat { color: var(--blue); }
     .trend-unknown { color: var(--muted); }
-    .charts { grid-template-columns: minmax(0, 1.35fr) minmax(360px, .65fr); align-items: start; }
+    .charts { grid-template-columns: minmax(0, 1.3fr) minmax(420px, .7fr); align-items: start; }
     .panel-title { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }
-    h2 { margin: 0; font-size: 1.05rem; letter-spacing: -.01em; }
     .small { color: var(--muted); font-size: .88rem; }
-    canvas { width: 100%; }
-    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+    .insight-text { font-size: 1.08rem; font-weight: 750; line-height: 1.35; margin: 12px 0; }
+    .drill-grid { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); margin-top: 14px; }
     table { width: 100%; border-collapse: collapse; font-size: .9rem; }
     th, td { padding: 10px 9px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
     th { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; background: #f8fafc; position: sticky; top: 0; z-index: 1; }
     tr:hover td { background: #f8fafc; }
-    .table-wrap { overflow: auto; max-height: 520px; border: 1px solid var(--line); border-radius: 16px; }
-    .raw-box { white-space: pre-wrap; word-break: break-word; background: #0f172a; color: #dbeafe; border-radius: 16px; padding: 14px; max-height: 360px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; }
+    .table-wrap { overflow: auto; max-height: 460px; border: 1px solid var(--line); border-radius: 16px; }
+    .raw-box { white-space: pre-wrap; word-break: break-word; background: var(--dark); color: #dbeafe; border-radius: 16px; padding: 14px; max-height: 280px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; }
     .empty { padding: 28px; text-align: center; color: var(--muted); border: 1px dashed #cbd5e1; border-radius: 18px; background: #f8fafc; }
-    .status-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; background: #94a3b8; }
-    .status-dot.good { background: #22c55e; }
-    @media (max-width: 1000px) {
+    .progress { height: 10px; border-radius: 999px; overflow: hidden; background: #e2e8f0; margin-top: 12px; display: flex; }
+    .progress span:nth-child(1) { background: var(--purple); }
+    .progress span:nth-child(2) { background: var(--blue); }
+    .progress span:nth-child(3) { background: var(--amber); }
+    @media (max-width: 1080px) {
       .hero { align-items: flex-start; flex-direction: column; }
-      .cards, .charts, .split { grid-template-columns: 1fr; }
+      .today-grid, .metric-grid, .charts, .drill-grid { grid-template-columns: 1fr; }
+      .status { white-space: normal; }
     }
   </style>
 </head>
@@ -89,61 +101,121 @@ DASHBOARD_HTML = r"""
       <div>
         <h1>Owlet History</h1>
         <p class="subtitle">
-          All stored data from the local Owlet collector, organized into current vitals,
-          trends, daily rollups, and a searchable readings table. Retrospective trend viewing only —
-          not a medical monitor or alerting replacement.
+          Live-updated pulse plus historical drill-downs for breathing, sleep, wake time,
+          and raw readings. Retrospective trend viewing only — not a medical monitor or alert replacement.
         </p>
       </div>
-      <div class="pill" id="status"><span class="status-dot"></span>Checking collector…</div>
+      <div class="status" id="status"><span class="status-dot"></span>Checking collector…</div>
     </section>
 
     <section class="toolbar">
       <div class="control-group">
         <label for="window">Window</label>
         <select id="window">
-          <option selected value="all">All stored data</option>
           <option value="6">6 hours</option>
           <option value="12">12 hours</option>
-          <option value="24">24 hours</option>
+          <option selected value="24">24 hours</option>
           <option value="72">3 days</option>
           <option value="168">7 days</option>
           <option value="720">30 days</option>
+          <option value="all">All stored data</option>
+        </select>
+        <label for="bucket">Drill-down</label>
+        <select id="bucket">
+          <option selected value="hour">Hourly</option>
+          <option value="day">Daily</option>
         </select>
         <label for="search">Search</label>
         <input id="search" placeholder="sleep state, serial, value…" />
       </div>
       <div class="control-group">
-        <button id="refresh" class="primary">Refresh</button>
+        <span class="small" id="refreshNote">Refreshing…</span>
+        <button id="refresh" class="primary">Refresh now</button>
         <button id="download">Download CSV</button>
       </div>
     </section>
 
-    <section class="grid cards" id="cards"></section>
+    <section class="grid today-grid">
+      <article class="card hero-card">
+        <h3>Today at a glance</h3>
+        <div class="big" id="latestOxygen">—</div>
+        <div class="sub" id="latestSummary">Waiting for latest reading…</div>
+        <div class="mini-row">
+          <div class="mini"><span class="eyebrow">Heart</span><b id="latestHr">—</b></div>
+          <div class="mini"><span class="eyebrow">State</span><b id="latestState">—</b></div>
+          <div class="mini"><span class="eyebrow">Move</span><b id="latestMove">—</b></div>
+        </div>
+      </article>
 
-    <section class="grid charts">
+      <article class="card hero-card">
+        <h3>Breathing trend</h3>
+        <div class="big" id="breathingDirection">—</div>
+        <div class="insight-text" id="breathingSentence">Not enough data yet.</div>
+        <div class="mini-row">
+          <div class="mini"><span class="eyebrow">Recent avg O₂</span><b id="recentOxygen">—</b></div>
+          <div class="mini"><span class="eyebrow">Prior avg O₂</span><b id="priorOxygen">—</b></div>
+          <div class="mini"><span class="eyebrow">Low O₂ samples</span><b id="lowOxygen">—</b></div>
+        </div>
+      </article>
+
+      <article class="card hero-card">
+        <h3>Sleep / awake estimate</h3>
+        <div class="big" id="sleepTotal">—</div>
+        <div class="sub" id="sleepSummary">Estimated from reading intervals in this window.</div>
+        <div class="progress" title="Light sleep / deep sleep / awake">
+          <span id="lightBar"></span><span id="deepBar"></span><span id="awakeBar"></span>
+        </div>
+        <div class="mini-row">
+          <div class="mini"><span class="eyebrow">Light</span><b id="lightSleep">—</b></div>
+          <div class="mini"><span class="eyebrow">Deep</span><b id="deepSleep">—</b></div>
+          <div class="mini"><span class="eyebrow">Awake</span><b id="awakeTime">—</b></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="grid metric-grid" id="metricCards"></section>
+
+    <section class="grid charts" style="margin-top: 14px;">
       <div class="panel">
         <div class="panel-title">
-          <h2>Vitals over time</h2>
+          <h2>Live vitals trace</h2>
           <span class="small" id="coverage">—</span>
         </div>
-        <canvas id="vitalsChart" height="128"></canvas>
+        <canvas id="vitalsChart" height="130"></canvas>
       </div>
       <div class="panel">
         <div class="panel-title">
           <h2>Sleep / state mix</h2>
-          <span class="small">by sample count</span>
+          <span class="small">by estimated duration</span>
         </div>
         <canvas id="stateChart" height="220"></canvas>
       </div>
     </section>
 
-    <section class="split">
+    <section class="grid drill-grid">
       <div class="panel">
         <div class="panel-title">
-          <h2>Daily rollups</h2>
-          <span class="small">local date buckets</span>
+          <h2>Drill-down averages</h2>
+          <span class="small" id="rollupLabel">Hourly</span>
         </div>
-        <div class="table-wrap"><table id="dailyTable"></table></div>
+        <canvas id="rollupChart" height="190"></canvas>
+      </div>
+      <div class="panel">
+        <div class="panel-title">
+          <h2>Drill-down table</h2>
+          <span class="small">averages + sleep/awake estimates</span>
+        </div>
+        <div class="table-wrap"><table id="rollupTable"></table></div>
+      </div>
+    </section>
+
+    <section class="grid drill-grid">
+      <div class="panel">
+        <div class="panel-title">
+          <h2>Readings table</h2>
+          <span class="small" id="tableCount">—</span>
+        </div>
+        <div class="table-wrap"><table id="readingsTable"></table></div>
       </div>
       <div class="panel">
         <div class="panel-title">
@@ -153,72 +225,104 @@ DASHBOARD_HTML = r"""
         <pre id="raw" class="raw-box">No reading selected yet.</pre>
       </div>
     </section>
-
-    <section class="panel" style="margin-top: 14px;">
-      <div class="panel-title">
-        <h2>Readings table</h2>
-        <span class="small" id="tableCount">—</span>
-      </div>
-      <div class="table-wrap"><table id="readingsTable"></table></div>
-    </section>
   </main>
 
   <script>
+    const REFRESH_SECONDS = 15;
     let readings = [];
     let filtered = [];
     let summary = null;
+    let insights = null;
+    let rollups = [];
     let vitalsChart = null;
     let stateChart = null;
+    let rollupChart = null;
+    let secondsUntilRefresh = REFRESH_SECONDS;
 
     const el = (id) => document.getElementById(id);
     const fmt = (value, suffix = '') => value === null || value === undefined ? '—' : `${value}${suffix}`;
     const num = (value, digits = 1) => value === null || value === undefined ? '—' : Number(value).toFixed(digits).replace(/\.0$/, '');
+    const hours = (seconds) => seconds ? `${(seconds / 3600).toFixed(1).replace(/\.0$/, '')}h` : '0h';
     const trendClass = (trend) => `trend-${trend || 'unknown'}`;
     const localTime = (iso) => iso ? new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'medium' }) : '—';
-    const localDate = (iso) => iso ? new Date(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : '—';
+    const stateLabel = (value) => ({ '0': 'inactive', '1': 'awake', '8': 'light sleep', '15': 'deep sleep' }[String(value)] || `state ${value ?? 'unknown'}`);
 
-    function queryString() {
+    function queryParams(extra = {}) {
       const window = el('window').value;
-      const params = new URLSearchParams({ limit: '100000' });
+      const params = new URLSearchParams({ limit: '100000', ...extra });
       if (window !== 'all') params.set('hours', window);
       return params.toString();
     }
 
     async function refresh() {
-      const qs = queryString();
-      const [health, rows, stats] = await Promise.all([
+      secondsUntilRefresh = REFRESH_SECONDS;
+      const qs = queryParams();
+      const rollupQs = queryParams({ bucket: el('bucket').value });
+      const [health, rows, stats, insightData, rollupData] = await Promise.all([
         fetch('/api/health').then(r => r.json()),
         fetch(`/api/readings?${qs}`).then(r => r.json()),
-        fetch(`/api/summary?${qs}`).then(r => r.json())
+        fetch(`/api/summary?${qs}`).then(r => r.json()),
+        fetch(`/api/insights?${qs}`).then(r => r.json()),
+        fetch(`/api/rollups?${rollupQs}`).then(r => r.json())
       ]);
       readings = rows;
       summary = stats;
+      insights = insightData;
+      rollups = rollupData.rollups || [];
       renderStatus(health);
+      renderInsights();
       applyFilter();
-      renderCards();
+      renderMetricCards();
       renderCharts();
-      renderDailyTable();
+      renderRollups();
     }
 
     function renderStatus(health) {
       el('status').innerHTML = `<span class="status-dot ${health.collecting ? 'good' : ''}"></span>${health.collecting ? 'Collecting live' : 'Stored data only'} · ${health.database_path}`;
     }
 
-    function renderCards() {
+    function renderInsights() {
+      const latest = insights.latest;
+      el('latestOxygen').textContent = latest ? fmt(latest.oxygen_saturation, '% O₂') : '—';
+      el('latestHr').textContent = latest ? fmt(latest.heart_rate, ' bpm') : '—';
+      el('latestState').textContent = latest ? latest.sleep_state_label : '—';
+      el('latestMove').textContent = latest ? num(latest.movement) : '—';
+      el('latestSummary').textContent = latest ? `Latest reading ${localTime(latest.recorded_at)} · battery ${fmt(latest.battery, '%')}` : 'Waiting for latest reading…';
+
+      const breathing = insights.breathing;
+      el('breathingDirection').textContent = breathing.direction;
+      el('breathingDirection').className = `big ${trendClass(breathing.direction)}`;
+      el('breathingSentence').textContent = breathing.plain_language;
+      el('recentOxygen').textContent = fmt(breathing.recent_avg_oxygen, '%');
+      el('priorOxygen').textContent = fmt(breathing.previous_avg_oxygen, '%');
+      el('lowOxygen').textContent = breathing.low_oxygen_samples;
+
+      const sleep = insights.sleep;
+      el('sleepTotal').textContent = hours(sleep.sleep_seconds);
+      el('sleepSummary').textContent = `${hours(sleep.awake_seconds)} awake · current state: ${sleep.sleep_state_label}`;
+      el('lightSleep').textContent = hours(sleep.light_sleep_seconds);
+      el('deepSleep').textContent = hours(sleep.deep_sleep_seconds);
+      el('awakeTime').textContent = hours(sleep.awake_seconds);
+      const total = Math.max(1, sleep.light_sleep_seconds + sleep.deep_sleep_seconds + sleep.awake_seconds);
+      el('lightBar').style.width = `${(sleep.light_sleep_seconds / total) * 100}%`;
+      el('deepBar').style.width = `${(sleep.deep_sleep_seconds / total) * 100}%`;
+      el('awakeBar').style.width = `${(sleep.awake_seconds / total) * 100}%`;
+    }
+
+    function renderMetricCards() {
       const cards = [
-        ['Heart rate', fmt(summary.heart_rate.latest, ' bpm'), `avg ${num(summary.heart_rate.avg)} · ${summary.heart_rate.trend}`, summary.heart_rate.trend],
-        ['Oxygen', fmt(summary.oxygen_saturation.latest, '%'), `avg ${num(summary.oxygen_saturation.avg)} · min ${num(summary.oxygen_saturation.min)}`, summary.oxygen_saturation.trend],
-        ['Movement', num(summary.movement.latest), `avg ${num(summary.movement.avg)} · ${summary.movement.trend}`, summary.movement.trend],
-        ['Battery', fmt(summary.battery.latest, '%'), `avg ${num(summary.battery.avg)} · ${summary.battery.trend}`, summary.battery.trend],
-        ['Samples', summary.count, `${localTime(summary.first_recorded_at)} → ${localTime(summary.last_recorded_at)}`, 'unknown'],
+        ['Avg oxygen', fmt(summary.oxygen_saturation.avg, '%'), `min ${fmt(summary.oxygen_saturation.min, '%')} · ${summary.oxygen_saturation.trend}`, summary.oxygen_saturation.trend],
+        ['Avg heart rate', fmt(summary.heart_rate.avg, ' bpm'), `latest ${fmt(summary.heart_rate.latest, ' bpm')}`, summary.heart_rate.trend],
+        ['Avg movement', num(summary.movement.avg), `latest ${num(summary.movement.latest)} · ${summary.movement.trend}`, summary.movement.trend],
+        ['Coverage', summary.count, `${localTime(summary.first_recorded_at)} → ${localTime(summary.last_recorded_at)}`, 'unknown'],
       ];
-      el('cards').innerHTML = cards.map(([label, value, foot, trend]) => `
+      el('metricCards').innerHTML = cards.map(([label, value, foot, trend]) => `
         <article class="card">
-          <div class="metric-label">${label}</div>
+          <div class="eyebrow">${label}</div>
           <div class="metric-value ${trendClass(trend)}">${value}</div>
-          <div class="metric-foot">${foot}</div>
+          <div class="sub">${foot}</div>
         </article>`).join('');
-      el('coverage').textContent = summary.count ? `${summary.window} · ${summary.count} readings` : 'No stored readings yet';
+      el('coverage').textContent = `${summary.window} · ${summary.count} readings`;
     }
 
     function downsample(rows, maxPoints = 900) {
@@ -237,7 +341,7 @@ DASHBOARD_HTML = r"""
           datasets: [
             { label: 'Heart rate', data: sampled.map(r => r.heart_rate), borderColor: '#dc2626', backgroundColor: '#dc262620', yAxisID: 'hr', spanGaps: true, pointRadius: 0, tension: .25 },
             { label: 'SpO₂', data: sampled.map(r => r.oxygen_saturation), borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'spo2', spanGaps: true, pointRadius: 0, tension: .25 },
-            { label: 'Movement', data: sampled.map(r => r.movement), borderColor: '#059669', backgroundColor: '#05966920', yAxisID: 'spo2', spanGaps: true, pointRadius: 0, tension: .2 }
+            { label: 'Movement', data: sampled.map(r => r.movement), borderColor: '#059669', backgroundColor: '#05966920', yAxisID: 'move', spanGaps: true, pointRadius: 0, tension: .2 }
           ]
         },
         options: {
@@ -246,48 +350,49 @@ DASHBOARD_HTML = r"""
           plugins: { legend: { position: 'bottom' } },
           scales: {
             hr: { type: 'linear', position: 'left', title: { display: true, text: 'BPM' } },
-            spo2: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'SpO₂ / movement' } }
+            spo2: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'SpO₂' } },
+            move: { display: false }
           }
         }
       });
 
-      const states = countBy(readings, r => r.sleep_state || 'unknown');
+      const sleep = insights.sleep;
       if (stateChart) stateChart.destroy();
       stateChart = new Chart(el('stateChart'), {
         type: 'doughnut',
         data: {
-          labels: Object.keys(states),
-          datasets: [{ data: Object.values(states), backgroundColor: ['#2563eb', '#7c3aed', '#059669', '#f59e0b', '#64748b', '#dc2626'] }]
+          labels: ['Light sleep', 'Deep sleep', 'Awake'],
+          datasets: [{ data: [sleep.light_sleep_seconds, sleep.deep_sleep_seconds, sleep.awake_seconds], backgroundColor: ['#7c3aed', '#2563eb', '#b45309'] }]
         },
         options: { plugins: { legend: { position: 'bottom' } } }
       });
     }
 
-    function countBy(rows, fn) {
-      return rows.reduce((acc, row) => {
-        const key = fn(row);
-        acc[key] = (acc[key] || 0) + 1;
-        return acc;
-      }, {});
-    }
-
-    function avg(values) {
-      const clean = values.filter(v => v !== null && v !== undefined).map(Number);
-      return clean.length ? clean.reduce((a, b) => a + b, 0) / clean.length : null;
-    }
-
-    function renderDailyTable() {
-      const buckets = {};
-      readings.forEach(row => {
-        const day = localDate(row.recorded_at);
-        buckets[day] ||= [];
-        buckets[day].push(row);
+    function renderRollups() {
+      el('rollupLabel').textContent = el('bucket').selectedOptions[0].textContent;
+      if (rollupChart) rollupChart.destroy();
+      rollupChart = new Chart(el('rollupChart'), {
+        type: 'bar',
+        data: {
+          labels: rollups.map(r => r.bucket_label),
+          datasets: [
+            { type: 'line', label: 'Avg O₂', data: rollups.map(r => r.avg_oxygen_saturation), borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25 },
+            { type: 'bar', label: 'Sleep hrs', data: rollups.map(r => r.sleep_seconds / 3600), backgroundColor: '#7c3aed80', yAxisID: 'hours' },
+            { type: 'bar', label: 'Awake hrs', data: rollups.map(r => r.awake_seconds / 3600), backgroundColor: '#b4530980', yAxisID: 'hours' }
+          ]
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { position: 'bottom' } },
+          scales: {
+            oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100, title: { display: true, text: 'Avg O₂' } },
+            hours: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Hours' } }
+          }
+        }
       });
-      const rows = Object.entries(buckets).reverse().map(([day, items]) => {
-        const minSpo2 = Math.min(...items.map(r => r.oxygen_saturation).filter(v => v !== null && v !== undefined));
-        return `<tr><td>${day}</td><td>${items.length}</td><td>${num(avg(items.map(r => r.heart_rate)))}</td><td>${num(avg(items.map(r => r.oxygen_saturation)))}%</td><td>${Number.isFinite(minSpo2) ? num(minSpo2) + '%' : '—'}</td><td>${num(avg(items.map(r => r.movement)))}</td></tr>`;
-      }).join('');
-      el('dailyTable').innerHTML = `<thead><tr><th>Date</th><th>Samples</th><th>Avg HR</th><th>Avg O₂</th><th>Min O₂</th><th>Avg move</th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="empty">No readings yet.</td></tr>'}</tbody>`;
+      const rows = rollups.slice().reverse().map(row => `<tr><td>${row.bucket_label}</td><td>${row.samples}</td><td>${fmt(row.avg_oxygen_saturation, '%')}</td><td>${fmt(row.min_oxygen_saturation, '%')}</td><td>${fmt(row.avg_heart_rate, ' bpm')}</td><td>${hours(row.sleep_seconds)}</td><td>${hours(row.awake_seconds)}</td></tr>`).join('');
+      el('rollupTable').innerHTML = `<thead><tr><th>Window</th><th>Samples</th><th>Avg O₂</th><th>Min O₂</th><th>Avg HR</th><th>Sleep</th><th>Awake</th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="empty">No readings yet.</td></tr>'}</tbody>`;
     }
 
     function applyFilter() {
@@ -297,15 +402,15 @@ DASHBOARD_HTML = r"""
     }
 
     function renderReadingsTable() {
-      const rows = filtered.slice().reverse().map((row, index) => `
+      const rows = filtered.slice().reverse().map(row => `
         <tr data-index="${readings.indexOf(row)}">
           <td>${localTime(row.recorded_at)}</td>
           <td>${fmt(row.device_serial)}</td>
           <td>${num(row.heart_rate)}</td>
           <td>${num(row.oxygen_saturation)}%</td>
           <td>${num(row.movement)}</td>
-          <td>${fmt(row.sleep_state)}</td>
-          <td>${num(row.battery)}%</td>
+          <td>${stateLabel(row.sleep_state)}</td>
+          <td>${fmt(row.battery, '%')}</td>
           <td>${num(row.skin_temperature)}</td>
         </tr>`).join('');
       el('tableCount').textContent = `${filtered.length} shown · ${readings.length} loaded`;
@@ -330,12 +435,19 @@ DASHBOARD_HTML = r"""
       URL.revokeObjectURL(url);
     }
 
+    function tickCountdown() {
+      secondsUntilRefresh = Math.max(0, secondsUntilRefresh - 1);
+      el('refreshNote').textContent = `Auto-refresh in ${secondsUntilRefresh}s`;
+      if (secondsUntilRefresh === 0) refresh();
+    }
+
     el('window').addEventListener('change', refresh);
+    el('bucket').addEventListener('change', refresh);
     el('search').addEventListener('input', applyFilter);
     el('refresh').addEventListener('click', refresh);
     el('download').addEventListener('click', downloadCsv);
     refresh();
-    setInterval(refresh, 30000);
+    setInterval(tickCountdown, 1000);
   </script>
 </body>
 </html>

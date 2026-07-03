@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
 
+from app.analytics import build_insights, build_rollups
 from app.config import Settings
 from app.dashboard import DASHBOARD_HTML
 from app.poller import Poller, create_owlet_poller
@@ -83,6 +85,19 @@ def create_app(
     @app.get("/api/summary")
     async def summary(hours: int | None = Query(default=None, ge=1, le=24 * 365)):
         return await store.get_summary(hours=hours)
+
+    @app.get("/api/insights")
+    async def insights(hours: int | None = Query(default=None, ge=1, le=24 * 365)):
+        rows = await store.get_readings(hours=hours, limit=100_000)
+        return build_insights(rows)
+
+    @app.get("/api/rollups")
+    async def rollups(
+        bucket: Literal["hour", "day"] = Query(default="hour"),
+        hours: int | None = Query(default=None, ge=1, le=24 * 365),
+    ):
+        rows = await store.get_readings(hours=hours, limit=100_000)
+        return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
 
     return app
 
