@@ -1,0 +1,22 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    owlet_email: str | None = Field(default=None, alias="OWLET_EMAIL")
+    owlet_password: str | None = Field(default=None, alias="OWLET_PASSWORD")
+    owlet_region: str = Field(default="world", alias="OWLET_REGION")
+    poll_interval_seconds: int = Field(default=30, alias="POLL_INTERVAL_SECONDS")
+    database_path: Path = Field(default=Path("data/owlet.sqlite3"), alias="DATABASE_PATH")
+    host: str = Field(default="127.0.0.1", alias="HOST")
+    port: int = Field(default=8788, alias="PORT")
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
+
+    @property
+    def has_owlet_credentials(self) -> bool:
+        return bool(self.owlet_email and self.owlet_password)
