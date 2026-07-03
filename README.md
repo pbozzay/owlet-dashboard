@@ -75,7 +75,7 @@ Analytics endpoints:
 
 ## Internet access
 
-Best recommendation: **Cloudflare Tunnel + Cloudflare Access**, with app-level Basic Auth enabled as a backup layer.
+Best recommendation: **Cloudflare Tunnel + Cloudflare Access**. Cloudflare Access should be configured before starting a public named tunnel so unauthenticated visitors never reach the local FastAPI app.
 
 Why this path:
 
@@ -83,14 +83,6 @@ Why this path:
 - no inbound firewall hole to your Mac
 - HTTPS termination through Cloudflare
 - Cloudflare Access can require your email / OTP / Google login before anyone reaches the app
-- the FastAPI Basic Auth in this repo still protects the app if a tunnel is misconfigured
-
-Set Basic Auth in `.env` before exposing the dashboard:
-
-```bash
-OWLET_BASIC_AUTH_USERNAME=parent
-OWLET_BASIC_AUTH_PASSWORD=<long-random-password>
-```
 
 Temporary test tunnel:
 
@@ -98,7 +90,7 @@ Temporary test tunnel:
 cloudflared tunnel --url http://127.0.0.1:8788
 ```
 
-Permanent setup should use a named Cloudflare Tunnel pointed at `http://127.0.0.1:8788`, then a Cloudflare Access application for the chosen hostname.
+Permanent local deployment notes live in [`docs/deployment.md`](docs/deployment.md).
 
 ## Run tests
 
@@ -120,8 +112,7 @@ Libraries I checked while scaffolding:
 
 ## Next improvements
 
-- Configure a named Cloudflare Tunnel + Cloudflare Access hostname for permanent internet access.
+- Configure Cloudflare Access for `owlet.bozzay.app`, then start the prepared tunnel LaunchAgent.
 - Add daily sleep rollups in a `sessions` table.
 - Add CSV export endpoint.
-- Add launchd service so it starts automatically on the Mac mini/laptop.
 - Add Grafana/Prometheus option if you want more powerful charts.
