@@ -368,6 +368,7 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "O₂ challenges" in response.text
     assert "O₂ challenges / add" in response.text
     assert "Add new O₂ challenge" in response.text
+    assert "Add one from this popup" in response.text
     assert "data-add-challenge-empty" in response.text
     assert "data-visible-challenge-empty" in response.text
     assert "Use visible chart window" in response.text
@@ -389,6 +390,10 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "batteryStatus').addEventListener('click'" in response.text
     assert "latestBattery" not in response.text
     assert "lowOxygen" not in response.text
+    assert "oxygen-value.good" in response.text
+    assert "function oxygenValueClass" in response.text
+    assert "if (value >= 92) return 'good'" in response.text
+    assert "if (value >= 86) return 'caution'" in response.text
     assert "const visibility = new Map" in response.text
     assert "readings-grid" in response.text
     assert "reading-detail-panel" in response.text

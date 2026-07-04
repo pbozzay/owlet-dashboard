@@ -110,6 +110,10 @@ DASHBOARD_HTML = r"""
     .glance-card .inline-stat.up, .crypto-change.up { color: var(--green); }
     .glance-card .inline-stat.down, .crypto-change.down { color: var(--red); }
     .glance-card .inline-stat.flat, .crypto-change.flat { color: var(--blue); }
+    .oxygen-value { font-weight: 950; }
+    .oxygen-value.good { color: var(--green); }
+    .oxygen-value.caution { color: var(--amber); }
+    .oxygen-value.danger { color: var(--red); }
     .glance-progress { height: 7px; margin-top: 7px; }
     .crypto-lines { display: grid; gap: 2px; margin-top: 5px; }
     .crypto-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: var(--muted); font-size: .82rem; }
@@ -717,6 +721,14 @@ DASHBOARD_HTML = r"""
       return 'good';
     }
 
+    function oxygenValueClass(level) {
+      const value = Number(level);
+      if (!Number.isFinite(value)) return 'unknown';
+      if (value >= 92) return 'good';
+      if (value >= 86) return 'caution';
+      return 'danger';
+    }
+
     function batteryTime(minutes) {
       const value = Number(minutes);
       if (!Number.isFinite(value) || value <= 0) return 'estimate unavailable';
@@ -928,7 +940,9 @@ DASHBOARD_HTML = r"""
       const oxygenCompare = comparisonFor('oxygen_saturation', 0.25);
       const hrCompare = comparisonFor('heart_rate', 1);
       el('latestOxygen').textContent = latest ? fmt(latest.oxygen_saturation, '% O₂') : '—';
+      el('latestOxygen').className = `oxygen-value ${oxygenValueClass(latest?.oxygen_saturation)}`;
       el('todayOxygen').textContent = oxygenCompare.current === null ? '—' : `${oxygenCompare.current.toFixed(1).replace(/\.0$/, '')}%`;
+      el('todayOxygen').className = `inline-stat oxygen-value ${oxygenValueClass(oxygenCompare.current)}`;
       el('latestHr').textContent = latest ? fmt(latest.heart_rate, ' bpm') : '—';
       el('avgHr').textContent = hrCompare.current === null ? '—' : fmt(hrCompare.current.toFixed(0), ' bpm');
       el('latestState').textContent = latest ? latest.sleep_state_label : '—';
@@ -1671,7 +1685,7 @@ DASHBOARD_HTML = r"""
       el('endChallenge').disabled = !active;
       const emptyChallengeMarkup = SHARE_MODE
         ? '<div class="empty">No oxygen challenges in this range.</div>'
-        : `<div class="empty">No oxygen challenges in this range.
+        : `<div class="empty"><b>No oxygen challenges in this range yet.</b><br />Add one from this popup, or zoom the chart first and use the visible window.
             <div class="challenge-empty-actions">
               <button class="primary" type="button" data-add-challenge-empty>Add new O₂ challenge</button>
               <button type="button" data-visible-challenge-empty>Use visible chart window</button>
