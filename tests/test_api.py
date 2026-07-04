@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app import crypto as crypto_module
 from app.config import Settings
 from app.main import create_app
 from app.models import normalize_reading
@@ -96,6 +97,34 @@ async def test_widget_endpoint_returns_compact_status_payload(tmp_path):
     assert payload["oxygen_avg"] == 97
     assert payload["heart_rate"] == 130
     assert payload["trend"] in {"improving", "worsening", "stable"}
+
+
+def test_crypto_endpoint_returns_prices_and_btc_series(tmp_path, monkeypatch):
+    crypto_module._CACHE.clear()
+
+    def fake_fetch(hours):
+        return {
+            "available": True,
+            "source": "coingecko",
+            "window_hours": hours,
+            "prices": {
+                "bitcoin": {"symbol": "BTC", "usd": 100000, "usd_24h_change": 1.5},
+                "ethereum": {"symbol": "ETH", "usd": 4000, "usd_24h_change": -0.5},
+                "monero": {"symbol": "XMR", "usd": 300, "usd_24h_change": 0.1},
+            },
+            "series": {"bitcoin": [{"x": 1, "y": 99000}, {"x": 2, "y": 100000}]},
+        }
+
+    monkeypatch.setattr(crypto_module, "fetch_crypto_payload", fake_fetch)
+    app = create_app(store=ReadingStore(tmp_path / "owlet.sqlite3"), settings=_test_settings(), start_poller=False)
+
+    with TestClient(app) as client:
+        payload = client.get("/api/crypto?hours=24").json()
+
+    assert payload["available"] is True
+    assert payload["prices"]["bitcoin"]["symbol"] == "BTC"
+    assert payload["prices"]["ethereum"]["usd_24h_change"] == -0.5
+    assert payload["series"]["bitcoin"][-1]["y"] == 100000
 
 
 @pytest.mark.asyncio
@@ -212,13 +241,16 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "notificationGlyphs" in response.text
     assert "/api/notifications" in response.text
     assert "Notifications" in response.text
+    assert "/api/crypto" in response.text
+    assert "BTC price" in response.text
+    assert "O₂ now + today" in response.text
+    assert "Crypto" in response.text
     assert 'id="installApp"' in response.text
     assert response.text.index("aria-label=\"At a glance\"") < response.text.index("id=\"vitalsChart\"")
     assert response.text.index("id=\"rollupChart\"") < response.text.index("id=\"stateChart\"")
-    assert "O₂ now" in response.text
-    assert "O₂ today" in response.text
+    assert "O₂ now + today" in response.text
     assert "Heart rate" in response.text
-    assert "Trend" in response.text
+    assert "Crypto" in response.text
 
 
 def test_pwa_assets_are_served(tmp_path):

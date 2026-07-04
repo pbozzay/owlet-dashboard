@@ -83,12 +83,19 @@ DASHBOARD_HTML = r"""
     .update-chip.show { opacity: 1; transform: translateY(0); }
     .pulse-new { animation: pulseNew .9s ease; }
     @keyframes pulseNew { 0% { background: #dcfce7; } 100% { background: transparent; } }
-    .glance-strip { display: grid; grid-template-columns: 1.15fr repeat(4, minmax(150px, .75fr)); gap: 10px; margin: 10px 0 14px; }
+    .glance-strip { display: grid; grid-template-columns: 1.05fr 1.05fr 1.2fr .9fr; gap: 10px; margin: 10px 0 14px; }
     .glance-card { min-height: 92px; padding: 12px 13px; }
     .glance-card strong { display: block; font-size: clamp(1.45rem, 3vw, 2.25rem); line-height: 1; letter-spacing: -.045em; margin: 4px 0; }
     .glance-card small { display: block; color: var(--muted); line-height: 1.25; }
     .glance-card .inline-stat { color: var(--text); font-weight: 850; }
+    .glance-card .inline-stat.up, .crypto-change.up { color: var(--green); }
+    .glance-card .inline-stat.down, .crypto-change.down { color: var(--red); }
+    .glance-card .inline-stat.flat, .crypto-change.flat { color: var(--blue); }
     .glance-progress { height: 7px; margin-top: 7px; }
+    .crypto-lines { display: grid; gap: 2px; margin-top: 5px; }
+    .crypto-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: var(--muted); font-size: .82rem; }
+    .crypto-line b { color: var(--text); }
+    .crypto-change { font-weight: 900; }
     .notification-button { position: relative; }
     .notification-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: #fef2f2; color: #b91c1c; font-size: .72rem; font-weight: 900; }
     .notifications-popover { position: absolute; right: 0; top: calc(100% + 8px); width: min(420px, calc(100vw - 28px)); background: #fff; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 12px; z-index: 30; }
@@ -133,7 +140,6 @@ DASHBOARD_HTML = r"""
     @media (max-width: 1080px) {
       .hero { align-items: flex-start; flex-direction: column; }
       .glance-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .glance-card:first-child { grid-column: span 2; }
       .metric-grid, .details-grid { grid-template-columns: 1fr; }
       .status { white-space: normal; }
       .toolbar { position: static; }
@@ -158,7 +164,6 @@ DASHBOARD_HTML = r"""
       .chart-stack, .grid { gap: 8px; }
       .glance-strip { gap: 7px; margin: 8px 0; }
       .glance-card { min-height: 66px; padding: 8px 9px; }
-      .glance-card:first-child { grid-column: span 1; }
       .glance-card strong { font-size: 1.35rem; margin: 2px 0; }
       .glance-card small { font-size: .75rem; }
       .chart-panel, .panel, .card { padding: 9px; }
@@ -233,24 +238,23 @@ DASHBOARD_HTML = r"""
 
     <section class="glance-strip" aria-label="At a glance">
       <article class="card glance-card">
-        <span class="eyebrow">O₂ now</span>
+        <span class="eyebrow">O₂ now + today</span>
         <strong id="latestOxygen">—</strong>
-        <small id="latestSummary">Waiting for latest reading…</small>
-      </article>
-      <article class="card glance-card">
-        <span class="eyebrow">O₂ today</span>
-        <strong id="todayOxygen">—</strong>
-        <small>Recent <span class="inline-stat" id="recentOxygen">—</span> · Prior <span class="inline-stat" id="priorOxygen">—</span> · Low <span class="inline-stat" id="lowOxygen">—</span></small>
+        <small><span class="inline-stat" id="todayOxygen">—</span> 24h avg · <span class="inline-stat" id="o2Compare">—</span></small>
+        <small>Prior <span class="inline-stat" id="priorOxygen">—</span> · Low <span class="inline-stat" id="lowOxygen">—</span> · battery <span class="inline-stat" id="latestBattery">—</span></small>
       </article>
       <article class="card glance-card">
         <span class="eyebrow">Heart rate</span>
         <strong id="latestHr">—</strong>
+        <small><span class="inline-stat" id="avgHr">—</span> 24h avg · <span class="inline-stat" id="hrCompare">—</span></small>
         <small>State <span class="inline-stat" id="latestState">—</span> · Move <span class="inline-stat" id="latestMove">—</span></small>
       </article>
-      <article class="card glance-card">
-        <span class="eyebrow">Trend</span>
-        <strong id="breathingDirection">—</strong>
-        <small id="breathingSentence">Not enough data yet.</small>
+      <article class="card glance-card crypto-card">
+        <span class="eyebrow">Crypto</span>
+        <strong id="cryptoHeadline">BTC —</strong>
+        <div class="crypto-lines" id="cryptoLines">
+          <small>Loading BTC / ETH / XMR…</small>
+        </div>
       </article>
       <article class="card glance-card">
         <span class="eyebrow">Sleep</span>
@@ -332,7 +336,9 @@ DASHBOARD_HTML = r"""
     let summary = null;
     let insights = null;
     let rollups = [];
+    let comparisonRows = [];
     let notifications = { items: [], total: 0, limit: 500, offset: 0 };
+    let crypto = { available: false, prices: {}, series: { bitcoin: [] } };
     let notificationPageOffset = 0;
     const NOTIFICATION_PAGE_SIZE = 10;
     let vitalsChart = null;
@@ -390,6 +396,9 @@ DASHBOARD_HTML = r"""
     const el = (id) => document.getElementById(id);
     const fmt = (value, suffix = '') => value === null || value === undefined ? '—' : `${value}${suffix}`;
     const num = (value, digits = 1) => value === null || value === undefined ? '—' : Number(value).toFixed(digits).replace(/\.0$/, '');
+    const money = (value) => value === null || value === undefined ? '—' : Number(value).toLocaleString([], { style: 'currency', currency: 'USD', maximumFractionDigits: Number(value) >= 100 ? 0 : 2 });
+    const pct = (value) => value === null || value === undefined ? '—' : `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(1)}%`;
+    const changeClass = (value, threshold = 0) => value === null || value === undefined || Math.abs(Number(value)) <= threshold ? 'flat' : (Number(value) > 0 ? 'up' : 'down');
     const hours = (seconds) => seconds ? `${(seconds / 3600).toFixed(1).replace(/\.0$/, '')}h` : '0h';
     const trendClass = (trend) => `trend-${trend || 'unknown'}`;
     const stateLabel = (value) => ({ '0': 'inactive', '1': 'awake', '8': 'light sleep', '15': 'deep sleep' }[String(value)] || `state ${value ?? 'unknown'}`);
@@ -413,6 +422,31 @@ DASHBOARD_HTML = r"""
       const clean = values.filter(value => value !== null && value !== undefined && Number.isFinite(Number(value))).map(Number);
       if (!clean.length) return null;
       return clean.reduce((sum, value) => sum + value, 0) / clean.length;
+    }
+
+    function windowAverage(rows, key, start, end) {
+      return average(rows.filter(row => !isOffline(row) && Date.parse(row.recorded_at) > start && Date.parse(row.recorded_at) <= end).map(row => row[key]));
+    }
+
+    function comparisonFor(key, threshold) {
+      const rows = comparisonRows.length ? comparisonRows : readings;
+      if (!rows.length) return { current: null, prior: null, delta: null, word: 'unknown', css: 'flat' };
+      const latest = Date.parse(rows[rows.length - 1].recorded_at);
+      const currentStart = latest - 24 * 3600 * 1000;
+      const priorStart = latest - 48 * 3600 * 1000;
+      const current = windowAverage(rows, key, currentStart, latest);
+      const prior = windowAverage(rows, key, priorStart, currentStart);
+      const delta = current === null || prior === null ? null : current - prior;
+      const css = changeClass(delta, threshold);
+      const oxygen = key === 'oxygen_saturation';
+      const word = delta === null ? 'unknown' : (css === 'flat' ? 'stable' : (oxygen ? (delta > 0 ? 'improving' : 'worsening') : (delta > 0 ? 'increasing' : 'decreasing')));
+      return { current, prior, delta, word, css };
+    }
+
+    function comparisonText(result, digits = 1, unit = '') {
+      if (result.delta === null || result.prior === null) return 'need 48h';
+      const sign = result.delta >= 0 ? '+' : '';
+      return `${result.word} ${sign}${result.delta.toFixed(digits).replace(/\.0$/, '')}${unit}`;
     }
 
     function todayAverageOxygen() {
@@ -460,23 +494,29 @@ DASHBOARD_HTML = r"""
       const qs = queryParams();
       const rollupQs = queryParams({ bucket: el('bucket').value });
       const notificationQs = queryParams({ limit: '500', offset: '0' });
-      const [health, rows, stats, insightData, rollupData, notificationData] = await Promise.all([
+      const cryptoHours = selectedHours() || 720;
+      const [health, rows, compareRows, stats, insightData, rollupData, notificationData, cryptoData] = await Promise.all([
         fetchJson(`${API_BASE}/api/health`),
         fetchJson(`${API_BASE}/api/readings?${qs}`),
+        fetchJson(`${API_BASE}/api/readings?hours=48&limit=100000`),
         fetchJson(`${API_BASE}/api/summary?${qs}`),
         fetchJson(`${API_BASE}/api/insights?${qs}`),
         fetchJson(`${API_BASE}/api/rollups?${rollupQs}`),
-        fetchJson(`${API_BASE}/api/notifications?${notificationQs}`)
+        fetchJson(`${API_BASE}/api/notifications?${notificationQs}`),
+        fetchJson(`${API_BASE}/api/crypto?hours=${cryptoHours}`)
       ]);
       readings = rows;
+      comparisonRows = compareRows;
       summary = stats;
       insights = insightData;
       rollups = rollupData.rollups || [];
       notifications = notificationData;
+      crypto = cryptoData;
       lastLatestTimestamp = readings.length ? readings[readings.length - 1].recorded_at : null;
       if (resetZoom) zoomWindow = null;
       renderStatus(health);
       renderInsights();
+      renderCrypto();
       applyFilter();
       renderMetricCards();
       renderCharts();
@@ -496,21 +536,23 @@ DASHBOARD_HTML = r"""
 
     function renderInsights() {
       const latest = insights.latest;
+      const oxygenCompare = comparisonFor('oxygen_saturation', 0.25);
+      const hrCompare = comparisonFor('heart_rate', 1);
       el('latestOxygen').textContent = latest ? fmt(latest.oxygen_saturation, '% O₂') : '—';
-      const todayO2 = todayAverageOxygen();
-      el('todayOxygen').textContent = todayO2 === null ? '—' : `${todayO2.toFixed(1).replace(/\.0$/, '')}%`;
+      el('todayOxygen').textContent = oxygenCompare.current === null ? '—' : `${oxygenCompare.current.toFixed(1).replace(/\.0$/, '')}%`;
       el('latestHr').textContent = latest ? fmt(latest.heart_rate, ' bpm') : '—';
+      el('avgHr').textContent = hrCompare.current === null ? '—' : fmt(hrCompare.current.toFixed(0), ' bpm');
       el('latestState').textContent = latest ? latest.sleep_state_label : '—';
       el('latestMove').textContent = latest ? num(latest.movement) : '—';
-      el('latestSummary').textContent = latest ? `Latest reading ${localTime(latest.recorded_at)} · battery ${fmt(latest.battery, '%')}` : 'Waiting for latest reading…';
+      el('latestBattery').textContent = latest ? fmt(latest.battery, '%') : '—';
 
       const breathing = insights.breathing;
-      el('breathingDirection').textContent = breathing.direction;
-      el('breathingDirection').className = `big ${trendClass(breathing.direction)}`;
-      el('breathingSentence').textContent = breathing.plain_language;
-      el('recentOxygen').textContent = fmt(breathing.recent_avg_oxygen, '%');
-      el('priorOxygen').textContent = fmt(breathing.previous_avg_oxygen, '%');
+      el('o2Compare').textContent = comparisonText(oxygenCompare, 1, ' pts');
+      el('o2Compare').className = `inline-stat ${oxygenCompare.css}`;
+      el('priorOxygen').textContent = oxygenCompare.prior === null ? fmt(breathing.previous_avg_oxygen, '%') : fmt(oxygenCompare.prior.toFixed(1), '%');
       el('lowOxygen').textContent = breathing.low_oxygen_samples;
+      el('hrCompare').textContent = comparisonText(hrCompare, 0, ' bpm');
+      el('hrCompare').className = `inline-stat ${hrCompare.css}`;
 
       const sleep = insights.sleep;
       el('sleepTotal').textContent = hours(sleep.sleep_seconds);
@@ -522,6 +564,22 @@ DASHBOARD_HTML = r"""
       el('lightBar').style.width = `${(sleep.light_sleep_seconds / total) * 100}%`;
       el('deepBar').style.width = `${(sleep.deep_sleep_seconds / total) * 100}%`;
       el('awakeBar').style.width = `${(sleep.awake_seconds / total) * 100}%`;
+    }
+
+    function renderCrypto() {
+      if (!crypto.available) {
+        el('cryptoHeadline').textContent = 'Crypto —';
+        el('cryptoLines').innerHTML = `<small>${crypto.error ? 'Price feed unavailable' : 'Loading BTC / ETH / XMR…'}</small>`;
+        return;
+      }
+      const entries = ['bitcoin', 'ethereum', 'monero'].map(id => crypto.prices?.[id]).filter(Boolean);
+      const btc = crypto.prices?.bitcoin;
+      el('cryptoHeadline').textContent = btc ? `BTC ${money(btc.usd)}` : 'BTC —';
+      el('cryptoLines').innerHTML = entries.map(coin => `
+        <div class="crypto-line">
+          <span><b>${coin.symbol}</b> ${money(coin.usd)}</span>
+          <span class="crypto-change ${changeClass(coin.usd_24h_change, .05)}">${pct(coin.usd_24h_change)}</span>
+        </div>`).join('') || '<small>Price feed unavailable</small>';
     }
 
     function renderMetricCards() {
@@ -585,6 +643,10 @@ DASHBOARD_HTML = r"""
       return readings.slice(Math.max(0, index - 1), Math.min(readings.length, index + 2)).map(row => `${localTime(row.recorded_at, true)} · O₂ ${fmt(row.oxygen_saturation, '%')} · HR ${fmt(row.heart_rate, ' bpm')}`);
     }
 
+    function cryptoBitcoinPoints() {
+      return (crypto.series?.bitcoin || []).map(point => ({ x: point.x, y: point.y }));
+    }
+
     function notificationPoints() {
       return (notifications.items || []).slice().reverse().map(item => {
         const timestamp = Date.parse(item.recorded_at);
@@ -605,6 +667,7 @@ DASHBOARD_HTML = r"""
 
     function tooltipLabel(context) {
       if (context.dataset.id === 'notifications') return context.raw.tooltipLines;
+      if (context.dataset.id === 'btcPrice') return `BTC price: ${money(context.parsed.y)}`;
       const value = context.parsed.y;
       return `${context.dataset.label}: ${value === null || value === undefined ? '—' : value}`;
     }
@@ -695,6 +758,7 @@ DASHBOARD_HTML = r"""
     function renderCharts() {
       const sampled = downsample(readings);
       const dataPoint = (row, key) => ({ x: Date.parse(row.recorded_at), y: row[key] });
+      const btcHidden = vitalsChart?.data.datasets.find(dataset => dataset.id === 'btcPrice')?.hidden ?? true;
       vitalsChart = upsertChart(vitalsChart, 'vitalsChart', {
         type: 'line',
         data: {
@@ -702,12 +766,14 @@ DASHBOARD_HTML = r"""
             { label: 'Heart rate', data: sampled.map(r => dataPoint(r, 'heart_rate')), borderColor: '#dc2626', backgroundColor: '#dc262620', yAxisID: 'hr', spanGaps: true, pointRadius: 0, tension: .25 },
             { label: 'SpO₂', data: sampled.map(r => dataPoint(r, 'oxygen_saturation')), borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'spo2', spanGaps: true, pointRadius: 0, tension: .25 },
             { label: 'Movement', data: sampled.map(r => dataPoint(r, 'movement')), borderColor: '#059669', backgroundColor: '#05966920', yAxisID: 'move', spanGaps: true, pointRadius: 0, tension: .2 },
+            { id: 'btcPrice', label: 'BTC price', data: cryptoBitcoinPoints(), borderColor: '#f97316', backgroundColor: '#f9731620', yAxisID: 'btc', hidden: btcHidden, spanGaps: true, pointRadius: 0, tension: .25 },
             { id: 'notifications', type: 'scatter', label: 'Notifications', data: notificationPoints(), yAxisID: 'spo2', pointStyle: 'triangle', pointRadius: 8, pointHoverRadius: 11, showLine: false, borderWidth: 2, borderColor: '#92400e', backgroundColor: '#f59e0b' }
           ]
         },
         options: chartOptions({
           hr: { type: 'linear', position: 'left', title: { display: true, text: 'BPM' } },
           spo2: { type: 'linear', position: 'right', suggestedMin: 88, suggestedMax: 100, grid: { drawOnChartArea: false }, title: { display: true, text: 'SpO₂' } },
+          btc: { type: 'linear', position: 'right', display: false, grid: { drawOnChartArea: false } },
           move: { display: false }
         })
       });

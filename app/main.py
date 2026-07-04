@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from app.analytics import build_insights, build_rollups
 from app.config import Settings
+from app.crypto import get_crypto_prices
 from app.dashboard import render_dashboard
 from app.poller import Poller, create_owlet_poller
 from app.pwa import MANIFEST, SERVICE_WORKER_JS
@@ -219,6 +220,18 @@ def create_app(
         _require_share_token(token, settings)
         rows = await store.get_readings(hours=hours, limit=100_000)
         return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
+
+    @app.get("/api/crypto")
+    async def crypto(hours: int = Query(default=24, ge=1, le=24 * 30)):
+        return await get_crypto_prices(hours=hours)
+
+    @app.get("/share/{token}/api/crypto")
+    async def shared_crypto(
+        token: str = Path(min_length=20),
+        hours: int = Query(default=24, ge=1, le=24 * 30),
+    ):
+        _require_share_token(token, settings)
+        return await get_crypto_prices(hours=hours)
 
     @app.get("/api/notifications")
     async def notifications(

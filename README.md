@@ -61,6 +61,7 @@ Dashboard features:
 - red offline/sock-off bands when Owlet reports zero-valued vitals
 - offline/zero readings are kept visible in the raw trace/table but excluded from averages, trends, and sleep analysis
 - Owlet alert/notification capture for low oxygen, sock disconnect/off, heart-rate, battery, and base-power alerts, with a pageable dashboard dropdown and warning markers on the main vitals trace
+- BTC/ETH/XMR price glance powered by CoinGecko, plus an optional hidden-by-default BTC price overlay on the main vitals chart
 - "today at a glance" latest vitals card
 - breathing trend card comparing recent vs prior oxygen averages
 - low-oxygen sample count for the selected window
@@ -76,6 +77,7 @@ Analytics endpoints:
 - Hourly rollups: <http://127.0.0.1:8788/api/rollups?bucket=hour&hours=24>
 - Daily rollups: <http://127.0.0.1:8788/api/rollups?bucket=day&hours=168>
 - Notifications: <http://127.0.0.1:8788/api/notifications?hours=24>
+- Crypto prices: <http://127.0.0.1:8788/api/crypto?hours=24>
 - Compact widget JSON: <http://127.0.0.1:8788/api/widget?hours=24>
 
 ## Internet access
