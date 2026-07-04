@@ -355,6 +355,8 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "refreshNote" not in response.text
     assert "batteryStatus" in response.text
     assert "battery_minutes" in response.text
+    assert "pill.dataset.detail" in response.text
+    assert "batteryStatus').addEventListener('click'" in response.text
     assert "latestBattery" not in response.text
     assert "lowOxygen" not in response.text
     assert "const visibility = new Map" in response.text

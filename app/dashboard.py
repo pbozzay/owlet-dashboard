@@ -69,6 +69,7 @@ DASHBOARD_HTML = r"""
     .battery-pill.mid { color: var(--amber); background: #fffbeb; border-color: #fde68a; }
     .battery-pill.low { color: var(--red); background: #fff1f2; border-color: #fecdd3; }
     .battery-pill.unknown { color: var(--muted); background: #f8fafc; }
+    .refresh-cluster #refresh { min-width: 112px; }
     label { color: var(--muted); font-size: .86rem; font-weight: 800; }
     select, input, button {
       border: 1px solid var(--line); background: #fff; color: var(--text); border-radius: 12px;
@@ -737,6 +738,7 @@ DASHBOARD_HTML = r"""
       pill.title = Number.isFinite(numeric)
         ? `Battery ${Math.round(numeric)}% · ${batteryTime(minutes)}`
         : 'Battery unavailable';
+      pill.dataset.detail = pill.title;
       pill.setAttribute('aria-label', pill.title);
     }
 
@@ -1912,6 +1914,7 @@ DASHBOARD_HTML = r"""
       }
       alert('Chrome may hide the install shortcut after the app is already installed, before the page finishes loading, or behind Cloudflare Access until you are logged in. Use Chrome menu → Cast, save, and share → Install page as app.');
     });
+    el('batteryStatus').addEventListener('click', () => alert(el('batteryStatus').dataset.detail || 'Battery unavailable'));
 
     el('window').addEventListener('change', () => { notificationPageOffset = 0; safeRefresh({ resetZoom: true }); });
     el('bucket').addEventListener('change', () => safeRefresh({ resetZoom: true }));
