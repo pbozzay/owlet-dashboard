@@ -243,6 +243,11 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "Notifications" in response.text
     assert "/api/crypto" in response.text
     assert "BTC price" in response.text
+    assert "O₂ trend signal" in response.text
+    assert "30m trailing average vs 4h baseline" in response.text
+    assert "wheel:" in response.text
+    assert "pinch:" in response.text
+    assert "onPanComplete" in response.text
     assert "O₂ now + today" in response.text
     assert "Crypto" in response.text
     assert 'id="installApp"' in response.text

@@ -285,6 +285,15 @@ DASHBOARD_HTML = r"""
       </div>
       <div class="panel chart-panel secondary-chart">
         <div class="panel-title">
+          <div>
+            <h2>O₂ trend signal</h2>
+            <span class="small">30m trailing average vs 4h baseline; bars show short-minus-long direction.</span>
+          </div>
+        </div>
+        <div class="chart-frame secondary"><canvas id="oxygenTrendChart"></canvas></div>
+      </div>
+      <div class="panel chart-panel secondary-chart">
+        <div class="panel-title">
           <h2 id="rollupLabel">Hourly averages</h2>
           <span class="small">Avg O₂, min O₂, and avg heart rate</span>
         </div>
@@ -342,6 +351,7 @@ DASHBOARD_HTML = r"""
     let notificationPageOffset = 0;
     const NOTIFICATION_PAGE_SIZE = 10;
     let vitalsChart = null;
+    let oxygenTrendChart = null;
     let stateChart = null;
     let rollupChart = null;
     let secondsUntilRefresh = REFRESH_SECONDS;
@@ -404,7 +414,7 @@ DASHBOARD_HTML = r"""
     const stateLabel = (value) => ({ '0': 'inactive', '1': 'awake', '8': 'light sleep', '15': 'deep sleep' }[String(value)] || `state ${value ?? 'unknown'}`);
     const zeroOrNegative = (value) => value !== null && value !== undefined && Number(value) <= 0;
     const isOffline = (row) => zeroOrNegative(row?.heart_rate) || zeroOrNegative(row?.oxygen_saturation);
-    const chartList = () => [vitalsChart, rollupChart, stateChart].filter(Boolean);
+    const chartList = () => [vitalsChart, oxygenTrendChart, rollupChart, stateChart].filter(Boolean);
 
     function selectedHours() {
       const value = el('window').value;
@@ -604,6 +614,40 @@ DASHBOARD_HTML = r"""
       return rows.filter((_, index) => index % step === 0 || index === rows.length - 1 || isOffline(rows[index]));
     }
 
+    function downsamplePoints(points, maxPoints = 1200) {
+      if (points.length <= maxPoints) return points;
+      const step = Math.ceil(points.length / maxPoints);
+      return points.filter((_, index) => index % step === 0 || index === points.length - 1);
+    }
+
+    function rollingOxygenAverage(minutes) {
+      const windowMs = minutes * 60 * 1000;
+      const queue = [];
+      let sum = 0;
+      const points = [];
+      readings.forEach(row => {
+        if (isOffline(row) || !Number.isFinite(Number(row.oxygen_saturation))) return;
+        const time = Date.parse(row.recorded_at);
+        const value = Number(row.oxygen_saturation);
+        queue.push({ time, value });
+        sum += value;
+        while (queue.length && queue[0].time < time - windowMs) sum -= queue.shift().value;
+        points.push({ x: time, y: sum / queue.length });
+      });
+      return downsamplePoints(points);
+    }
+
+    function oxygenTrendSignal() {
+      const short = rollingOxygenAverage(30);
+      const long = rollingOxygenAverage(240);
+      const byTime = new Map(long.map(point => [point.x, point.y]));
+      return short.map(point => {
+        const baseline = byTime.get(point.x);
+        if (baseline === undefined) return null;
+        return { x: point.x, y: point.y - baseline };
+      }).filter(Boolean);
+    }
+
     function offlineIntervals() {
       const intervals = [];
       let activeStart = null;
@@ -668,6 +712,8 @@ DASHBOARD_HTML = r"""
     function tooltipLabel(context) {
       if (context.dataset.id === 'notifications') return context.raw.tooltipLines;
       if (context.dataset.id === 'btcPrice') return `BTC price: ${money(context.parsed.y)}`;
+      if (context.dataset.id === 'o2TrendSignal') return `30m - 4h signal: ${context.parsed.y >= 0 ? '+' : ''}${context.parsed.y.toFixed(2)} pts`;
+      if (context.dataset.id === 'o2Trailing30' || context.dataset.id === 'o2Baseline4h') return `${context.dataset.label}: ${context.parsed.y.toFixed(2)}%`;
       const value = context.parsed.y;
       return `${context.dataset.label}: ${value === null || value === undefined ? '—' : value}`;
     }
@@ -693,9 +739,11 @@ DASHBOARD_HTML = r"""
     function zoomOptions() {
       return {
         limits: { x: { min: 'original', max: 'original' } },
-        pan: { enabled: true, mode: 'x' },
+        pan: { enabled: true, mode: 'x', onPanComplete: ({ chart }) => syncZoomFrom(chart) },
         zoom: {
           drag: { enabled: true, backgroundColor: 'rgba(37, 99, 235, .12)', borderColor: 'rgba(37, 99, 235, .55)', borderWidth: 1 },
+          wheel: { enabled: true, speed: 0.08 },
+          pinch: { enabled: true },
           mode: 'x',
           onZoomComplete: ({ chart }) => syncZoomFrom(chart)
         }
@@ -775,6 +823,27 @@ DASHBOARD_HTML = r"""
           spo2: { type: 'linear', position: 'right', suggestedMin: 88, suggestedMax: 100, grid: { drawOnChartArea: false }, title: { display: true, text: 'SpO₂' } },
           btc: { type: 'linear', position: 'right', display: false, grid: { drawOnChartArea: false } },
           move: { display: false }
+        })
+      });
+      renderOxygenTrendChart();
+    }
+
+    function renderOxygenTrendChart() {
+      const shortAvg = rollingOxygenAverage(30);
+      const longAvg = rollingOxygenAverage(240);
+      const signal = oxygenTrendSignal();
+      oxygenTrendChart = upsertChart(oxygenTrendChart, 'oxygenTrendChart', {
+        type: 'line',
+        data: {
+          datasets: [
+            { id: 'o2Trailing30', label: '30m trailing O₂', data: shortAvg, borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25, pointRadius: 0 },
+            { id: 'o2Baseline4h', label: '4h baseline O₂', data: longAvg, borderColor: '#7c3aed', backgroundColor: '#7c3aed20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, borderDash: [6, 4] },
+            { id: 'o2TrendSignal', type: 'bar', label: 'Trend signal', data: signal, yAxisID: 'signal', backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(5, 150, 105, .42)' : 'rgba(220, 38, 38, .42)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#059669' : '#dc2626', borderWidth: 1 }
+          ]
+        },
+        options: chartOptions({
+          oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100, title: { display: true, text: 'O₂ avg' } },
+          signal: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '30m - 4h pts' }, ticks: { callback: value => `${value > 0 ? '+' : ''}${value}` } }
         })
       });
     }

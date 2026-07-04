@@ -57,7 +57,8 @@ Dashboard features:
 
 - installable PWA shell with manifest, icons, service worker, and an in-app install button
 - live auto-refresh every 15 seconds with visible countdown
-- primary full-width vitals trace with synchronized drag-to-zoom across all charts
+- primary full-width vitals trace with synchronized drag/pan/zoom
+- O₂ trend signal chart with 30m trailing average, 4h baseline, and green/red short-minus-long direction bars
 - red offline/sock-off bands when Owlet reports zero-valued vitals
 - offline/zero readings are kept visible in the raw trace/table but excluded from averages, trends, and sleep analysis
 - Owlet alert/notification capture for low oxygen, sock disconnect/off, heart-rate, battery, and base-power alerts, with a pageable dashboard dropdown and warning markers on the main vitals trace
