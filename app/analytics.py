@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from app.models import OwletReading
+from app.quality import is_offline_reading
 
 Bucket = Literal["5m", "15m", "30m", "hour", "6h", "12h", "day"]
 
@@ -39,38 +40,45 @@ def build_rollups(readings: list[OwletReading], bucket: Bucket = "hour") -> list
     for bucket_start in sorted(groups):
         pairs = groups[bucket_start]
         rows = [pair[0] for pair in pairs]
+        valid_pairs = [(reading, duration) for reading, duration in pairs if not is_offline_reading(reading)]
+        valid_rows = [pair[0] for pair in valid_pairs]
         durations = [pair[1] for pair in pairs]
         sleep_seconds = sum(
             duration
-            for reading, duration in pairs
+            for reading, duration in valid_pairs
             if _normalized_sleep_state(reading) in SLEEP_STATES
         )
         awake_seconds = sum(
             duration
-            for reading, duration in pairs
+            for reading, duration in valid_pairs
             if _normalized_sleep_state(reading) == AWAKE_STATE
         )
         light_seconds = sum(
-            duration for reading, duration in pairs if _normalized_sleep_state(reading) == "8"
+            duration for reading, duration in valid_pairs if _normalized_sleep_state(reading) == "8"
         )
         deep_seconds = sum(
-            duration for reading, duration in pairs if _normalized_sleep_state(reading) == "15"
+            duration for reading, duration in valid_pairs if _normalized_sleep_state(reading) == "15"
         )
+        offline_seconds = sum(duration for reading, duration in pairs if is_offline_reading(reading))
         rollups.append(
             {
                 "bucket": bucket,
                 "bucket_start": bucket_start.isoformat(),
                 "bucket_label": _bucket_label(bucket_start, bucket),
-                "samples": len(rows),
-                "avg_heart_rate": _avg([row.heart_rate for row in rows]),
-                "avg_oxygen_saturation": _avg([row.oxygen_saturation for row in rows]),
-                "min_oxygen_saturation": _min([row.oxygen_saturation for row in rows]),
-                "avg_movement": _avg([row.movement for row in rows]),
+                "samples": len(valid_rows),
+                "total_samples": len(rows),
+                "offline_samples": len(rows) - len(valid_rows),
+                "offline_seconds": offline_seconds,
+                "avg_heart_rate": _avg([row.heart_rate for row in valid_rows]),
+                "avg_oxygen_saturation": _avg([row.oxygen_saturation for row in valid_rows]),
+                "min_oxygen_saturation": _min([row.oxygen_saturation for row in valid_rows]),
+                "avg_movement": _avg([row.movement for row in valid_rows]),
                 "sleep_seconds": sleep_seconds,
                 "light_sleep_seconds": light_seconds,
                 "deep_sleep_seconds": deep_seconds,
                 "awake_seconds": awake_seconds,
-                "duration_seconds": sum(durations),
+                "duration_seconds": sum(duration for _, duration in valid_pairs),
+                "total_duration_seconds": sum(durations),
             }
         )
     return rollups
@@ -80,26 +88,43 @@ def build_insights(readings: list[OwletReading]) -> dict[str, Any]:
     if not readings:
         return {
             "count": 0,
+            "total_count": 0,
+            "offline_count": 0,
             "latest": None,
             "breathing": _empty_breathing(),
             "sleep": _empty_sleep(),
         }
 
-    latest = readings[-1]
-    oxygen_values = [row.oxygen_saturation for row in readings if row.oxygen_saturation is not None]
+    valid_readings = [row for row in readings if not is_offline_reading(row)]
+    if not valid_readings:
+        return {
+            "count": 0,
+            "total_count": len(readings),
+            "offline_count": len(readings),
+            "first_recorded_at": readings[0].recorded_at.isoformat(),
+            "last_recorded_at": readings[-1].recorded_at.isoformat(),
+            "latest": None,
+            "breathing": _empty_breathing(),
+            "sleep": _empty_sleep(),
+        }
+
+    latest = valid_readings[-1]
+    oxygen_values = [row.oxygen_saturation for row in valid_readings if row.oxygen_saturation is not None]
     midpoint = max(1, len(oxygen_values) // 2)
     previous_avg = _avg(oxygen_values[:midpoint])
     recent_avg = _avg(oxygen_values[midpoint:]) if oxygen_values[midpoint:] else previous_avg
     delta = None if previous_avg is None or recent_avg is None else round(recent_avg - previous_avg, 2)
     direction = _breathing_direction(delta)
 
-    sleep = _sleep_summary(readings)
+    sleep = _sleep_summary(valid_readings)
     latest_dict = latest.model_dump(mode="json", exclude={"raw"})
     latest_dict["sleep_state_label"] = sleep_state_label(latest.sleep_state)
 
     return {
-        "count": len(readings),
-        "first_recorded_at": readings[0].recorded_at.isoformat(),
+        "count": len(valid_readings),
+        "total_count": len(readings),
+        "offline_count": len(readings) - len(valid_readings),
+        "first_recorded_at": valid_readings[0].recorded_at.isoformat(),
         "last_recorded_at": latest.recorded_at.isoformat(),
         "latest": latest_dict,
         "breathing": {

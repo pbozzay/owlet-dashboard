@@ -55,15 +55,17 @@ Open:
 
 Dashboard features:
 
+- installable PWA shell with manifest, icons, and service worker
 - live auto-refresh every 15 seconds with visible countdown
+- primary full-width vitals trace with synchronized drag-to-zoom across all charts
+- red offline/sock-off bands when Owlet reports zero-valued vitals
+- offline/zero readings are kept visible in the raw trace/table but excluded from averages, trends, and sleep analysis
 - "today at a glance" latest vitals card
 - breathing trend card comparing recent vs prior oxygen averages
 - low-oxygen sample count for the selected window
 - sleep/awake estimate using Owlet sleep-state codes (`1=awake`, `8=light sleep`, `15=deep sleep`)
-- hourly/daily drill-down averages for oxygen, HR, sleep, and awake time
-- live vitals trace chart
-- sleep/state duration chart
-- searchable readings table
+- 5m/15m/30m/1h/6h/12h/daily drill-down averages for oxygen, HR, sleep, and awake time
+- compact mobile layout with chart legends inside the chart area
 - click a row to inspect that normalized reading
 - CSV download for the current filtered view
 

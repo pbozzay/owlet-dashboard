@@ -4,6 +4,11 @@ DASHBOARD_HTML = r"""
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#122033" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Owlet" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
   <title>Owlet Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
@@ -41,6 +46,7 @@ DASHBOARD_HTML = r"""
     .status { display: flex; align-items: center; gap: 8px; padding: .5rem .75rem; border-radius: 999px; background: #eef2ff; color: #3730a3; font-weight: 800; font-size: .85rem; white-space: nowrap; }
     .status-dot { width: 9px; height: 9px; border-radius: 50%; background: #94a3b8; display: inline-block; }
     .status-dot.good { background: #22c55e; }
+    .status-dot.offline { background: #ef4444; }
     .toolbar, .panel, .card {
       background: var(--panel);
       border: 1px solid rgba(226, 232, 240, .9);
@@ -97,6 +103,8 @@ DASHBOARD_HTML = r"""
     th, td { padding: 10px 9px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
     th { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; background: #f8fafc; position: sticky; top: 0; z-index: 1; }
     tr:hover td { background: #f8fafc; }
+    tr.offline-row td { background: #fff1f2; color: #991b1b; }
+    tr.offline-row:hover td { background: #ffe4e6; }
     .table-wrap { overflow: auto; max-width: 100%; max-height: 460px; border: 1px solid var(--line); border-radius: 16px; }
     .raw-box { white-space: pre-wrap; word-break: break-word; background: var(--dark); color: #dbeafe; border-radius: 16px; padding: 14px; max-height: 280px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; }
     .empty { padding: 28px; text-align: center; color: var(--muted); border: 1px dashed #cbd5e1; border-radius: 18px; background: #f8fafc; }
@@ -297,12 +305,36 @@ DASHBOARD_HTML = r"""
     let zoomWindow = null;
     let lastLatestTimestamp = null;
 
+    const offlineBandsPlugin = {
+      id: 'offlineBands',
+      beforeDatasetsDraw(chart, _args, options) {
+        const intervals = options?.intervals || [];
+        if (!intervals.length || !chart.scales?.x) return;
+        const { ctx, chartArea, scales } = chart;
+        ctx.save();
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.28)';
+        intervals.forEach(({ start, end }) => {
+          const left = Math.max(chartArea.left, scales.x.getPixelForValue(start));
+          const right = Math.min(chartArea.right, scales.x.getPixelForValue(end));
+          if (!Number.isFinite(left) || !Number.isFinite(right) || right <= chartArea.left || left >= chartArea.right) return;
+          const width = Math.max(2, right - left);
+          ctx.fillRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+          ctx.strokeRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+        });
+        ctx.restore();
+      }
+    };
+    Chart.register(offlineBandsPlugin);
+
     const el = (id) => document.getElementById(id);
     const fmt = (value, suffix = '') => value === null || value === undefined ? '—' : `${value}${suffix}`;
     const num = (value, digits = 1) => value === null || value === undefined ? '—' : Number(value).toFixed(digits).replace(/\.0$/, '');
     const hours = (seconds) => seconds ? `${(seconds / 3600).toFixed(1).replace(/\.0$/, '')}h` : '0h';
     const trendClass = (trend) => `trend-${trend || 'unknown'}`;
     const stateLabel = (value) => ({ '0': 'inactive', '1': 'awake', '8': 'light sleep', '15': 'deep sleep' }[String(value)] || `state ${value ?? 'unknown'}`);
+    const zeroOrNegative = (value) => value !== null && value !== undefined && Number(value) <= 0;
+    const isOffline = (row) => zeroOrNegative(row?.heart_rate) || zeroOrNegative(row?.oxygen_saturation);
     const chartList = () => [vitalsChart, rollupChart, stateChart].filter(Boolean);
 
     function selectedHours() {
@@ -374,7 +406,11 @@ DASHBOARD_HTML = r"""
 
     function renderStatus(health) {
       const mode = SHARE_MODE ? 'Shared read-only view' : health.database_path;
-      el('status').innerHTML = `<span class="status-dot ${health.collecting ? 'good' : ''}"></span>${health.collecting ? 'Collecting live' : 'Stored data only'} · ${mode}`;
+      const latest = readings[readings.length - 1];
+      const offlineNow = latest && isOffline(latest);
+      const label = offlineNow ? 'Device offline / sock off' : (health.collecting ? 'Collecting live' : 'Stored data only');
+      const dotClass = offlineNow ? 'offline' : (health.collecting ? 'good' : '');
+      el('status').innerHTML = `<span class="status-dot ${dotClass}"></span>${label} · ${mode}`;
     }
 
     function renderInsights() {
@@ -410,7 +446,7 @@ DASHBOARD_HTML = r"""
         ['Avg oxygen', fmt(summary.oxygen_saturation.avg, '%'), `min ${fmt(summary.oxygen_saturation.min, '%')} · ${summary.oxygen_saturation.trend}`, summary.oxygen_saturation.trend],
         ['Avg heart rate', fmt(summary.heart_rate.avg, ' bpm'), `latest ${fmt(summary.heart_rate.latest, ' bpm')}`, summary.heart_rate.trend],
         ['Avg movement', num(summary.movement.avg), `latest ${num(summary.movement.latest)} · ${summary.movement.trend}`, summary.movement.trend],
-        ['Coverage', summary.count, `${localTime(summary.first_recorded_at)} → ${localTime(summary.last_recorded_at)}`, 'unknown'],
+        ['Coverage', `${summary.valid_count ?? summary.count}/${summary.count}`, `${summary.offline_count || 0} offline/zero readings · ${localTime(summary.first_recorded_at)} → ${localTime(summary.last_recorded_at)}`, summary.offline_count ? 'down' : 'unknown'],
       ];
       el('metricCards').innerHTML = cards.map(([label, value, foot, trend]) => `
         <article class="card">
@@ -424,7 +460,27 @@ DASHBOARD_HTML = r"""
     function downsample(rows, maxPoints = 1200) {
       if (rows.length <= maxPoints) return rows;
       const step = Math.ceil(rows.length / maxPoints);
-      return rows.filter((_, index) => index % step === 0 || index === rows.length - 1);
+      return rows.filter((_, index) => index % step === 0 || index === rows.length - 1 || isOffline(rows[index]));
+    }
+
+    function offlineIntervals() {
+      const intervals = [];
+      let activeStart = null;
+      readings.forEach((row, index) => {
+        const current = Date.parse(row.recorded_at);
+        const next = readings[index + 1] ? Date.parse(readings[index + 1].recorded_at) : current + 60 * 1000;
+        if (isOffline(row)) {
+          if (activeStart === null) activeStart = current;
+        } else if (activeStart !== null) {
+          intervals.push({ start: activeStart, end: current });
+          activeStart = null;
+        }
+        if (isOffline(row) && index === readings.length - 1) {
+          intervals.push({ start: activeStart, end: Math.max(next, current + 60 * 1000) });
+          activeStart = null;
+        }
+      });
+      return intervals;
     }
 
     function legendOptions() {
@@ -471,7 +527,7 @@ DASHBOARD_HTML = r"""
         maintainAspectRatio: false,
         animation: { duration: 450 },
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: legendOptions(), zoom: zoomOptions() },
+        plugins: { legend: legendOptions(), zoom: zoomOptions(), offlineBands: { intervals: offlineIntervals() } },
         scales
       };
     }
@@ -504,7 +560,7 @@ DASHBOARD_HTML = r"""
     function upsertChart(existing, canvasId, config) {
       if (!existing) return new Chart(el(canvasId), config);
       existing.data = config.data;
-      existing.options.plugins.legend = legendOptions();
+      existing.options.plugins = config.options.plugins;
       existing.options.scales = config.options.scales;
       existing.update();
       return existing;
@@ -565,8 +621,8 @@ DASHBOARD_HTML = r"""
       stateChart.options.scales.x.stacked = true;
       stateChart.update('none');
 
-      const rows = rollups.slice().reverse().map((row, index) => `<tr class="${index === 0 ? 'newest-rollup' : ''}"><td>${rollupLabel(row)}</td><td>${row.samples}</td><td>${fmt(row.avg_oxygen_saturation, '%')}</td><td>${fmt(row.min_oxygen_saturation, '%')}</td><td>${fmt(row.avg_heart_rate, ' bpm')}</td><td>${hours(row.sleep_seconds)}</td><td>${hours(row.awake_seconds)}</td></tr>`).join('');
-      el('rollupTable').innerHTML = `<thead><tr><th>Window</th><th>Samples</th><th>Avg O₂</th><th>Min O₂</th><th>Avg HR</th><th>Sleep</th><th>Awake</th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="empty">No readings yet.</td></tr>'}</tbody>`;
+      const rows = rollups.slice().reverse().map((row, index) => `<tr class="${index === 0 ? 'newest-rollup' : ''}"><td>${rollupLabel(row)}</td><td>${row.samples}/${row.total_samples ?? row.samples}</td><td>${fmt(row.avg_oxygen_saturation, '%')}</td><td>${fmt(row.min_oxygen_saturation, '%')}</td><td>${fmt(row.avg_heart_rate, ' bpm')}</td><td>${hours(row.sleep_seconds)}</td><td>${hours(row.awake_seconds)}</td><td>${row.offline_samples || 0}</td></tr>`).join('');
+      el('rollupTable').innerHTML = `<thead><tr><th>Window</th><th>Valid/total</th><th>Avg O₂</th><th>Min O₂</th><th>Avg HR</th><th>Sleep</th><th>Awake</th><th>Offline</th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="empty">No readings yet.</td></tr>'}</tbody>`;
     }
 
     function applyFilter() {
@@ -576,13 +632,13 @@ DASHBOARD_HTML = r"""
 
     function renderReadingsTable() {
       const rows = filtered.slice().reverse().map((row, index) => `
-        <tr data-index="${readings.indexOf(row)}" class="${index === 0 ? 'latest-row' : ''}">
+        <tr data-index="${readings.indexOf(row)}" class="${index === 0 ? 'latest-row' : ''} ${isOffline(row) ? 'offline-row' : ''}">
           <td>${localTime(row.recorded_at)}</td>
           <td>${fmt(row.device_serial)}</td>
           <td>${num(row.heart_rate)}</td>
           <td>${num(row.oxygen_saturation)}%</td>
           <td>${num(row.movement)}</td>
-          <td>${stateLabel(row.sleep_state)}</td>
+          <td>${isOffline(row) ? 'offline / sock off' : stateLabel(row.sleep_state)}</td>
           <td>${fmt(row.battery, '%')}</td>
           <td>${num(row.skin_temperature)}</td>
         </tr>`).join('');
@@ -634,6 +690,9 @@ DASHBOARD_HTML = r"""
       el(id).addEventListener('dblclick', resetZoom);
     });
     window.addEventListener('resize', () => chartList().forEach(chart => { chart.options.plugins.legend = legendOptions(); chart.update('none'); }));
+    if ('serviceWorker' in navigator && !SHARE_MODE) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+    }
     refresh({ resetZoom: true });
     setInterval(tickCountdown, 1000);
   </script>

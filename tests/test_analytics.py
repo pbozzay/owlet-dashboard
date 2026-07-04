@@ -85,3 +85,29 @@ def test_build_insights_answers_breathing_trend_and_sleep_totals():
     assert insights["sleep"]["sleep_seconds"] == 3600
     assert insights["sleep"]["awake_seconds"] == 1800
     assert insights["sleep"]["sleep_state_label"] == "awake"
+
+
+def test_zero_vital_periods_are_excluded_from_rollups_and_insights():
+    readings = [
+        _reading("2026-07-03T10:00:00Z", hr=100, spo2=94, sleep_state=8),
+        _reading("2026-07-03T10:15:00Z", hr=0, spo2=0, sleep_state=0),
+        _reading("2026-07-03T10:30:00Z", hr=120, spo2=96, sleep_state=1),
+        _reading("2026-07-03T10:45:00Z", hr=0, spo2=0, sleep_state=0),
+    ]
+
+    rollups = build_rollups(readings, bucket="hour")
+    insights = build_insights(readings)
+
+    assert rollups[0]["samples"] == 2
+    assert rollups[0]["total_samples"] == 4
+    assert rollups[0]["offline_samples"] == 2
+    assert rollups[0]["avg_heart_rate"] == 110
+    assert rollups[0]["avg_oxygen_saturation"] == 95
+    assert rollups[0]["min_oxygen_saturation"] == 94
+    assert rollups[0]["sleep_seconds"] == 900
+    assert rollups[0]["awake_seconds"] == 900
+    assert insights["count"] == 2
+    assert insights["total_count"] == 4
+    assert insights["offline_count"] == 2
+    assert insights["breathing"]["avg_oxygen_saturation"] == 95
+    assert insights["breathing"]["min_oxygen_saturation"] == 94

@@ -8,6 +8,7 @@ from typing import Any
 import aiosqlite
 
 from app.models import OwletReading
+from app.quality import is_offline_reading
 
 
 class ReadingStore:
@@ -109,18 +110,21 @@ class ReadingStore:
 
     async def get_summary(self, hours: int | None = 24) -> dict[str, Any]:
         readings = await self.get_readings(hours=hours)
+        valid_readings = [reading for reading in readings if not is_offline_reading(reading)]
         first_recorded_at = readings[0].recorded_at.isoformat() if readings else None
         last_recorded_at = readings[-1].recorded_at.isoformat() if readings else None
         return {
             "hours": hours,
             "window": "all" if hours is None else f"{hours}h",
             "count": len(readings),
+            "valid_count": len(valid_readings),
+            "offline_count": len(readings) - len(valid_readings),
             "first_recorded_at": first_recorded_at,
             "last_recorded_at": last_recorded_at,
-            "heart_rate": _metric_summary([r.heart_rate for r in readings]),
-            "oxygen_saturation": _metric_summary([r.oxygen_saturation for r in readings]),
+            "heart_rate": _metric_summary([r.heart_rate for r in valid_readings]),
+            "oxygen_saturation": _metric_summary([r.oxygen_saturation for r in valid_readings]),
             "battery": _metric_summary([r.battery for r in readings]),
-            "movement": _metric_summary([r.movement for r in readings]),
+            "movement": _metric_summary([r.movement for r in valid_readings]),
         }
 
     def _row_to_reading(self, row: tuple[Any, ...]) -> OwletReading:

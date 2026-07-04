@@ -1,22 +1,26 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import secrets
 from contextlib import asynccontextmanager
+from pathlib import Path as FilePath
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Path, Query, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from app.analytics import build_insights, build_rollups
 from app.config import Settings
 from app.dashboard import render_dashboard
 from app.poller import Poller, create_owlet_poller
+from app.pwa import MANIFEST, SERVICE_WORKER_JS
 from app.store import ReadingStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
+STATIC_DIR = FilePath(__file__).parent / "static"
 
 
 def create_app(
@@ -103,6 +107,30 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     async def dashboard() -> str:
         return render_dashboard()
+
+    @app.get("/manifest.webmanifest")
+    async def manifest() -> Response:
+        return Response(
+            json.dumps(MANIFEST),
+            media_type="application/manifest+json",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
+    @app.get("/sw.js")
+    async def service_worker() -> Response:
+        return Response(
+            SERVICE_WORKER_JS,
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @app.get("/icon-{size}.png")
+    async def icon(size: Literal["192", "512"]) -> FileResponse:
+        return FileResponse(
+            STATIC_DIR / f"icon-{size}.png",
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
 
     @app.get("/share/{token}", response_class=HTMLResponse)
     async def shared_dashboard(token: str = Path(min_length=20)) -> str:

@@ -27,6 +27,28 @@ async def _seed_reading(store: ReadingStore, timestamp: str, *, hr=120, spo2=96,
 
 
 @pytest.mark.asyncio
+async def test_summary_excludes_zero_offline_vitals_from_metric_averages(tmp_path):
+    db_path = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db_path)
+    await store.init()
+    await _seed_reading(store, "2026-07-02T01:00:00Z", hr=120, spo2=98)
+    await _seed_reading(store, "2026-07-02T01:05:00Z", hr=0, spo2=0, sleep_state=0)
+    await _seed_reading(store, "2026-07-02T01:10:00Z", hr=140, spo2=96)
+    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+
+    with TestClient(app) as client:
+        summary = client.get("/api/summary?hours=24").json()
+        rollups = client.get("/api/rollups?bucket=hour&hours=24").json()
+
+    assert summary["count"] == 3
+    assert summary["valid_count"] == 2
+    assert summary["offline_count"] == 1
+    assert summary["heart_rate"]["avg"] == 130
+    assert summary["oxygen_saturation"]["min"] == 96
+    assert rollups["rollups"][0]["offline_samples"] == 1
+
+
+@pytest.mark.asyncio
 async def test_api_returns_readings_and_summary(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)
@@ -134,11 +156,32 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert '<option value="5m">5 minutes</option>' in response.text
     assert '<button id="download" class="icon-button"' in response.text
     assert "chartjs-plugin-zoom" in response.text
+    assert 'rel="manifest"' in response.text
+    assert "serviceWorker" in response.text
+    assert "offlineBands" in response.text
     assert response.text.index("id=\"vitalsChart\"") < response.text.index("Today at a glance")
     assert response.text.index("id=\"rollupChart\"") < response.text.index("id=\"stateChart\"")
     assert "Today at a glance" in response.text
     assert "Breathing trend" in response.text
     assert "Drill-down" in response.text
+
+
+def test_pwa_assets_are_served(tmp_path):
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+
+    with TestClient(app) as client:
+        manifest = client.get("/manifest.webmanifest")
+        worker = client.get("/sw.js")
+        icon = client.get("/icon-192.png")
+
+    assert manifest.status_code == 200
+    assert manifest.json()["display"] == "standalone"
+    assert manifest.json()["start_url"] == "/"
+    assert worker.status_code == 200
+    assert "CACHE_NAME" in worker.text
+    assert icon.status_code == 200
+    assert icon.headers["content-type"] == "image/png"
 
 
 @pytest.mark.asyncio
