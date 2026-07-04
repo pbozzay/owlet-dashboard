@@ -282,8 +282,11 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "Notifications" in response.text
     assert "/api/crypto" in response.text
     assert "BTC price" in response.text
-    assert "O₂ trend signal" in response.text
-    assert "30m trailing average vs 4h baseline" in response.text
+    assert "O₂ trend companion" in response.text
+    assert "MACD-style: recent 30m O₂ average vs 4h baseline" in response.text
+    assert "Bars above zero mean recent O₂ is running higher" in response.text
+    assert "Formula: 30m trailing O₂ avg − 4h trailing O₂ avg" in response.text
+    assert response.text.index("id=\"vitalsChart\"") < response.text.index("id=\"oxygenTrendChart\"") < response.text.index("id=\"stateStrip\"")
     assert "wheel:" in response.text
     assert "pinch:" in response.text
     assert "onPanComplete" in response.text

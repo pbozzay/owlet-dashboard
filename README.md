@@ -61,7 +61,7 @@ Dashboard features:
 - oxygen challenge tracking for marked off-oxygen windows, shown as blue chart bands and excluded from normal averages/stats
 - oxygen challenge popup with per-challenge duration, avg/min O₂, avg HR, low/critical O₂ samples, sleep/awake time, and same-length prior-window comparison
 - compact sleep/wake accessory strip below the main vitals trace for quickly spotting whether events happen during sleep
-- O₂ trend signal chart with 30m trailing average, 4h baseline, and green/red short-minus-long direction bars
+- attached O₂ trend companion chart inside the main vitals card, using a MACD-style 30m average vs 4h baseline signal with explanatory tooltips
 - red offline/sock-off bands when Owlet reports zero-valued vitals
 - offline/zero readings are kept visible in the raw trace/table but excluded from averages, trends, and sleep analysis
 - Owlet alert/notification capture for low oxygen, sock disconnect/off, heart-rate, battery, and base-power alerts, with a pageable dashboard dropdown and warning markers on the main vitals trace

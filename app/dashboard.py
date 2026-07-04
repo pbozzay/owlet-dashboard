@@ -74,9 +74,20 @@ DASHBOARD_HTML = r"""
     .chart-stack { display: grid; gap: 14px; }
     .chart-panel { padding: 14px; }
     .chart-frame { position: relative; width: 100%; }
-    .chart-frame.main { height: 455px; }
+    .chart-frame.main { height: 390px; }
+    .chart-frame.companion { height: 190px; }
     .chart-frame.secondary { height: 240px; }
     .chart-frame canvas { display: block; width: 100% !important; height: 100% !important; }
+    .companion-chart {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(248, 250, 252, .75), rgba(255, 255, 255, .45));
+      border-radius: 16px;
+    }
+    .companion-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 6px; padding: 0 2px; }
+    .companion-header h3 { color: var(--text); margin: 0; }
+    .companion-note { margin: 5px 2px 0; color: var(--muted); font-size: .8rem; line-height: 1.35; }
     .chart-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
     .chart-hint { color: var(--muted); font-size: .8rem; }
     .update-chip { opacity: 0; transform: translateY(-2px); color: var(--green); font-size: .8rem; font-weight: 900; transition: opacity .45s ease, transform .45s ease; }
@@ -173,6 +184,7 @@ DASHBOARD_HTML = r"""
       .status { white-space: normal; }
       .toolbar { position: static; }
       .chart-frame.main { height: 360px; }
+      .chart-frame.companion { height: 185px; }
       .chart-frame.secondary { height: 230px; }
     }
     @media (max-width: 640px) {
@@ -201,6 +213,7 @@ DASHBOARD_HTML = r"""
       .details-grid .panel-title .small { flex-basis: 100%; }
       .chart-hint { display: none; }
       .chart-frame.main { height: 430px; }
+      .chart-frame.companion { height: 215px; }
       .chart-frame.secondary { height: 295px; }
       .small { font-size: .76rem; }
       .big { font-size: 2rem; }
@@ -324,6 +337,17 @@ DASHBOARD_HTML = r"""
           </div>
         </div>
         <div class="chart-frame main"><canvas id="vitalsChart"></canvas></div>
+        <div class="companion-chart" aria-label="Oxygen trend companion chart">
+          <div class="companion-header">
+            <h3>O₂ trend companion</h3>
+            <span class="small">MACD-style: recent 30m O₂ average vs 4h baseline</span>
+          </div>
+          <div class="chart-frame companion"><canvas id="oxygenTrendChart"></canvas></div>
+          <p class="companion-note">
+            Bars above zero mean recent O₂ is running higher than the 4h baseline; bars below zero mean recent O₂ is running lower.
+            Offline readings and oxygen challenge periods are excluded so this reflects normal-support trend only.
+          </p>
+        </div>
         <div id="stateStrip" class="state-strip" title="Sleep/wake/offline state across the visible vitals window"></div>
         <div class="state-legend">
           <span style="--dot: rgba(124,58,237,.72)">light sleep</span>
@@ -331,15 +355,6 @@ DASHBOARD_HTML = r"""
           <span style="--dot: rgba(180,83,9,.72)">awake</span>
           <span style="--dot: rgba(239,68,68,.5)">offline</span>
         </div>
-      </div>
-      <div class="panel chart-panel secondary-chart">
-        <div class="panel-title">
-          <div>
-            <h2>O₂ trend signal</h2>
-            <span class="small">30m trailing average vs 4h baseline; bars show short-minus-long direction.</span>
-          </div>
-        </div>
-        <div class="chart-frame secondary"><canvas id="oxygenTrendChart"></canvas></div>
       </div>
       <div class="panel chart-panel secondary-chart">
         <div class="panel-title">
@@ -865,8 +880,19 @@ DASHBOARD_HTML = r"""
     function tooltipLabel(context) {
       if (context.dataset.id === 'notifications') return context.raw.tooltipLines;
       if (context.dataset.id === 'btcPrice') return `BTC price: ${money(context.parsed.y)}`;
-      if (context.dataset.id === 'o2TrendSignal') return `30m - 4h signal: ${context.parsed.y >= 0 ? '+' : ''}${context.parsed.y.toFixed(2)} pts`;
-      if (context.dataset.id === 'o2Trailing30' || context.dataset.id === 'o2Baseline4h') return `${context.dataset.label}: ${context.parsed.y.toFixed(2)}%`;
+      if (context.dataset.id === 'o2TrendSignal') {
+        const value = context.parsed.y;
+        const direction = value >= 0 ? 'above' : 'below';
+        return [
+          `Trend signal: ${value >= 0 ? '+' : ''}${value.toFixed(2)} O₂ pts`,
+          `Meaning: the recent 30m average is ${Math.abs(value).toFixed(2)} pts ${direction} the 4h baseline.`,
+          value >= 0 ? 'Read: short-term O₂ is running stronger than baseline.' : 'Read: short-term O₂ is running weaker than baseline.',
+          'Formula: 30m trailing O₂ avg − 4h trailing O₂ avg.',
+          'Excludes offline/sock-off readings and marked oxygen challenges.'
+        ];
+      }
+      if (context.dataset.id === 'o2Trailing30') return [`Recent O₂ average: ${context.parsed.y.toFixed(2)}%`, 'This smooths the last ~30 minutes of normal-support readings.'];
+      if (context.dataset.id === 'o2Baseline4h') return [`Baseline O₂ average: ${context.parsed.y.toFixed(2)}%`, 'This smooths the last ~4 hours and acts as the comparison baseline.'];
       const value = context.parsed.y;
       return `${context.dataset.label}: ${value === null || value === undefined ? '—' : value}`;
     }
@@ -1075,9 +1101,9 @@ DASHBOARD_HTML = r"""
         type: 'line',
         data: {
           datasets: [
-            { id: 'o2Trailing30', label: '30m trailing O₂', data: shortAvg, borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25, pointRadius: 0 },
-            { id: 'o2Baseline4h', label: '4h baseline O₂', data: longAvg, borderColor: '#7c3aed', backgroundColor: '#7c3aed20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, borderDash: [6, 4] },
-            { id: 'o2TrendSignal', type: 'bar', label: 'Trend signal', data: signal, yAxisID: 'signal', backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(5, 150, 105, .42)' : 'rgba(220, 38, 38, .42)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#059669' : '#dc2626', borderWidth: 1 }
+            { id: 'o2Trailing30', label: 'Recent 30m O₂ avg', data: shortAvg, borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25, pointRadius: 0 },
+            { id: 'o2Baseline4h', label: 'Baseline 4h O₂ avg', data: longAvg, borderColor: '#7c3aed', backgroundColor: '#7c3aed20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, borderDash: [6, 4] },
+            { id: 'o2TrendSignal', type: 'bar', label: '30m − 4h signal', data: signal, yAxisID: 'signal', backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(5, 150, 105, .42)' : 'rgba(220, 38, 38, .42)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#059669' : '#dc2626', borderWidth: 1 }
           ]
         },
         options: chartOptions({
