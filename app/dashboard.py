@@ -481,7 +481,55 @@ DASHBOARD_HTML = r"""
         ctx.restore();
       }
     };
-    Chart.register(challengeBandsPlugin, offlineBandsPlugin, notificationGlyphsPlugin);
+    const notificationHoverPlugin = {
+      id: 'notificationHoverPriority',
+      afterEvent(chart, args) {
+        if (chart.canvas.id !== 'vitalsChart') return;
+        const event = args.event;
+        const datasetIndex = chart.data.datasets.findIndex(dataset => dataset.id === 'notifications');
+        if (datasetIndex < 0) return;
+        const meta = chart.getDatasetMeta(datasetIndex);
+        const isExit = event.type === 'mouseout' || event.type === 'touchend';
+        if (isExit) {
+          if (chart.$notificationHoverActive) {
+            chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+            chart.$notificationHoverActive = false;
+            chart.canvas.style.cursor = '';
+            args.changed = true;
+          }
+          return;
+        }
+        if (!['mousemove', 'click', 'touchmove'].includes(event.type)) return;
+
+        const mobile = window.matchMedia('(max-width: 640px)').matches;
+        const xRadius = mobile ? 28 : 22;
+        const yRadius = mobile ? 44 : 34;
+        let best = null;
+        meta.data.forEach((point, index) => {
+          if (!point || point.skip) return;
+          const dx = Math.abs(point.x - event.x);
+          const dy = Math.abs(point.y - event.y);
+          if (dx > xRadius || dy > yRadius) return;
+          const score = dx + dy * 0.35;
+          if (!best || score < best.score) best = { index, point, score };
+        });
+
+        if (best) {
+          chart.tooltip.setActiveElements([{ datasetIndex, index: best.index }], { x: best.point.x, y: best.point.y });
+          chart.setActiveElements([{ datasetIndex, index: best.index }]);
+          chart.$notificationHoverActive = true;
+          chart.canvas.style.cursor = 'help';
+          args.changed = true;
+        } else if (chart.$notificationHoverActive) {
+          chart.tooltip.setActiveElements([], { x: event.x, y: event.y });
+          chart.setActiveElements([]);
+          chart.$notificationHoverActive = false;
+          chart.canvas.style.cursor = '';
+          args.changed = true;
+        }
+      }
+    };
+    Chart.register(challengeBandsPlugin, offlineBandsPlugin, notificationGlyphsPlugin, notificationHoverPlugin);
 
     const el = (id) => document.getElementById(id);
     const fmt = (value, suffix = '') => value === null || value === undefined ? '—' : `${value}${suffix}`;
@@ -868,6 +916,55 @@ DASHBOARD_HTML = r"""
       };
     }
 
+    function notificationHit(chart, event) {
+      const datasetIndex = chart.data.datasets.findIndex(dataset => dataset.id === 'notifications');
+      if (datasetIndex < 0) return null;
+      const meta = chart.getDatasetMeta(datasetIndex);
+      const rect = chart.canvas.getBoundingClientRect();
+      const source = event.touches?.[0] || event.changedTouches?.[0] || event;
+      const x = source.clientX - rect.left;
+      const y = source.clientY - rect.top;
+      const mobile = window.matchMedia('(max-width: 640px)').matches;
+      const xRadius = mobile ? 34 : 26;
+      const yRadius = mobile ? 52 : 40;
+      let best = null;
+      meta.data.forEach((point, index) => {
+        if (!point || point.skip) return;
+        const dx = Math.abs(point.x - x);
+        const dy = Math.abs(point.y - y);
+        if (dx > xRadius || dy > yRadius) return;
+        const score = dx + dy * 0.35;
+        if (!best || score < best.score) best = { datasetIndex, index, point, score };
+      });
+      return best;
+    }
+
+    function setNotificationTooltip(chart, hit) {
+      if (hit) {
+        chart.tooltip.setActiveElements([{ datasetIndex: hit.datasetIndex, index: hit.index }], { x: hit.point.x, y: hit.point.y });
+        chart.setActiveElements([{ datasetIndex: hit.datasetIndex, index: hit.index }]);
+        chart.$notificationHoverActive = true;
+        chart.canvas.style.cursor = 'help';
+        chart.update();
+      } else if (chart.$notificationHoverActive) {
+        chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+        chart.setActiveElements([]);
+        chart.$notificationHoverActive = false;
+        chart.canvas.style.cursor = '';
+        chart.update('none');
+      }
+    }
+
+    function attachNotificationHover(chart) {
+      if (chart.$notificationHoverAttached) return;
+      const update = event => setNotificationTooltip(chart, notificationHit(chart, event));
+      chart.canvas.addEventListener('mousemove', update);
+      chart.canvas.addEventListener('click', update);
+      chart.canvas.addEventListener('touchmove', update, { passive: true });
+      chart.canvas.addEventListener('mouseleave', () => setNotificationTooltip(chart, null));
+      chart.$notificationHoverAttached = true;
+    }
+
     function syncZoomFrom(sourceChart) {
       if (syncInProgress) return;
       const scale = sourceChart.scales.x;
@@ -916,7 +1013,7 @@ DASHBOARD_HTML = r"""
             { label: 'SpO₂', data: sampled.map(r => dataPoint(r, 'oxygen_saturation')), borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'spo2', spanGaps: true, pointRadius: 0, tension: .25 },
             { label: 'Movement', data: sampled.map(r => dataPoint(r, 'movement')), borderColor: '#059669', backgroundColor: '#05966920', yAxisID: 'move', spanGaps: true, pointRadius: 0, tension: .2 },
             { id: 'btcPrice', label: 'BTC price', data: cryptoBitcoinPoints(), borderColor: '#f97316', backgroundColor: '#f9731620', yAxisID: 'btc', hidden: btcHidden, spanGaps: true, pointRadius: 0, tension: .25 },
-            { id: 'notifications', type: 'scatter', label: 'Notifications', data: notificationPoints(), yAxisID: 'spo2', pointStyle: 'triangle', pointRadius: 8, pointHoverRadius: 11, showLine: false, borderWidth: 2, borderColor: '#92400e', backgroundColor: '#f59e0b' }
+            { id: 'notifications', type: 'scatter', label: 'Notifications', data: notificationPoints(), yAxisID: 'spo2', pointStyle: 'triangle', pointRadius: 9, pointHoverRadius: 13, hitRadius: 24, showLine: false, borderWidth: 2, borderColor: '#92400e', backgroundColor: '#f59e0b' }
           ]
         },
         options: chartOptions({
@@ -926,6 +1023,7 @@ DASHBOARD_HTML = r"""
           move: { display: false }
         })
       });
+      attachNotificationHover(vitalsChart);
       renderOxygenTrendChart();
       renderStateStrip();
     }
