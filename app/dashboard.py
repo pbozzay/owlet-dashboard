@@ -345,7 +345,7 @@ DASHBOARD_HTML = r"""
           <div class="chart-frame companion"><canvas id="oxygenTrendChart"></canvas></div>
           <p class="companion-note">
             Bars above zero mean recent O₂ is running higher than the 4h baseline; bars below zero mean recent O₂ is running lower.
-            Offline readings and oxygen challenge periods are excluded so this reflects normal-support trend only.
+            Offline/missing-data and oxygen challenge periods become visible gaps, and the moving averages restart after the gap.
           </p>
         </div>
         <div id="stateStrip" class="state-strip" title="Sleep/wake/offline state across the visible vitals window"></div>
@@ -430,6 +430,7 @@ DASHBOARD_HTML = r"""
     let crypto = { available: false, prices: {}, series: { bitcoin: [] } };
     let notificationPageOffset = 0;
     const NOTIFICATION_PAGE_SIZE = 10;
+    const TREND_MAX_SAMPLE_GAP_MS = 5 * 60 * 1000;
     let vitalsChart = null;
     let oxygenTrendChart = null;
     let stateChart = null;
@@ -785,7 +786,7 @@ DASHBOARD_HTML = r"""
     function downsamplePoints(points, maxPoints = 1200) {
       if (points.length <= maxPoints) return points;
       const step = Math.ceil(points.length / maxPoints);
-      return points.filter((_, index) => index % step === 0 || index === points.length - 1);
+      return points.filter((point, index) => point.y === null || index % step === 0 || index === points.length - 1);
     }
 
     function rollingOxygenAverage(minutes) {
@@ -793,14 +794,42 @@ DASHBOARD_HTML = r"""
       const queue = [];
       let sum = 0;
       const points = [];
+      let previousValidTime = null;
+      let inExcludedGap = false;
+      const resetWindow = () => {
+        queue.length = 0;
+        sum = 0;
+      };
+      const addGapMarker = (time, reason) => {
+        const last = points[points.length - 1];
+        if (last && last.y === null && last.reason === reason && Math.abs(last.x - time) < TREND_MAX_SAMPLE_GAP_MS) return;
+        points.push({ x: time, y: null, reason });
+      };
       readings.forEach(row => {
-        if (isOffline(row) || isInChallenge(row) || !Number.isFinite(Number(row.oxygen_saturation))) return;
         const time = Date.parse(row.recorded_at);
         const value = Number(row.oxygen_saturation);
+        const excluded = isOffline(row) || isInChallenge(row) || !Number.isFinite(value);
+        if (!Number.isFinite(time)) return;
+        if (excluded) {
+          if (!inExcludedGap) addGapMarker(time, isInChallenge(row) ? 'challenge' : 'offline');
+          inExcludedGap = true;
+          resetWindow();
+          previousValidTime = null;
+          return;
+        }
+        if (inExcludedGap) {
+          inExcludedGap = false;
+          resetWindow();
+        }
+        if (previousValidTime !== null && time - previousValidTime > TREND_MAX_SAMPLE_GAP_MS) {
+          addGapMarker(previousValidTime + 60 * 1000, 'missing-data');
+          resetWindow();
+        }
         queue.push({ time, value });
         sum += value;
         while (queue.length && queue[0].time < time - windowMs) sum -= queue.shift().value;
         points.push({ x: time, y: sum / queue.length });
+        previousValidTime = time;
       });
       return downsamplePoints(points);
     }
@@ -812,6 +841,7 @@ DASHBOARD_HTML = r"""
       return short.map(point => {
         const baseline = byTime.get(point.x);
         if (baseline === undefined) return null;
+        if (point.y === null || baseline === null) return { x: point.x, y: null, reason: point.reason || 'gap' };
         return { x: point.x, y: point.y - baseline };
       }).filter(Boolean);
     }
@@ -888,11 +918,11 @@ DASHBOARD_HTML = r"""
           `Meaning: the recent 30m average is ${Math.abs(value).toFixed(2)} pts ${direction} the 4h baseline.`,
           value >= 0 ? 'Read: short-term O₂ is running stronger than baseline.' : 'Read: short-term O₂ is running weaker than baseline.',
           'Formula: 30m trailing O₂ avg − 4h trailing O₂ avg.',
-          'Excludes offline/sock-off readings and marked oxygen challenges.'
+          'Gaps/offline/challenges are not bridged; averages restart after them.'
         ];
       }
-      if (context.dataset.id === 'o2Trailing30') return [`Recent O₂ average: ${context.parsed.y.toFixed(2)}%`, 'This smooths the last ~30 minutes of normal-support readings.'];
-      if (context.dataset.id === 'o2Baseline4h') return [`Baseline O₂ average: ${context.parsed.y.toFixed(2)}%`, 'This smooths the last ~4 hours and acts as the comparison baseline.'];
+      if (context.dataset.id === 'o2Trailing30') return [`Recent O₂ average: ${context.parsed.y.toFixed(2)}%`, 'This smooths the last ~30 minutes of continuous normal-support readings.'];
+      if (context.dataset.id === 'o2Baseline4h') return [`Baseline O₂ average: ${context.parsed.y.toFixed(2)}%`, 'This smooths the last ~4 hours of continuous normal-support readings.'];
       const value = context.parsed.y;
       return `${context.dataset.label}: ${value === null || value === undefined ? '—' : value}`;
     }
@@ -1101,8 +1131,8 @@ DASHBOARD_HTML = r"""
         type: 'line',
         data: {
           datasets: [
-            { id: 'o2Trailing30', label: 'Recent 30m O₂ avg', data: shortAvg, borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25, pointRadius: 0 },
-            { id: 'o2Baseline4h', label: 'Baseline 4h O₂ avg', data: longAvg, borderColor: '#7c3aed', backgroundColor: '#7c3aed20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, borderDash: [6, 4] },
+            { id: 'o2Trailing30', label: 'Recent 30m O₂ avg', data: shortAvg, borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, spanGaps: false },
+            { id: 'o2Baseline4h', label: 'Baseline 4h O₂ avg', data: longAvg, borderColor: '#7c3aed', backgroundColor: '#7c3aed20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, borderDash: [6, 4], spanGaps: false },
             { id: 'o2TrendSignal', type: 'bar', label: '30m − 4h signal', data: signal, yAxisID: 'signal', backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(5, 150, 105, .42)' : 'rgba(220, 38, 38, .42)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#059669' : '#dc2626', borderWidth: 1 }
           ]
         },

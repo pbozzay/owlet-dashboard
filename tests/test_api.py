@@ -286,6 +286,10 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "MACD-style: recent 30m O₂ average vs 4h baseline" in response.text
     assert "Bars above zero mean recent O₂ is running higher" in response.text
     assert "Formula: 30m trailing O₂ avg − 4h trailing O₂ avg" in response.text
+    assert "Offline/missing-data and oxygen challenge periods become visible gaps" in response.text
+    assert "TREND_MAX_SAMPLE_GAP_MS" in response.text
+    assert "y: null" in response.text
+    assert "spanGaps: false" in response.text
     assert response.text.index("id=\"vitalsChart\"") < response.text.index("id=\"oxygenTrendChart\"") < response.text.index("id=\"stateStrip\"")
     assert "wheel:" in response.text
     assert "pinch:" in response.text
