@@ -49,6 +49,56 @@ async def test_summary_excludes_zero_offline_vitals_from_metric_averages(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_notifications_endpoint_extracts_alerts_and_offline_periods(tmp_path):
+    db_path = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db_path)
+    await store.init()
+    await store.insert_reading(
+        normalize_reading(
+            {
+                "heart_rate": 0,
+                "oxygen_saturation": 0,
+                "battery": 82,
+                "last_updated": "2026-07-02T01:00:00Z",
+                "low_oxygen_alert": True,
+                "SOCK_DISCON_ALRT": {"value": 1},
+            },
+            "AC123",
+        )
+    )
+    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+
+    with TestClient(app) as client:
+        response = client.get("/api/notifications?hours=24")
+
+    assert response.status_code == 200
+    payload = response.json()
+    event_types = {item["event_type"] for item in payload["items"]}
+    assert "low_oxygen" in event_types
+    assert "sock_disconnected" in event_types
+    assert "offline_zero_vitals" in event_types
+    assert payload["total"] == 3
+
+
+@pytest.mark.asyncio
+async def test_widget_endpoint_returns_compact_status_payload(tmp_path):
+    db_path = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db_path)
+    await store.init()
+    await _seed_reading(store, "2026-07-02T01:00:00Z", hr=120, spo2=98)
+    await _seed_reading(store, "2026-07-02T01:05:00Z", hr=130, spo2=96)
+    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+
+    with TestClient(app) as client:
+        payload = client.get("/api/widget?hours=24").json()
+
+    assert payload["oxygen_now"] == 96
+    assert payload["oxygen_avg"] == 97
+    assert payload["heart_rate"] == 130
+    assert payload["trend"] in {"improving", "worsening", "stable"}
+
+
+@pytest.mark.asyncio
 async def test_api_returns_readings_and_summary(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)
@@ -159,6 +209,9 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert 'rel="manifest"' in response.text
     assert "serviceWorker" in response.text
     assert "offlineBands" in response.text
+    assert "notificationGlyphs" in response.text
+    assert "/api/notifications" in response.text
+    assert "Notifications" in response.text
     assert 'id="installApp"' in response.text
     assert response.text.index("aria-label=\"At a glance\"") < response.text.index("id=\"vitalsChart\"")
     assert response.text.index("id=\"rollupChart\"") < response.text.index("id=\"stateChart\"")

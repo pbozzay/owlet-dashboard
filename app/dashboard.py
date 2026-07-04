@@ -58,6 +58,7 @@ DASHBOARD_HTML = r"""
     .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 10px; margin: 14px 0; position: sticky; top: 8px; z-index: 10; }
     .control-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .refresh-cluster { margin-left: auto; justify-content: flex-end; }
+    .toolbar-right { position: relative; }
     .install-button { display: none; }
     .install-button.show { display: inline-flex; align-items: center; gap: 6px; }
     label { color: var(--muted); font-size: .86rem; font-weight: 800; }
@@ -88,6 +89,16 @@ DASHBOARD_HTML = r"""
     .glance-card small { display: block; color: var(--muted); line-height: 1.25; }
     .glance-card .inline-stat { color: var(--text); font-weight: 850; }
     .glance-progress { height: 7px; margin-top: 7px; }
+    .notification-button { position: relative; }
+    .notification-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: #fef2f2; color: #b91c1c; font-size: .72rem; font-weight: 900; }
+    .notifications-popover { position: absolute; right: 0; top: calc(100% + 8px); width: min(420px, calc(100vw - 28px)); background: #fff; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 12px; z-index: 30; }
+    .notifications-popover.hidden { display: none; }
+    .notification-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; }
+    .notification-item { border: 1px solid var(--line); border-left: 5px solid var(--amber); border-radius: 13px; padding: 9px 10px; background: #fffaf0; }
+    .notification-item.critical { border-left-color: var(--red); background: #fff1f2; }
+    .notification-item.info { border-left-color: var(--blue); background: #eff6ff; }
+    .notification-title { font-weight: 900; }
+    .notification-meta { color: var(--muted); font-size: .78rem; margin-top: 3px; line-height: 1.3; }
     .metric-grid { grid-template-columns: repeat(4, minmax(140px, 1fr)); margin-top: 14px; }
     .card, .panel { padding: 16px; }
     .hero-card { min-height: 172px; }
@@ -201,10 +212,22 @@ DASHBOARD_HTML = r"""
           <option value="day">Daily</option>
         </select>
       </div>
-      <div class="control-group refresh-cluster">
+      <div class="control-group refresh-cluster toolbar-right">
+        <button id="notificationsToggle" class="notification-button" type="button" aria-expanded="false">Notifications <span id="notificationCount" class="notification-count">0</span></button>
         <button id="installApp" class="install-button" type="button" title="Install Owlet as an app">Install app</button>
         <span class="small" id="refreshNote">Refreshing…</span>
         <button id="refresh" class="primary">Refresh</button>
+        <div id="notificationsPanel" class="notifications-popover hidden" role="dialog" aria-label="Notifications">
+          <div class="panel-title">
+            <h2>Notifications</h2>
+            <span class="small" id="notificationPage">—</span>
+          </div>
+          <div id="notificationList" class="notification-list"></div>
+          <div class="control-group" style="justify-content: space-between; margin-top: 10px;">
+            <button id="notificationsPrev" type="button">Previous</button>
+            <button id="notificationsNext" type="button">Next</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -309,6 +332,9 @@ DASHBOARD_HTML = r"""
     let summary = null;
     let insights = null;
     let rollups = [];
+    let notifications = { items: [], total: 0, limit: 500, offset: 0 };
+    let notificationPageOffset = 0;
+    const NOTIFICATION_PAGE_SIZE = 10;
     let vitalsChart = null;
     let stateChart = null;
     let rollupChart = null;
@@ -338,7 +364,28 @@ DASHBOARD_HTML = r"""
         ctx.restore();
       }
     };
-    Chart.register(offlineBandsPlugin);
+    const notificationGlyphsPlugin = {
+      id: 'notificationGlyphs',
+      afterDatasetsDraw(chart) {
+        const index = chart.data.datasets.findIndex(dataset => dataset.id === 'notifications');
+        if (index < 0) return;
+        const meta = chart.getDatasetMeta(index);
+        const dataset = chart.data.datasets[index];
+        const { ctx } = chart;
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = 'bold 12px system-ui, sans-serif';
+        meta.data.forEach((point, i) => {
+          const raw = dataset.data[i];
+          if (!raw) return;
+          ctx.fillStyle = raw.severity === 'critical' ? '#991b1b' : '#92400e';
+          ctx.fillText('!', point.x, point.y + 1);
+        });
+        ctx.restore();
+      }
+    };
+    Chart.register(offlineBandsPlugin, notificationGlyphsPlugin);
 
     const el = (id) => document.getElementById(id);
     const fmt = (value, suffix = '') => value === null || value === undefined ? '—' : `${value}${suffix}`;
@@ -412,17 +459,20 @@ DASHBOARD_HTML = r"""
       const previousLatest = lastLatestTimestamp;
       const qs = queryParams();
       const rollupQs = queryParams({ bucket: el('bucket').value });
-      const [health, rows, stats, insightData, rollupData] = await Promise.all([
+      const notificationQs = queryParams({ limit: '500', offset: '0' });
+      const [health, rows, stats, insightData, rollupData, notificationData] = await Promise.all([
         fetchJson(`${API_BASE}/api/health`),
         fetchJson(`${API_BASE}/api/readings?${qs}`),
         fetchJson(`${API_BASE}/api/summary?${qs}`),
         fetchJson(`${API_BASE}/api/insights?${qs}`),
-        fetchJson(`${API_BASE}/api/rollups?${rollupQs}`)
+        fetchJson(`${API_BASE}/api/rollups?${rollupQs}`),
+        fetchJson(`${API_BASE}/api/notifications?${notificationQs}`)
       ]);
       readings = rows;
       summary = stats;
       insights = insightData;
       rollups = rollupData.rollups || [];
+      notifications = notificationData;
       lastLatestTimestamp = readings.length ? readings[readings.length - 1].recorded_at : null;
       if (resetZoom) zoomWindow = null;
       renderStatus(health);
@@ -431,6 +481,7 @@ DASHBOARD_HTML = r"""
       renderMetricCards();
       renderCharts();
       renderRollups();
+      renderNotifications();
       if (previousLatest && lastLatestTimestamp && lastLatestTimestamp !== previousLatest) showNewDataPulse();
     }
 
@@ -515,6 +566,49 @@ DASHBOARD_HTML = r"""
       return intervals;
     }
 
+    function nearestReadingIndex(timestamp) {
+      let bestIndex = -1;
+      let bestDelta = Infinity;
+      readings.forEach((row, index) => {
+        const delta = Math.abs(Date.parse(row.recorded_at) - timestamp);
+        if (delta < bestDelta) {
+          bestDelta = delta;
+          bestIndex = index;
+        }
+      });
+      return bestIndex;
+    }
+
+    function surroundingDataLines(timestamp) {
+      const index = nearestReadingIndex(timestamp);
+      if (index < 0) return [];
+      return readings.slice(Math.max(0, index - 1), Math.min(readings.length, index + 2)).map(row => `${localTime(row.recorded_at, true)} · O₂ ${fmt(row.oxygen_saturation, '%')} · HR ${fmt(row.heart_rate, ' bpm')}`);
+    }
+
+    function notificationPoints() {
+      return (notifications.items || []).slice().reverse().map(item => {
+        const timestamp = Date.parse(item.recorded_at);
+        const y = item.oxygen_saturation && item.oxygen_saturation > 0 ? item.oxygen_saturation : 89;
+        return {
+          x: timestamp,
+          y,
+          severity: item.severity,
+          tooltipLines: [
+            `${item.title} · ${localTime(item.recorded_at)}`,
+            item.message,
+            `O₂ ${fmt(item.oxygen_saturation, '%')} · HR ${fmt(item.heart_rate, ' bpm')} · battery ${fmt(item.battery, '%')}`,
+            ...surroundingDataLines(timestamp)
+          ]
+        };
+      });
+    }
+
+    function tooltipLabel(context) {
+      if (context.dataset.id === 'notifications') return context.raw.tooltipLines;
+      const value = context.parsed.y;
+      return `${context.dataset.label}: ${value === null || value === undefined ? '—' : value}`;
+    }
+
     function legendOptions() {
       const mobile = window.matchMedia('(max-width: 640px)').matches;
       return {
@@ -559,7 +653,7 @@ DASHBOARD_HTML = r"""
         maintainAspectRatio: false,
         animation: { duration: 450 },
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: legendOptions(), zoom: zoomOptions(), offlineBands: { intervals: offlineIntervals() } },
+        plugins: { legend: legendOptions(), tooltip: { callbacks: { label: tooltipLabel } }, zoom: zoomOptions(), offlineBands: { intervals: offlineIntervals() } },
         scales
       };
     }
@@ -607,7 +701,8 @@ DASHBOARD_HTML = r"""
           datasets: [
             { label: 'Heart rate', data: sampled.map(r => dataPoint(r, 'heart_rate')), borderColor: '#dc2626', backgroundColor: '#dc262620', yAxisID: 'hr', spanGaps: true, pointRadius: 0, tension: .25 },
             { label: 'SpO₂', data: sampled.map(r => dataPoint(r, 'oxygen_saturation')), borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'spo2', spanGaps: true, pointRadius: 0, tension: .25 },
-            { label: 'Movement', data: sampled.map(r => dataPoint(r, 'movement')), borderColor: '#059669', backgroundColor: '#05966920', yAxisID: 'move', spanGaps: true, pointRadius: 0, tension: .2 }
+            { label: 'Movement', data: sampled.map(r => dataPoint(r, 'movement')), borderColor: '#059669', backgroundColor: '#05966920', yAxisID: 'move', spanGaps: true, pointRadius: 0, tension: .2 },
+            { id: 'notifications', type: 'scatter', label: 'Notifications', data: notificationPoints(), yAxisID: 'spo2', pointStyle: 'triangle', pointRadius: 8, pointHoverRadius: 11, showLine: false, borderWidth: 2, borderColor: '#92400e', backgroundColor: '#f59e0b' }
           ]
         },
         options: chartOptions({
@@ -684,6 +779,23 @@ DASHBOARD_HTML = r"""
       });
     }
 
+    function renderNotifications() {
+      const items = notifications.items || [];
+      const total = notifications.total ?? items.length;
+      notificationPageOffset = Math.min(notificationPageOffset, Math.max(0, items.length - NOTIFICATION_PAGE_SIZE));
+      const pageItems = items.slice(notificationPageOffset, notificationPageOffset + NOTIFICATION_PAGE_SIZE);
+      el('notificationCount').textContent = total;
+      el('notificationPage').textContent = total ? `${notificationPageOffset + 1}-${Math.min(notificationPageOffset + NOTIFICATION_PAGE_SIZE, items.length)} of ${total}` : 'none';
+      el('notificationsPrev').disabled = notificationPageOffset === 0;
+      el('notificationsNext').disabled = notificationPageOffset + NOTIFICATION_PAGE_SIZE >= items.length;
+      el('notificationList').innerHTML = pageItems.map(item => `
+        <article class="notification-item ${item.severity}">
+          <div class="notification-title">⚠ ${item.title}</div>
+          <div>${item.message}</div>
+          <div class="notification-meta">${localTime(item.recorded_at)} · O₂ ${fmt(item.oxygen_saturation, '%')} · HR ${fmt(item.heart_rate, ' bpm')} · battery ${fmt(item.battery, '%')}</div>
+        </article>`).join('') || '<div class="empty">No Owlet notifications in this window.</div>';
+    }
+
     function downloadCsv() {
       const columns = ['recorded_at', 'device_serial', 'heart_rate', 'oxygen_saturation', 'movement', 'sleep_state', 'battery', 'skin_temperature'];
       const lines = [columns.join(',')].concat(filtered.map(row => columns.map(col => JSON.stringify(row[col] ?? '')).join(',')));
@@ -745,11 +857,18 @@ DASHBOARD_HTML = r"""
       alert('Chrome may hide the install shortcut after the app is already installed, before the page finishes loading, or behind Cloudflare Access until you are logged in. Use Chrome menu → Cast, save, and share → Install page as app.');
     });
 
-    el('window').addEventListener('change', () => refresh({ resetZoom: true }));
+    el('window').addEventListener('change', () => { notificationPageOffset = 0; refresh({ resetZoom: true }); });
     el('bucket').addEventListener('change', () => refresh({ resetZoom: true }));
     el('refresh').addEventListener('click', () => refresh());
     el('download').addEventListener('click', downloadCsv);
     el('resetZoom').addEventListener('click', resetZoom);
+    el('notificationsToggle').addEventListener('click', () => {
+      const panel = el('notificationsPanel');
+      const hidden = panel.classList.toggle('hidden');
+      el('notificationsToggle').setAttribute('aria-expanded', String(!hidden));
+    });
+    el('notificationsPrev').addEventListener('click', () => { notificationPageOffset = Math.max(0, notificationPageOffset - NOTIFICATION_PAGE_SIZE); renderNotifications(); });
+    el('notificationsNext').addEventListener('click', () => { notificationPageOffset += NOTIFICATION_PAGE_SIZE; renderNotifications(); });
     ['vitalsChart', 'rollupChart', 'stateChart'].forEach(id => {
       el(id).addEventListener('dblclick', resetZoom);
     });

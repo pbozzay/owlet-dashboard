@@ -220,7 +220,59 @@ def create_app(
         rows = await store.get_readings(hours=hours, limit=100_000)
         return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
 
+    @app.get("/api/notifications")
+    async def notifications(
+        hours: int | None = Query(default=None, ge=1, le=24 * 365),
+        limit: int = Query(default=50, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ):
+        return await store.get_notifications(hours=hours, limit=limit, offset=offset)
+
+    @app.get("/share/{token}/api/notifications")
+    async def shared_notifications(
+        token: str = Path(min_length=20),
+        hours: int | None = Query(default=None, ge=1, le=24 * 365),
+        limit: int = Query(default=50, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ):
+        _require_share_token(token, settings)
+        return await store.get_notifications(hours=hours, limit=limit, offset=offset)
+
+    @app.get("/api/widget")
+    async def widget(hours: int = Query(default=24, ge=1, le=24 * 30)):
+        return await _widget_payload(store, hours=hours)
+
+    @app.get("/share/{token}/api/widget")
+    async def shared_widget(
+        token: str = Path(min_length=20),
+        hours: int = Query(default=24, ge=1, le=24 * 30),
+    ):
+        _require_share_token(token, settings)
+        return await _widget_payload(store, hours=hours)
+
     return app
+
+
+async def _widget_payload(store: ReadingStore, hours: int = 24) -> dict[str, object]:
+    readings = await store.get_readings(hours=hours, limit=100_000)
+    summary = await store.get_summary(hours=hours)
+    insights = build_insights(readings)
+    notifications = await store.get_notifications(hours=hours, limit=1, offset=0)
+    latest = insights.get("latest") or {}
+    breathing = insights.get("breathing") or {}
+    latest_notification = notifications["items"][0] if notifications["items"] else None
+    return {
+        "updated_at": latest.get("recorded_at") if isinstance(latest, dict) else None,
+        "window": summary["window"],
+        "oxygen_now": latest.get("oxygen_saturation") if isinstance(latest, dict) else None,
+        "oxygen_avg": summary["oxygen_saturation"]["avg"],
+        "heart_rate": latest.get("heart_rate") if isinstance(latest, dict) else None,
+        "trend": breathing.get("direction"),
+        "trend_sentence": breathing.get("plain_language"),
+        "battery": latest.get("battery") if isinstance(latest, dict) else None,
+        "notification_count": notifications["total"],
+        "latest_notification": latest_notification,
+    }
 
 
 def _require_share_token(token: str, settings: Settings) -> None:
