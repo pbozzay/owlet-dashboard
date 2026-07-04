@@ -134,6 +134,7 @@ DASHBOARD_HTML = r"""
     .challenge-title { display: flex; justify-content: space-between; gap: 8px; font-weight: 900; }
     .challenge-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 7px; font-size: .78rem; }
     .challenge-metrics span { background: rgba(255,255,255,.68); border: 1px solid rgba(191,219,254,.8); border-radius: 10px; padding: 5px 6px; }
+    .challenge-empty-actions { display: grid; gap: 8px; margin-top: 14px; }
     .challenge-modal { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 16px; background: rgba(15, 23, 42, .35); }
     .challenge-modal-card { width: min(980px, 100%); max-height: min(780px, calc(100vh - 32px)); overflow: auto; background: #fff; border-radius: 22px; box-shadow: var(--shadow); padding: 16px; }
     .challenge-edit-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; padding: 12px; background: #f8fafc; border: 1px solid var(--line); border-radius: 16px; }
@@ -145,7 +146,7 @@ DASHBOARD_HTML = r"""
     .challenge-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
     .challenge-summary-grid .mini { min-width: 0; }
     .state-strip-wrap { margin: -2px var(--chart-right-pad, 0px) 0 var(--chart-left-pad, 0px); }
-    .state-strip { display: flex; height: 18px; border-radius: 0 0 10px 10px; overflow: hidden; background: #e2e8f0; border: 1px solid var(--line); border-top: 0; cursor: crosshair; }
+    .state-strip { height: 18px; border-radius: 0 0 10px 10px; overflow: hidden; background: #e2e8f0; border: 1px solid var(--line); border-top: 0; cursor: crosshair; }
     .state-segment { min-width: 1px; }
     .state-segment:hover { filter: saturate(1.2) brightness(1.03); }
     .state-time-axis { position: relative; height: 18px; color: var(--muted); font-size: .72rem; }
@@ -157,6 +158,9 @@ DASHBOARD_HTML = r"""
     .state-segment.offline { background: rgba(239, 68, 68, .5); }
     .state-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; color: var(--muted); font-size: .74rem; }
     .state-legend span::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; background: var(--dot); }
+    .sleep-overlay-controls { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 8px; color: var(--muted); font-size: .78rem; }
+    .inline-toggle { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; }
+    .inline-toggle input { padding: 0; }
     .metric-grid { grid-template-columns: repeat(4, minmax(140px, 1fr)); margin-top: 14px; }
     .card, .panel { padding: 16px; }
     .hero-card { min-height: 172px; }
@@ -389,6 +393,10 @@ DASHBOARD_HTML = r"""
           <span style="--dot: rgba(180,83,9,.72)">awake</span>
           <span style="--dot: rgba(239,68,68,.5)">offline</span>
         </div>
+        <div class="sleep-overlay-controls" aria-label="Sleep and wake highlighting controls">
+          <label class="inline-toggle"><input id="sleepHighlightToggle" type="checkbox" /> Highlight sleep/wake on main graph</label>
+          <label class="inline-toggle"><input id="sleepBallparkToggle" type="checkbox" disabled /> Ballpark by average window</label>
+        </div>
         <div class="time-pan-control">
           <span id="panStartLabel">—</span>
           <input id="timePan" type="range" min="0" max="1000" value="0" disabled aria-label="Scroll visible time window" />
@@ -500,6 +508,11 @@ DASHBOARD_HTML = r"""
     let deferredInstallPrompt = null;
     let currentChallengeDetail = null;
     let hoveredStateInterval = null;
+    let sleepHighlightEnabled = false;
+    let sleepBallparkEnabled = false;
+    let stateStripSegments = [];
+    let trendRenderToken = 0;
+    let refreshToken = 0;
 
     const sleepPhaseColors = {
       light: 'rgba(124, 58, 237, .13)',
@@ -507,6 +520,14 @@ DASHBOARD_HTML = r"""
       awake: 'rgba(180, 83, 9, .13)',
       inactive: 'rgba(148, 163, 184, .12)',
       offline: 'rgba(239, 68, 68, .14)'
+    };
+
+    const stateStripColors = {
+      light: 'rgba(124, 58, 237, .72)',
+      deep: 'rgba(37, 99, 235, .72)',
+      awake: 'rgba(180, 83, 9, .72)',
+      inactive: 'rgba(148, 163, 184, .72)',
+      offline: 'rgba(239, 68, 68, .5)'
     };
 
     const offlineBandsPlugin = {
@@ -618,6 +639,41 @@ DASHBOARD_HTML = r"""
         }
       }
     };
+    const sleepBandsPlugin = {
+      id: 'sleepBands',
+      beforeDatasetsDraw(chart) {
+        if (chart.canvas.id !== 'vitalsChart' || !sleepHighlightEnabled || !chart.scales?.x) return;
+        const intervals = sleepOverlayIntervals();
+        if (!intervals.length) return;
+        const { ctx, chartArea, scales } = chart;
+        ctx.save();
+        intervals.forEach(interval => {
+          const left = Math.max(chartArea.left, scales.x.getPixelForValue(interval.start));
+          const right = Math.min(chartArea.right, scales.x.getPixelForValue(interval.end));
+          if (!Number.isFinite(left) || !Number.isFinite(right) || right <= chartArea.left || left >= chartArea.right) return;
+          ctx.fillStyle = sleepPhaseColors[interval.cls] || sleepPhaseColors.inactive;
+          ctx.fillRect(left, chartArea.top, Math.max(1, right - left), chartArea.bottom - chartArea.top);
+        });
+        ctx.restore();
+      }
+    };
+    const stateChartHoverPlugin = {
+      id: 'stateChartHover',
+      afterEvent(chart, args) {
+        if (chart.canvas.id !== 'stateChart' || !chart.scales?.x) return;
+        const event = args.event;
+        if (event.type === 'mouseout') {
+          hoveredStateInterval = null;
+          vitalsChart?.update('none');
+          return;
+        }
+        if (!['mousemove', 'click', 'touchmove'].includes(event.type)) return;
+        const timestamp = chart.scales.x.getValueForPixel(event.x);
+        const interval = rollupIntervalAt(timestamp) || stateIntervalAt(timestamp);
+        hoveredStateInterval = interval;
+        vitalsChart?.update('none');
+      }
+    };
     const sleepPhaseHoverPlugin = {
       id: 'sleepPhaseHover',
       beforeDatasetsDraw(chart) {
@@ -634,7 +690,7 @@ DASHBOARD_HTML = r"""
         ctx.restore();
       }
     };
-    Chart.register(challengeBandsPlugin, offlineBandsPlugin, sleepPhaseHoverPlugin, notificationGlyphsPlugin, notificationHoverPlugin);
+    Chart.register(sleepBandsPlugin, challengeBandsPlugin, offlineBandsPlugin, sleepPhaseHoverPlugin, stateChartHoverPlugin, notificationGlyphsPlugin, notificationHoverPlugin);
 
     const el = (id) => document.getElementById(id);
     const fmt = (value, suffix = '') => value === null || value === undefined ? '—' : `${value}${suffix}`;
@@ -658,9 +714,13 @@ DASHBOARD_HTML = r"""
       })).filter(interval => Number.isFinite(interval.start) && Number.isFinite(interval.end) && interval.end >= interval.start);
     }
 
+    function timeInIntervals(time, intervals) {
+      return intervals.some(interval => time >= interval.start && time <= interval.end);
+    }
+
     function isInChallenge(rowOrTime) {
       const time = typeof rowOrTime === 'number' ? rowOrTime : Date.parse(rowOrTime?.recorded_at);
-      return challengeIntervals().some(interval => time >= interval.start && time <= interval.end);
+      return timeInIntervals(time, challengeIntervals());
     }
 
     function selectedHours() {
@@ -759,43 +819,56 @@ DASHBOARD_HTML = r"""
 
     async function refresh({ resetZoom = false } = {}) {
       secondsUntilRefresh = REFRESH_SECONDS;
+      const token = ++refreshToken;
       const previousLatest = lastLatestTimestamp;
       const qs = queryParams();
       const rollupQs = queryParams({ bucket: el('bucket').value });
       const notificationQs = queryParams({ limit: '500', offset: '0' });
       const challengeQs = queryParams({ limit: '100', offset: '0' });
       const cryptoHours = selectedHours() || 720;
-      const [health, rows, compareRows, stats, insightData, rollupData, notificationData, challengeData, cryptoData] = await Promise.all([
+      const [health, rows, notificationData, challengeData] = await Promise.all([
         fetchJson(`${API_BASE}/api/health`),
         fetchJson(`${API_BASE}/api/readings?${qs}`),
+        fetchJson(`${API_BASE}/api/notifications?${notificationQs}`),
+        fetchJson(`${API_BASE}/api/oxygen-challenges?${challengeQs}`)
+      ]);
+      if (token !== refreshToken) return;
+      readings = rows;
+      notifications = notificationData;
+      challenges = challengeData;
+      lastLatestTimestamp = readings.length ? readings[readings.length - 1].recorded_at : null;
+      if (resetZoom) zoomWindow = null;
+      renderStatus(health);
+      applyFilter();
+      renderCharts({ deferTrend: true });
+      renderNotifications();
+      renderChallenges();
+      if (previousLatest && lastLatestTimestamp && lastLatestTimestamp !== previousLatest) showNewDataPulse();
+      hydrateSecondaryData({ qs, rollupQs, cryptoHours, token }).catch(error => {
+        console.error(error);
+        el('refreshNote').textContent = 'Some details failed';
+      });
+    }
+
+    async function hydrateSecondaryData({ qs, rollupQs, cryptoHours, token }) {
+      const [compareRows, stats, insightData, rollupData, cryptoData] = await Promise.all([
         fetchJson(`${API_BASE}/api/readings?hours=48&limit=100000`),
         fetchJson(`${API_BASE}/api/summary?${qs}`),
         fetchJson(`${API_BASE}/api/insights?${qs}`),
         fetchJson(`${API_BASE}/api/rollups?${rollupQs}`),
-        fetchJson(`${API_BASE}/api/notifications?${notificationQs}`),
-        fetchJson(`${API_BASE}/api/oxygen-challenges?${challengeQs}`),
         fetchJson(`${API_BASE}/api/crypto?hours=${cryptoHours}`)
       ]);
-      readings = rows;
+      if (token !== refreshToken) return;
       comparisonRows = compareRows;
       summary = stats;
       insights = insightData;
       rollups = rollupData.rollups || [];
-      notifications = notificationData;
-      challenges = challengeData;
       crypto = cryptoData;
-      lastLatestTimestamp = readings.length ? readings[readings.length - 1].recorded_at : null;
-      if (resetZoom) zoomWindow = null;
-      renderStatus(health);
       renderInsights();
       renderCrypto();
-      applyFilter();
       renderMetricCards();
-      renderCharts();
       renderRollups();
-      renderNotifications();
-      renderChallenges();
-      if (previousLatest && lastLatestTimestamp && lastLatestTimestamp !== previousLatest) showNewDataPulse();
+      vitalsChart?.update('none');
     }
 
     function renderStatus(health) {
@@ -884,7 +957,7 @@ DASHBOARD_HTML = r"""
       return points.filter((point, index) => point.y === null || index % step === 0 || index === points.length - 1);
     }
 
-    function rollingOxygenAverage(minutes) {
+    function rollingOxygenAverage(minutes, challengeWindows = challengeIntervals()) {
       const windowMs = minutes * 60 * 1000;
       const queue = [];
       let sum = 0;
@@ -903,10 +976,11 @@ DASHBOARD_HTML = r"""
       readings.forEach(row => {
         const time = Date.parse(row.recorded_at);
         const value = Number(row.oxygen_saturation);
-        const excluded = isOffline(row) || isInChallenge(row) || !Number.isFinite(value);
+        const inChallenge = timeInIntervals(time, challengeWindows);
+        const excluded = isOffline(row) || inChallenge || !Number.isFinite(value);
         if (!Number.isFinite(time)) return;
         if (excluded) {
-          if (!inExcludedGap) addGapMarker(time, isInChallenge(row) ? 'challenge' : 'offline');
+          if (!inExcludedGap) addGapMarker(time, inChallenge ? 'challenge' : 'offline');
           inExcludedGap = true;
           resetWindow();
           previousValidTime = null;
@@ -929,9 +1003,7 @@ DASHBOARD_HTML = r"""
       return downsamplePoints(points);
     }
 
-    function oxygenTrendSignal() {
-      const short = rollingOxygenAverage(30);
-      const long = rollingOxygenAverage(240);
+    function oxygenTrendSignal(short, long) {
       const byTime = new Map(long.map(point => [point.x, point.y]));
       return short.map(point => {
         const baseline = byTime.get(point.x);
@@ -1177,7 +1249,7 @@ DASHBOARD_HTML = r"""
       return existing;
     }
 
-    function renderCharts() {
+    function renderCharts({ deferTrend = false } = {}) {
       const sampled = downsample(readings);
       const dataPoint = (row, key) => ({ x: Date.parse(row.recorded_at), y: row[key] });
       const btcHidden = vitalsChart?.data.datasets.find(dataset => dataset.id === 'btcPrice')?.hidden ?? true;
@@ -1200,9 +1272,39 @@ DASHBOARD_HTML = r"""
         }, { hideXTicks: true, legend: { position: 'top', align: 'end' } })
       });
       attachNotificationHover(vitalsChart);
-      renderOxygenTrendChart();
+      if (deferTrend) {
+        renderOxygenTrendPlaceholder();
+        scheduleOxygenTrendChart();
+      } else {
+        renderOxygenTrendChart();
+      }
       renderStateStrip();
       updatePanControl();
+    }
+
+    function renderOxygenTrendPlaceholder() {
+      if (oxygenTrendChart) return;
+      oxygenTrendChart = upsertChart(oxygenTrendChart, 'oxygenTrendChart', {
+        type: 'line',
+        data: { datasets: [] },
+        options: chartOptions({
+          oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100, title: { display: true, text: 'O₂ avg' } },
+          signal: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '30m - 4h pts' } }
+        })
+      });
+    }
+
+    function scheduleOxygenTrendChart() {
+      const token = ++trendRenderToken;
+      const render = () => {
+        if (token !== trendRenderToken) return;
+        renderOxygenTrendChart();
+      };
+      if ('requestIdleCallback' in window) {
+        window.requestIdleCallback(render, { timeout: 1400 });
+      } else {
+        setTimeout(render, 60);
+      }
     }
 
     function visibleRange() {
@@ -1269,14 +1371,22 @@ DASHBOARD_HTML = r"""
       return 'inactive';
     }
 
-    function renderStateStrip() {
-      const range = visibleRange();
-      updatePrimaryChartAlignment();
-      if (!range || range.max <= range.min || !readings.length) {
-        el('stateStrip').innerHTML = '';
-        el('stateTimeAxis').innerHTML = '';
+    function bucketDurationMs(bucket = el('bucket').value) {
+      return ({ '5m': 5, '15m': 15, '30m': 30, hour: 60, '6h': 360, '12h': 720, day: 1440 }[bucket] || 60) * 60 * 1000;
+    }
+
+    function pushMergedInterval(intervals, interval) {
+      if (!interval || interval.cls === 'inactive' || interval.cls === 'offline') return;
+      const last = intervals[intervals.length - 1];
+      if (last && last.cls === interval.cls && Math.abs(last.end - interval.start) < 1000) {
+        last.end = Math.max(last.end, interval.end);
         return;
       }
+      intervals.push(interval);
+    }
+
+    function rawStateIntervals(range = visibleRange(), { includeInactive = true } = {}) {
+      if (!range || range.max <= range.min || !readings.length) return [];
       const segments = [];
       readings.forEach((row, index) => {
         const start = Date.parse(row.recorded_at);
@@ -1285,33 +1395,131 @@ DASHBOARD_HTML = r"""
         const right = Math.min(next, range.max);
         if (!Number.isFinite(left) || !Number.isFinite(right) || right <= left) return;
         const cls = stateClass(row);
+        if (!includeInactive && (cls === 'inactive' || cls === 'offline')) return;
         const label = `${isOffline(row) ? 'offline / sock off' : stateLabel(row.sleep_state)} · ${localTime(row.recorded_at)}`;
-        segments.push({ cls, start: left, end: right, width: ((right - left) / (range.max - range.min)) * 100, label });
+        const previous = segments[segments.length - 1];
+        if (previous && previous.cls === cls && Math.abs(previous.end - left) < 1000) {
+          previous.end = right;
+          return;
+        }
+        segments.push({ cls, start: left, end: right, label });
       });
-      el('stateStrip').innerHTML = segments.map(segment => `<span class="state-segment ${segment.cls}" title="${segment.label}" data-start="${segment.start}" data-end="${segment.end}" data-cls="${segment.cls}" style="width:${Math.max(.15, segment.width)}%"></span>`).join('');
+      return segments;
+    }
+
+    function stateIntervalAt(timestamp) {
+      if (!Number.isFinite(timestamp)) return null;
+      const candidates = stateStripSegments.length ? stateStripSegments : rawStateIntervals(visibleRange());
+      const segment = candidates.find(item => timestamp >= item.start && timestamp <= item.end);
+      return segment ? { start: segment.start, end: segment.end, cls: segment.cls } : null;
+    }
+
+    function ballparkClass(row) {
+      const sleepSeconds = (row.light_sleep_seconds || 0) + (row.deep_sleep_seconds || 0);
+      const awakeSeconds = row.awake_seconds || 0;
+      const total = sleepSeconds + awakeSeconds;
+      if (total <= 0) return null;
+      if (sleepSeconds >= total * 0.55) return (row.deep_sleep_seconds || 0) > (row.light_sleep_seconds || 0) ? 'deep' : 'light';
+      if (awakeSeconds >= total * 0.55) return 'awake';
+      return sleepSeconds >= awakeSeconds ? 'light' : 'awake';
+    }
+
+    function rollupIntervals(range = visibleRange()) {
+      if (!range || !rollups.length) return [];
+      const bucketMs = bucketDurationMs();
+      return rollups.map((row, index) => {
+        const start = Date.parse(row.bucket_start);
+        const nextStart = rollups[index + 1] ? Date.parse(rollups[index + 1].bucket_start) : start + bucketMs;
+        const end = Number.isFinite(nextStart) && nextStart > start ? nextStart : start + bucketMs;
+        const cls = ballparkClass(row);
+        if (!Number.isFinite(start) || !Number.isFinite(end) || !cls) return null;
+        return { start: Math.max(start, range.min), end: Math.min(end, range.max), cls };
+      }).filter(item => item && item.end > item.start);
+    }
+
+    function rollupIntervalAt(timestamp) {
+      if (!Number.isFinite(timestamp)) return null;
+      const interval = rollupIntervals(visibleRange()).find(item => timestamp >= item.start && timestamp <= item.end);
+      return interval ? { start: interval.start, end: interval.end, cls: interval.cls } : null;
+    }
+
+    function sleepOverlayIntervals() {
+      const intervals = [];
+      if (sleepBallparkEnabled) return rollupIntervals(visibleRange());
+      rawStateIntervals(visibleRange(), { includeInactive: false }).forEach(interval => pushMergedInterval(intervals, interval));
+      return intervals;
+    }
+
+    function setStateStripHoverFromEvent(event) {
+      const range = visibleRange();
+      if (!range || range.max <= range.min) return;
+      const source = event.touches?.[0] || event.changedTouches?.[0] || event;
+      const rect = el('stateStrip').getBoundingClientRect();
+      const ratio = Math.min(1, Math.max(0, (source.clientX - rect.left) / Math.max(1, rect.width)));
+      const timestamp = range.min + ratio * (range.max - range.min);
+      hoveredStateInterval = stateIntervalAt(timestamp);
+      vitalsChart?.update('none');
+    }
+
+    function attachStateStripHover() {
+      const strip = el('stateStrip');
+      if (strip.dataset.hoverAttached === 'true') return;
+      strip.addEventListener('mousemove', setStateStripHoverFromEvent);
+      strip.addEventListener('click', setStateStripHoverFromEvent);
+      strip.addEventListener('touchstart', setStateStripHoverFromEvent, { passive: true });
+      strip.addEventListener('touchmove', setStateStripHoverFromEvent, { passive: true });
+      strip.addEventListener('mouseleave', () => { hoveredStateInterval = null; vitalsChart?.update('none'); });
+      strip.dataset.hoverAttached = 'true';
+    }
+
+    function setStateChartHoverFromEvent(event) {
+      if (!stateChart?.scales?.x) return;
+      const source = event.touches?.[0] || event.changedTouches?.[0] || event;
+      const rect = stateChart.canvas.getBoundingClientRect();
+      const timestamp = stateChart.scales.x.getValueForPixel(source.clientX - rect.left);
+      hoveredStateInterval = rollupIntervalAt(timestamp) || stateIntervalAt(timestamp);
+      vitalsChart?.update('none');
+    }
+
+    function attachStateChartHover(chart) {
+      if (!chart || chart.$stateHoverAttached) return;
+      chart.canvas.addEventListener('mousemove', setStateChartHoverFromEvent);
+      chart.canvas.addEventListener('click', setStateChartHoverFromEvent);
+      chart.canvas.addEventListener('touchstart', setStateChartHoverFromEvent, { passive: true });
+      chart.canvas.addEventListener('touchmove', setStateChartHoverFromEvent, { passive: true });
+      chart.canvas.addEventListener('mouseleave', () => { hoveredStateInterval = null; vitalsChart?.update('none'); });
+      chart.$stateHoverAttached = true;
+    }
+
+    function renderStateStrip() {
+      const range = visibleRange();
+      updatePrimaryChartAlignment();
+      attachStateStripHover();
+      if (!range || range.max <= range.min || !readings.length) {
+        stateStripSegments = [];
+        el('stateStrip').style.background = '#e2e8f0';
+        el('stateStrip').innerHTML = '';
+        el('stateTimeAxis').innerHTML = '';
+        return;
+      }
+      stateStripSegments = rawStateIntervals(range);
+      el('stateStrip').innerHTML = '';
+      const stops = stateStripSegments.flatMap(segment => {
+        const left = ((segment.start - range.min) / (range.max - range.min)) * 100;
+        const right = ((segment.end - range.min) / (range.max - range.min)) * 100;
+        const color = stateStripColors[segment.cls] || stateStripColors.inactive;
+        return [`${color} ${Math.max(0, left).toFixed(3)}%`, `${color} ${Math.min(100, right).toFixed(3)}%`];
+      });
+      el('stateStrip').style.background = stops.length ? `linear-gradient(to right, ${stops.join(', ')})` : '#e2e8f0';
       const ticks = [0, .25, .5, .75, 1].map(position => `<span style="left:${position * 100}%">${timeTick(range.min + (range.max - range.min) * position)}</span>`).join('');
       el('stateTimeAxis').innerHTML = ticks;
-      [...el('stateStrip').querySelectorAll('.state-segment')].forEach(segment => {
-        const setHover = () => {
-          hoveredStateInterval = { start: Number(segment.dataset.start), end: Number(segment.dataset.end), cls: segment.dataset.cls };
-          vitalsChart?.update('none');
-        };
-        const clearHover = () => {
-          hoveredStateInterval = null;
-          vitalsChart?.update('none');
-        };
-        segment.addEventListener('mouseenter', setHover);
-        segment.addEventListener('focus', setHover);
-        segment.addEventListener('touchstart', setHover, { passive: true });
-        segment.addEventListener('mouseleave', clearHover);
-        segment.addEventListener('blur', clearHover);
-      });
     }
 
     function renderOxygenTrendChart() {
-      const shortAvg = rollingOxygenAverage(30);
-      const longAvg = rollingOxygenAverage(240);
-      const signal = oxygenTrendSignal();
+      const challengeWindows = challengeIntervals();
+      const shortAvg = rollingOxygenAverage(30, challengeWindows);
+      const longAvg = rollingOxygenAverage(240, challengeWindows);
+      const signal = oxygenTrendSignal(shortAvg, longAvg);
       oxygenTrendChart = upsertChart(oxygenTrendChart, 'oxygenTrendChart', {
         type: 'line',
         data: {
@@ -1362,6 +1570,7 @@ DASHBOARD_HTML = r"""
       });
       stateChart.options.scales.x.stacked = true;
       stateChart.update('none');
+      attachStateChartHover(stateChart);
 
       const rows = rollups.slice().reverse().map((row, index) => `<tr class="${index === 0 ? 'newest-rollup' : ''}"><td>${rollupLabel(row)}</td><td>${row.samples}/${row.total_samples ?? row.samples}</td><td>${fmt(row.avg_oxygen_saturation, '%')}</td><td>${fmt(row.min_oxygen_saturation, '%')}</td><td>${fmt(row.avg_heart_rate, ' bpm')}</td><td>${hours(row.sleep_seconds)}</td><td>${hours(row.awake_seconds)}</td><td>${row.offline_samples || 0}</td></tr>`).join('');
       el('rollupTable').innerHTML = `<thead><tr><th>Window</th><th>Valid/total</th><th>Avg O₂</th><th>Min O₂</th><th>Avg HR</th><th>Sleep</th><th>Awake</th><th>Offline</th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="empty">No readings yet.</td></tr>'}</tbody>`;
@@ -1419,8 +1628,16 @@ DASHBOARD_HTML = r"""
       const active = items.find(item => item.active);
       el('challengeCount').textContent = total;
       el('challengePage').textContent = total ? `${total} total${active ? ' · active now' : ''}` : 'none yet';
-      el('challengeActions').style.display = SHARE_MODE ? 'none' : 'flex';
+      el('challengeActions').style.display = SHARE_MODE ? 'none' : '';
       el('endChallenge').disabled = !active;
+      const emptyChallengeMarkup = SHARE_MODE
+        ? '<div class="empty">No oxygen challenges in this range.</div>'
+        : `<div class="empty">No oxygen challenges in this range.
+            <div class="challenge-empty-actions">
+              <button class="primary" type="button" data-add-challenge-empty>Add new O₂ challenge</button>
+              <button type="button" data-visible-challenge-empty>Use visible chart window</button>
+            </div>
+          </div>`;
       el('challengeList').innerHTML = items.map(item => {
         const summary = item.summary || {};
         const comparison = item.comparison || {};
@@ -1434,10 +1651,12 @@ DASHBOARD_HTML = r"""
             <span>Low O₂ <b>${summary.low_oxygen_samples || 0}</b> (${signed(comparison.low_oxygen_delta)})</span>
           </div>
         </article>`;
-      }).join('') || '<div class="empty">No oxygen challenges in this range. Start one when oxygen comes off, or mark the visible zoom window afterward.</div>';
+      }).join('') || emptyChallengeMarkup;
       [...el('challengeList').querySelectorAll('button[data-challenge-id]')].forEach(button => {
         button.addEventListener('click', () => openChallengeDetail(Number(button.dataset.challengeId)));
       });
+      el('challengeList').querySelector('[data-add-challenge-empty]')?.addEventListener('click', () => openNewChallengeModal());
+      el('challengeList').querySelector('[data-visible-challenge-empty]')?.addEventListener('click', markVisibleChallenge);
     }
 
     async function saveChallenge(payload) {
@@ -1678,6 +1897,15 @@ DASHBOARD_HTML = r"""
     el('challengeEditForm').addEventListener('submit', saveChallengeEdits);
     el('deleteChallenge').addEventListener('click', deleteCurrentChallenge);
     el('timePan').addEventListener('input', event => panToSliderValue(event.target.value));
+    el('sleepHighlightToggle').addEventListener('change', event => {
+      sleepHighlightEnabled = event.target.checked;
+      el('sleepBallparkToggle').disabled = !sleepHighlightEnabled;
+      vitalsChart?.update('none');
+    });
+    el('sleepBallparkToggle').addEventListener('change', event => {
+      sleepBallparkEnabled = event.target.checked;
+      vitalsChart?.update('none');
+    });
     el('notificationsToggle').addEventListener('click', () => {
       el('challengesPanel').classList.add('hidden');
       el('challengesToggle').setAttribute('aria-expanded', 'false');
@@ -1690,7 +1918,7 @@ DASHBOARD_HTML = r"""
     ['vitalsChart', 'oxygenTrendChart', 'rollupChart', 'stateChart'].forEach(id => {
       el(id).addEventListener('dblclick', resetZoom);
     });
-    window.addEventListener('resize', () => { renderCharts(); renderRollups(); updatePanControl(); });
+    window.addEventListener('resize', () => { renderCharts({ deferTrend: true }); renderRollups(); updatePanControl(); });
     if ('serviceWorker' in navigator && !SHARE_MODE) {
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').then(updateInstallButton).catch(updateInstallButton));
     }

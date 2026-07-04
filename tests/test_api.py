@@ -316,7 +316,18 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "spanGaps: false" in response.text
     assert "Trend signal: gap" in response.text
     assert "No continuous normal-support data here" in response.text
+    assert "requestIdleCallback" in response.text
+    assert "hydrateSecondaryData" in response.text
+    assert "renderCharts({ deferTrend: true })" in response.text
+    assert "oxygenTrendSignal(shortAvg, longAvg)" in response.text
     assert "sleepPhaseHover" in response.text
+    assert "sleepBands" in response.text
+    assert "stateChartHover" in response.text
+    assert "sleepHighlightToggle" in response.text
+    assert "sleepBallparkToggle" in response.text
+    assert "Ballpark by average window" in response.text
+    assert "setStateStripHoverFromEvent" in response.text
+    assert "attachStateChartHover" in response.text
     assert "id=\"timePan\"" in response.text
     assert "panToSliderValue" in response.text
     assert response.text.index("id=\"vitalsChart\"") < response.text.index("id=\"stateStrip\"") < response.text.index("id=\"oxygenTrendChart\"")
@@ -326,6 +337,8 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "O₂ challenges" in response.text
     assert "O₂ challenges / add" in response.text
     assert "Add new O₂ challenge" in response.text
+    assert "data-add-challenge-empty" in response.text
+    assert "data-visible-challenge-empty" in response.text
     assert "Use visible chart window" in response.text
     assert "/api/oxygen-challenges" in response.text
     assert "challengeBands" in response.text
