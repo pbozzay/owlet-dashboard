@@ -143,6 +143,33 @@ async def test_notifications_endpoint_extracts_alerts_and_offline_periods(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_notifications_endpoint_derives_low_oxygen_episodes_from_readings(tmp_path):
+    db_path = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db_path)
+    await store.init()
+    for timestamp, spo2 in [
+        ("2026-07-02T01:00:00Z", 97),
+        ("2026-07-02T01:01:00Z", 91),
+        ("2026-07-02T01:02:00Z", 90),
+        ("2026-07-02T01:03:00Z", 87),
+    ]:
+        await _seed_reading(store, timestamp, hr=130, spo2=spo2)
+    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+
+    with TestClient(app) as client:
+        response = client.get("/api/notifications?hours=24")
+
+    assert response.status_code == 200
+    payload = response.json()
+    event_types = [item["event_type"] for item in payload["items"]]
+    assert event_types.count("low_oxygen") == 1
+    assert event_types.count("critical_oxygen") == 1
+    assert payload["total"] == 2
+    assert "Measured SpO₂ dropped below 92%" in response.text
+    assert "Measured SpO₂ dropped below 88%" in response.text
+
+
+@pytest.mark.asyncio
 async def test_widget_endpoint_returns_compact_status_payload(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)

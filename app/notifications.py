@@ -40,6 +40,8 @@ ALERT_MASK_BITS = {
     64: ("sock_off", "warning", "Sock off", "Owlet reports that the sock is off."),
     256: ("low_battery", "warning", "Low battery alert", "Owlet low battery alert is active."),
 }
+LOW_OXYGEN_READING_THRESHOLD = 92
+CRITICAL_OXYGEN_READING_THRESHOLD = 88
 
 
 def extract_notifications(reading: OwletReading) -> list[NotificationEvent]:
@@ -64,10 +66,53 @@ def extract_notifications(reading: OwletReading) -> list[NotificationEvent]:
                 },
             )
         )
+    else:
+        _append_derived_oxygen_events(reading, events)
 
     _append_alert_mask_events(reading, events)
 
     return events
+
+
+def _append_derived_oxygen_events(reading: OwletReading, events: list[NotificationEvent]) -> None:
+    oxygen = _numeric(reading.oxygen_saturation)
+    if oxygen is None:
+        return
+
+    existing_types = {event.event_type for event in events}
+    if oxygen < CRITICAL_OXYGEN_READING_THRESHOLD:
+        if "critical_oxygen" not in existing_types:
+            events.append(
+                _event(
+                    reading,
+                    "critical_oxygen",
+                    "critical",
+                    "Critical oxygen reading",
+                    f"Measured SpO₂ dropped below {CRITICAL_OXYGEN_READING_THRESHOLD}% ({oxygen:g}%).",
+                    {
+                        "source": "derived_oxygen_threshold",
+                        "value": oxygen,
+                        "threshold": CRITICAL_OXYGEN_READING_THRESHOLD,
+                    },
+                )
+            )
+        return
+
+    if oxygen < LOW_OXYGEN_READING_THRESHOLD and "low_oxygen" not in existing_types:
+        events.append(
+            _event(
+                reading,
+                "low_oxygen",
+                "critical",
+                "Low oxygen reading",
+                f"Measured SpO₂ dropped below {LOW_OXYGEN_READING_THRESHOLD}% ({oxygen:g}%).",
+                {
+                    "source": "derived_oxygen_threshold",
+                    "value": oxygen,
+                    "threshold": LOW_OXYGEN_READING_THRESHOLD,
+                },
+            )
+        )
 
 
 def _append_alert_mask_events(reading: OwletReading, events: list[NotificationEvent]) -> None:
