@@ -106,6 +106,28 @@ DASHBOARD_HTML = r"""
     .notification-item.info { border-left-color: var(--blue); background: #eff6ff; }
     .notification-title { font-weight: 900; }
     .notification-meta { color: var(--muted); font-size: .78rem; margin-top: 3px; line-height: 1.3; }
+    .challenge-button { background: #eff6ff; color: #1d4ed8; }
+    .challenge-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: #dbeafe; color: #1d4ed8; font-size: .72rem; font-weight: 900; }
+    .challenge-popover { position: absolute; right: 0; top: calc(100% + 8px); width: min(520px, calc(100vw - 28px)); background: #fff; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 12px; z-index: 32; }
+    .challenge-popover.hidden, .challenge-modal.hidden { display: none; }
+    .challenge-list { display: grid; gap: 8px; max-height: 390px; overflow: auto; }
+    .challenge-item { border: 1px solid #bfdbfe; border-left: 5px solid var(--blue); border-radius: 13px; padding: 9px 10px; background: #eff6ff; }
+    .challenge-item.active { border-left-color: var(--green); background: #ecfdf5; }
+    .challenge-title { display: flex; justify-content: space-between; gap: 8px; font-weight: 900; }
+    .challenge-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 7px; font-size: .78rem; }
+    .challenge-metrics span { background: rgba(255,255,255,.68); border: 1px solid rgba(191,219,254,.8); border-radius: 10px; padding: 5px 6px; }
+    .challenge-modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: rgba(15, 23, 42, .35); }
+    .challenge-modal-card { width: min(980px, 100%); max-height: min(780px, calc(100vh - 32px)); overflow: auto; background: #fff; border-radius: 22px; box-shadow: var(--shadow); padding: 16px; }
+    .challenge-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+    .challenge-summary-grid .mini { min-width: 0; }
+    .state-strip { display: flex; height: 16px; border-radius: 999px; overflow: hidden; background: #e2e8f0; border: 1px solid var(--line); margin: 8px 0 0; }
+    .state-segment.light { background: rgba(124, 58, 237, .72); }
+    .state-segment.deep { background: rgba(37, 99, 235, .72); }
+    .state-segment.awake { background: rgba(180, 83, 9, .72); }
+    .state-segment.inactive { background: rgba(148, 163, 184, .72); }
+    .state-segment.offline { background: rgba(239, 68, 68, .5); }
+    .state-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; color: var(--muted); font-size: .74rem; }
+    .state-legend span::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; background: var(--dot); }
     .metric-grid { grid-template-columns: repeat(4, minmax(140px, 1fr)); margin-top: 14px; }
     .card, .panel { padding: 16px; }
     .hero-card { min-height: 172px; }
@@ -130,6 +152,7 @@ DASHBOARD_HTML = r"""
     tr:hover td { background: #f8fafc; }
     tr.offline-row td { background: #fff1f2; color: #991b1b; }
     tr.offline-row:hover td { background: #ffe4e6; }
+    tr.challenge-row td { background: #eff6ff; color: #1e3a8a; }
     .table-wrap { overflow: auto; max-width: 100%; max-height: 460px; border: 1px solid var(--line); border-radius: 16px; }
     .raw-box { white-space: pre-wrap; word-break: break-word; background: var(--dark); color: #dbeafe; border-radius: 16px; padding: 14px; max-height: 280px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; }
     .empty { padding: 28px; text-align: center; color: var(--muted); border: 1px dashed #cbd5e1; border-radius: 18px; background: #f8fafc; }
@@ -218,10 +241,23 @@ DASHBOARD_HTML = r"""
         </select>
       </div>
       <div class="control-group refresh-cluster toolbar-right">
+        <button id="challengesToggle" class="challenge-button" type="button" aria-expanded="false">O₂ challenges <span id="challengeCount" class="challenge-count">0</span></button>
         <button id="notificationsToggle" class="notification-button" type="button" aria-expanded="false">Notifications <span id="notificationCount" class="notification-count">0</span></button>
         <button id="installApp" class="install-button" type="button" title="Install Owlet as an app">Install app</button>
         <span class="small" id="refreshNote">Refreshing…</span>
         <button id="refresh" class="primary">Refresh</button>
+        <div id="challengesPanel" class="challenge-popover hidden" role="dialog" aria-label="Oxygen challenges">
+          <div class="panel-title">
+            <h2>Oxygen challenges</h2>
+            <span class="small" id="challengePage">—</span>
+          </div>
+          <div class="control-group" id="challengeActions" style="justify-content: space-between; margin-bottom: 10px;">
+            <button id="startChallenge" type="button">Start now</button>
+            <button id="endChallenge" type="button">End active</button>
+            <button id="markVisibleChallenge" type="button">Mark visible window</button>
+          </div>
+          <div id="challengeList" class="challenge-list"></div>
+        </div>
         <div id="notificationsPanel" class="notifications-popover hidden" role="dialog" aria-label="Notifications">
           <div class="panel-title">
             <h2>Notifications</h2>
@@ -282,6 +318,13 @@ DASHBOARD_HTML = r"""
           </div>
         </div>
         <div class="chart-frame main"><canvas id="vitalsChart"></canvas></div>
+        <div id="stateStrip" class="state-strip" title="Sleep/wake/offline state across the visible vitals window"></div>
+        <div class="state-legend">
+          <span style="--dot: rgba(124,58,237,.72)">light sleep</span>
+          <span style="--dot: rgba(37,99,235,.72)">deep sleep</span>
+          <span style="--dot: rgba(180,83,9,.72)">awake</span>
+          <span style="--dot: rgba(239,68,68,.5)">offline</span>
+        </div>
       </div>
       <div class="panel chart-panel secondary-chart">
         <div class="panel-title">
@@ -336,6 +379,21 @@ DASHBOARD_HTML = r"""
     </section>
   </main>
 
+  <div id="challengeModal" class="challenge-modal hidden" role="dialog" aria-label="Oxygen challenge detail">
+    <div class="challenge-modal-card">
+      <div class="panel-title">
+        <div>
+          <h2 id="challengeModalTitle">Oxygen challenge</h2>
+          <span class="small" id="challengeModalMeta">—</span>
+        </div>
+        <button id="closeChallengeModal" type="button">Close</button>
+      </div>
+      <div id="challengeSummary" class="challenge-summary-grid"></div>
+      <div class="chart-frame secondary"><canvas id="challengeDetailChart"></canvas></div>
+      <p class="small" id="challengeNotes"></p>
+    </div>
+  </div>
+
   <script>
     const API_BASE = "__API_BASE__";
     const SHARE_MODE = __SHARE_MODE__;
@@ -347,6 +405,7 @@ DASHBOARD_HTML = r"""
     let rollups = [];
     let comparisonRows = [];
     let notifications = { items: [], total: 0, limit: 500, offset: 0 };
+    let challenges = { items: [], total: 0, limit: 100, offset: 0 };
     let crypto = { available: false, prices: {}, series: { bitcoin: [] } };
     let notificationPageOffset = 0;
     const NOTIFICATION_PAGE_SIZE = 10;
@@ -354,6 +413,7 @@ DASHBOARD_HTML = r"""
     let oxygenTrendChart = null;
     let stateChart = null;
     let rollupChart = null;
+    let challengeDetailChart = null;
     let secondsUntilRefresh = REFRESH_SECONDS;
     let syncInProgress = false;
     let zoomWindow = null;
@@ -369,6 +429,26 @@ DASHBOARD_HTML = r"""
         ctx.save();
         ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
         ctx.strokeStyle = 'rgba(239, 68, 68, 0.28)';
+        intervals.forEach(({ start, end }) => {
+          const left = Math.max(chartArea.left, scales.x.getPixelForValue(start));
+          const right = Math.min(chartArea.right, scales.x.getPixelForValue(end));
+          if (!Number.isFinite(left) || !Number.isFinite(right) || right <= chartArea.left || left >= chartArea.right) return;
+          const width = Math.max(2, right - left);
+          ctx.fillRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+          ctx.strokeRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+        });
+        ctx.restore();
+      }
+    };
+    const challengeBandsPlugin = {
+      id: 'challengeBands',
+      beforeDatasetsDraw(chart, _args, options) {
+        const intervals = options?.intervals || [];
+        if (!intervals.length || !chart.scales?.x) return;
+        const { ctx, chartArea, scales } = chart;
+        ctx.save();
+        ctx.fillStyle = 'rgba(37, 99, 235, 0.10)';
+        ctx.strokeStyle = 'rgba(37, 99, 235, 0.26)';
         intervals.forEach(({ start, end }) => {
           const left = Math.max(chartArea.left, scales.x.getPixelForValue(start));
           const right = Math.min(chartArea.right, scales.x.getPixelForValue(end));
@@ -401,7 +481,7 @@ DASHBOARD_HTML = r"""
         ctx.restore();
       }
     };
-    Chart.register(offlineBandsPlugin, notificationGlyphsPlugin);
+    Chart.register(challengeBandsPlugin, offlineBandsPlugin, notificationGlyphsPlugin);
 
     const el = (id) => document.getElementById(id);
     const fmt = (value, suffix = '') => value === null || value === undefined ? '—' : `${value}${suffix}`;
@@ -414,7 +494,21 @@ DASHBOARD_HTML = r"""
     const stateLabel = (value) => ({ '0': 'inactive', '1': 'awake', '8': 'light sleep', '15': 'deep sleep' }[String(value)] || `state ${value ?? 'unknown'}`);
     const zeroOrNegative = (value) => value !== null && value !== undefined && Number(value) <= 0;
     const isOffline = (row) => zeroOrNegative(row?.heart_rate) || zeroOrNegative(row?.oxygen_saturation);
+    const durationText = (seconds) => seconds ? `${Math.floor(seconds / 3600)}h ${Math.round((seconds % 3600) / 60)}m`.replace(/^0h /, '') : '0m';
+    const signed = (value, suffix = '') => value === null || value === undefined ? '—' : `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(1).replace(/\.0$/, '')}${suffix}`;
     const chartList = () => [vitalsChart, oxygenTrendChart, rollupChart, stateChart].filter(Boolean);
+
+    function challengeIntervals() {
+      return (challenges.items || []).map(challenge => ({
+        start: Date.parse(challenge.start_time),
+        end: Date.parse(challenge.effective_end_time || challenge.end_time || new Date().toISOString())
+      })).filter(interval => Number.isFinite(interval.start) && Number.isFinite(interval.end) && interval.end >= interval.start);
+    }
+
+    function isInChallenge(rowOrTime) {
+      const time = typeof rowOrTime === 'number' ? rowOrTime : Date.parse(rowOrTime?.recorded_at);
+      return challengeIntervals().some(interval => time >= interval.start && time <= interval.end);
+    }
 
     function selectedHours() {
       const value = el('window').value;
@@ -435,7 +529,7 @@ DASHBOARD_HTML = r"""
     }
 
     function windowAverage(rows, key, start, end) {
-      return average(rows.filter(row => !isOffline(row) && Date.parse(row.recorded_at) > start && Date.parse(row.recorded_at) <= end).map(row => row[key]));
+      return average(rows.filter(row => !isOffline(row) && !isInChallenge(row) && Date.parse(row.recorded_at) > start && Date.parse(row.recorded_at) <= end).map(row => row[key]));
     }
 
     function comparisonFor(key, threshold) {
@@ -504,8 +598,9 @@ DASHBOARD_HTML = r"""
       const qs = queryParams();
       const rollupQs = queryParams({ bucket: el('bucket').value });
       const notificationQs = queryParams({ limit: '500', offset: '0' });
+      const challengeQs = queryParams({ limit: '100', offset: '0' });
       const cryptoHours = selectedHours() || 720;
-      const [health, rows, compareRows, stats, insightData, rollupData, notificationData, cryptoData] = await Promise.all([
+      const [health, rows, compareRows, stats, insightData, rollupData, notificationData, challengeData, cryptoData] = await Promise.all([
         fetchJson(`${API_BASE}/api/health`),
         fetchJson(`${API_BASE}/api/readings?${qs}`),
         fetchJson(`${API_BASE}/api/readings?hours=48&limit=100000`),
@@ -513,6 +608,7 @@ DASHBOARD_HTML = r"""
         fetchJson(`${API_BASE}/api/insights?${qs}`),
         fetchJson(`${API_BASE}/api/rollups?${rollupQs}`),
         fetchJson(`${API_BASE}/api/notifications?${notificationQs}`),
+        fetchJson(`${API_BASE}/api/oxygen-challenges?${challengeQs}`),
         fetchJson(`${API_BASE}/api/crypto?hours=${cryptoHours}`)
       ]);
       readings = rows;
@@ -521,6 +617,7 @@ DASHBOARD_HTML = r"""
       insights = insightData;
       rollups = rollupData.rollups || [];
       notifications = notificationData;
+      challenges = challengeData;
       crypto = cryptoData;
       lastLatestTimestamp = readings.length ? readings[readings.length - 1].recorded_at : null;
       if (resetZoom) zoomWindow = null;
@@ -532,6 +629,7 @@ DASHBOARD_HTML = r"""
       renderCharts();
       renderRollups();
       renderNotifications();
+      renderChallenges();
       if (previousLatest && lastLatestTimestamp && lastLatestTimestamp !== previousLatest) showNewDataPulse();
     }
 
@@ -545,7 +643,8 @@ DASHBOARD_HTML = r"""
     }
 
     function renderInsights() {
-      const latest = insights.latest;
+      const rawLatest = readings[readings.length - 1];
+      const latest = rawLatest ? { ...rawLatest, sleep_state_label: isOffline(rawLatest) ? 'offline / sock off' : stateLabel(rawLatest.sleep_state) } : insights.latest;
       const oxygenCompare = comparisonFor('oxygen_saturation', 0.25);
       const hrCompare = comparisonFor('heart_rate', 1);
       el('latestOxygen').textContent = latest ? fmt(latest.oxygen_saturation, '% O₂') : '—';
@@ -597,7 +696,7 @@ DASHBOARD_HTML = r"""
         ['Avg oxygen', fmt(summary.oxygen_saturation.avg, '%'), `min ${fmt(summary.oxygen_saturation.min, '%')} · ${summary.oxygen_saturation.trend}`, summary.oxygen_saturation.trend],
         ['Avg heart rate', fmt(summary.heart_rate.avg, ' bpm'), `latest ${fmt(summary.heart_rate.latest, ' bpm')}`, summary.heart_rate.trend],
         ['Avg movement', num(summary.movement.avg), `latest ${num(summary.movement.latest)} · ${summary.movement.trend}`, summary.movement.trend],
-        ['Coverage', `${summary.valid_count ?? summary.count}/${summary.count}`, `${summary.offline_count || 0} offline/zero readings · ${localTime(summary.first_recorded_at)} → ${localTime(summary.last_recorded_at)}`, summary.offline_count ? 'down' : 'unknown'],
+        ['Coverage', `${summary.valid_count ?? summary.count}/${summary.total_count ?? summary.count}`, `${summary.offline_count || 0} offline/zero · ${summary.challenge_count || 0} challenge readings excluded`, summary.offline_count ? 'down' : 'unknown'],
       ];
       el('metricCards').innerHTML = cards.map(([label, value, foot, trend]) => `
         <article class="card">
@@ -605,7 +704,7 @@ DASHBOARD_HTML = r"""
           <div class="metric-value ${trendClass(trend)}">${value}</div>
           <div class="sub">${foot}</div>
         </article>`).join('');
-      el('coverage').textContent = `${summary.window} · ${summary.count} readings`;
+      el('coverage').textContent = `${summary.window} · ${summary.count} stats readings · ${summary.challenge_count || 0} in challenges`;
     }
 
     function downsample(rows, maxPoints = 1200) {
@@ -626,7 +725,7 @@ DASHBOARD_HTML = r"""
       let sum = 0;
       const points = [];
       readings.forEach(row => {
-        if (isOffline(row) || !Number.isFinite(Number(row.oxygen_saturation))) return;
+        if (isOffline(row) || isInChallenge(row) || !Number.isFinite(Number(row.oxygen_saturation))) return;
         const time = Date.parse(row.recorded_at);
         const value = Number(row.oxygen_saturation);
         queue.push({ time, value });
@@ -764,7 +863,7 @@ DASHBOARD_HTML = r"""
         maintainAspectRatio: false,
         animation: { duration: 450 },
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: legendOptions(), tooltip: { callbacks: { label: tooltipLabel } }, zoom: zoomOptions(), offlineBands: { intervals: offlineIntervals() } },
+        plugins: { legend: legendOptions(), tooltip: { callbacks: { label: tooltipLabel } }, zoom: zoomOptions(), challengeBands: { intervals: challengeIntervals() }, offlineBands: { intervals: offlineIntervals() } },
         scales
       };
     }
@@ -781,6 +880,7 @@ DASHBOARD_HTML = r"""
         chart.options.scales.x.max = zoomWindow.max;
         chart.update('none');
       });
+      renderStateStrip();
       syncInProgress = false;
     }
 
@@ -792,6 +892,7 @@ DASHBOARD_HTML = r"""
         chart.options.scales.x.max = undefined;
         chart.update('none');
       });
+      renderStateStrip();
     }
 
     function upsertChart(existing, canvasId, config) {
@@ -826,6 +927,40 @@ DASHBOARD_HTML = r"""
         })
       });
       renderOxygenTrendChart();
+      renderStateStrip();
+    }
+
+    function visibleRange() {
+      if (zoomWindow) return zoomWindow;
+      const times = readings.map(row => Date.parse(row.recorded_at)).filter(Number.isFinite);
+      return times.length ? { min: Math.min(...times), max: Math.max(...times) } : null;
+    }
+
+    function stateClass(row) {
+      if (isOffline(row)) return 'offline';
+      const state = String(row.sleep_state ?? '');
+      if (state === '8') return 'light';
+      if (state === '15') return 'deep';
+      if (state === '1') return 'awake';
+      return 'inactive';
+    }
+
+    function renderStateStrip() {
+      const range = visibleRange();
+      if (!range || range.max <= range.min || !readings.length) {
+        el('stateStrip').innerHTML = '';
+        return;
+      }
+      const segments = [];
+      readings.forEach((row, index) => {
+        const start = Date.parse(row.recorded_at);
+        const next = readings[index + 1] ? Date.parse(readings[index + 1].recorded_at) : start + 60 * 1000;
+        const left = Math.max(start, range.min);
+        const right = Math.min(next, range.max);
+        if (!Number.isFinite(left) || !Number.isFinite(right) || right <= left) return;
+        segments.push({ cls: stateClass(row), width: ((right - left) / (range.max - range.min)) * 100, label: `${stateLabel(row.sleep_state)} · ${localTime(row.recorded_at)}` });
+      });
+      el('stateStrip').innerHTML = segments.map(segment => `<span class="state-segment ${segment.cls}" title="${segment.label}" style="width:${Math.max(.15, segment.width)}%"></span>`).join('');
     }
 
     function renderOxygenTrendChart() {
@@ -894,7 +1029,7 @@ DASHBOARD_HTML = r"""
 
     function renderReadingsTable() {
       const rows = filtered.slice().reverse().map((row, index) => `
-        <tr data-index="${readings.indexOf(row)}" class="${index === 0 ? 'latest-row' : ''} ${isOffline(row) ? 'offline-row' : ''}">
+        <tr data-index="${readings.indexOf(row)}" class="${index === 0 ? 'latest-row' : ''} ${isOffline(row) ? 'offline-row' : ''} ${isInChallenge(row) ? 'challenge-row' : ''}">
           <td>${localTime(row.recorded_at)}</td>
           <td>${fmt(row.device_serial)}</td>
           <td>${num(row.heart_rate)}</td>
@@ -929,6 +1064,100 @@ DASHBOARD_HTML = r"""
           <div>${item.message}</div>
           <div class="notification-meta">${localTime(item.recorded_at)} · O₂ ${fmt(item.oxygen_saturation, '%')} · HR ${fmt(item.heart_rate, ' bpm')} · battery ${fmt(item.battery, '%')}</div>
         </article>`).join('') || '<div class="empty">No Owlet notifications in this window.</div>';
+    }
+
+    function renderChallenges() {
+      const items = challenges.items || [];
+      const total = challenges.total ?? items.length;
+      const active = items.find(item => item.active);
+      el('challengeCount').textContent = total;
+      el('challengePage').textContent = total ? `${total} total${active ? ' · active now' : ''}` : 'none yet';
+      el('challengeActions').style.display = SHARE_MODE ? 'none' : 'flex';
+      el('endChallenge').disabled = !active;
+      el('challengeList').innerHTML = items.map(item => {
+        const summary = item.summary || {};
+        const comparison = item.comparison || {};
+        return `<article class="challenge-item ${item.active ? 'active' : ''}">
+          <div class="challenge-title"><span>${item.active ? '🟢 ' : ''}${item.label || 'Oxygen challenge'}</span><button type="button" data-challenge-id="${item.id}">Open</button></div>
+          <div class="notification-meta">${localTime(item.start_time)} → ${item.active ? 'active' : localTime(item.effective_end_time)} · ${durationText(summary.duration_seconds)}</div>
+          <div class="challenge-metrics">
+            <span>Avg O₂ <b>${fmt(summary.avg_oxygen_saturation, '%')}</b></span>
+            <span>Min O₂ <b>${fmt(summary.min_oxygen_saturation, '%')}</b></span>
+            <span>Avg HR <b>${fmt(summary.avg_heart_rate, ' bpm')}</b></span>
+            <span>Low O₂ <b>${summary.low_oxygen_samples || 0}</b> (${signed(comparison.low_oxygen_delta)})</span>
+          </div>
+        </article>`;
+      }).join('') || '<div class="empty">No oxygen challenges in this range. Start one when oxygen comes off, or mark the visible zoom window afterward.</div>';
+      [...el('challengeList').querySelectorAll('button[data-challenge-id]')].forEach(button => {
+        button.addEventListener('click', () => openChallengeDetail(Number(button.dataset.challengeId)));
+      });
+    }
+
+    async function saveChallenge(payload) {
+      const response = await fetch(`${API_BASE}/api/oxygen-challenges`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) throw new Error(`Could not save challenge: ${response.status}`);
+      await refresh();
+    }
+
+    async function startChallenge() {
+      await saveChallenge({ start_time: new Date().toISOString(), label: 'Oxygen challenge', notes: 'Started from dashboard' });
+    }
+
+    async function endActiveChallenge() {
+      const active = (challenges.items || []).find(item => item.active);
+      if (!active) return;
+      const response = await fetch(`${API_BASE}/api/oxygen-challenges/${active.id}`, {
+        method: 'PATCH', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ end_time: new Date().toISOString() })
+      });
+      if (!response.ok) throw new Error(`Could not end challenge: ${response.status}`);
+      await refresh();
+    }
+
+    async function markVisibleChallenge() {
+      const range = visibleRange();
+      if (!range || range.max <= range.min) return;
+      const label = window.prompt('Challenge label', 'Oxygen challenge') || 'Oxygen challenge';
+      await saveChallenge({ start_time: new Date(range.min).toISOString(), end_time: new Date(range.max).toISOString(), label, notes: 'Marked from visible chart window' });
+    }
+
+    async function openChallengeDetail(id) {
+      const detail = await fetchJson(`${API_BASE}/api/oxygen-challenges/${id}`);
+      const summary = detail.summary || {};
+      const prior = detail.prior_summary || {};
+      const comparison = detail.comparison || {};
+      el('challengeModalTitle').textContent = detail.label || 'Oxygen challenge';
+      el('challengeModalMeta').textContent = `${localTime(detail.start_time)} → ${detail.active ? 'active' : localTime(detail.effective_end_time)} · ${durationText(summary.duration_seconds)} off oxygen`;
+      el('challengeNotes').textContent = detail.notes || 'Challenge data is excluded from normal dashboard averages and compared against the same-length window immediately before oxygen came off.';
+      el('challengeSummary').innerHTML = [
+        ['Avg O₂', fmt(summary.avg_oxygen_saturation, '%'), `vs prior ${fmt(prior.avg_oxygen_saturation, '%')} (${signed(comparison.avg_oxygen_delta, ' pts')})`],
+        ['Min O₂', fmt(summary.min_oxygen_saturation, '%'), `vs prior ${fmt(prior.min_oxygen_saturation, '%')} (${signed(comparison.min_oxygen_delta, ' pts')})`],
+        ['Avg HR', fmt(summary.avg_heart_rate, ' bpm'), `vs prior ${fmt(prior.avg_heart_rate, ' bpm')} (${signed(comparison.avg_heart_rate_delta, ' bpm')})`],
+        ['Events', `${summary.low_oxygen_samples || 0} low · ${summary.critical_oxygen_samples || 0} critical`, `sleep ${durationText(summary.sleep_seconds)} · awake ${durationText(summary.awake_seconds)}`]
+      ].map(([label, value, foot]) => `<div class="mini"><span class="eyebrow">${label}</span><b>${value}</b><small>${foot}</small></div>`).join('');
+      el('challengeModal').classList.remove('hidden');
+      renderChallengeDetailChart(detail);
+    }
+
+    function renderChallengeDetailChart(detail) {
+      const toPoint = (row, key) => ({ x: Date.parse(row.recorded_at), y: row[key] });
+      if (challengeDetailChart) challengeDetailChart.destroy();
+      challengeDetailChart = new Chart(el('challengeDetailChart'), {
+        type: 'line',
+        data: { datasets: [
+          { label: 'Challenge O₂', data: (detail.readings || []).map(row => toPoint(row, 'oxygen_saturation')), yAxisID: 'oxygen', borderColor: '#2563eb', pointRadius: 1, tension: .2 },
+          { label: 'Prior O₂', data: (detail.prior_readings || []).map(row => toPoint(row, 'oxygen_saturation')), yAxisID: 'oxygen', borderColor: '#94a3b8', borderDash: [5, 4], pointRadius: 0, tension: .2 },
+          { label: 'Challenge HR', data: (detail.readings || []).map(row => toPoint(row, 'heart_rate')), yAxisID: 'hr', borderColor: '#dc2626', pointRadius: 1, tension: .2 }
+        ] },
+        options: chartOptions({
+          oxygen: { type: 'linear', position: 'left', suggestedMin: 86, suggestedMax: 100, title: { display: true, text: 'O₂' } },
+          hr: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'BPM' } }
+        })
+      });
     }
 
     function downloadCsv() {
@@ -997,6 +1226,15 @@ DASHBOARD_HTML = r"""
     el('refresh').addEventListener('click', () => refresh());
     el('download').addEventListener('click', downloadCsv);
     el('resetZoom').addEventListener('click', resetZoom);
+    el('challengesToggle').addEventListener('click', () => {
+      const panel = el('challengesPanel');
+      const hidden = panel.classList.toggle('hidden');
+      el('challengesToggle').setAttribute('aria-expanded', String(!hidden));
+    });
+    el('startChallenge').addEventListener('click', startChallenge);
+    el('endChallenge').addEventListener('click', endActiveChallenge);
+    el('markVisibleChallenge').addEventListener('click', markVisibleChallenge);
+    el('closeChallengeModal').addEventListener('click', () => el('challengeModal').classList.add('hidden'));
     el('notificationsToggle').addEventListener('click', () => {
       const panel = el('notificationsPanel');
       const hidden = panel.classList.toggle('hidden');
@@ -1004,7 +1242,7 @@ DASHBOARD_HTML = r"""
     });
     el('notificationsPrev').addEventListener('click', () => { notificationPageOffset = Math.max(0, notificationPageOffset - NOTIFICATION_PAGE_SIZE); renderNotifications(); });
     el('notificationsNext').addEventListener('click', () => { notificationPageOffset += NOTIFICATION_PAGE_SIZE; renderNotifications(); });
-    ['vitalsChart', 'rollupChart', 'stateChart'].forEach(id => {
+    ['vitalsChart', 'oxygenTrendChart', 'rollupChart', 'stateChart'].forEach(id => {
       el(id).addEventListener('dblclick', resetZoom);
     });
     window.addEventListener('resize', () => chartList().forEach(chart => { chart.options.plugins.legend = legendOptions(); chart.update('none'); }));

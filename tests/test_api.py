@@ -50,6 +50,41 @@ async def test_summary_excludes_zero_offline_vitals_from_metric_averages(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_oxygen_challenges_are_stored_and_excluded_from_normal_stats(tmp_path):
+    db_path = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db_path)
+    await store.init()
+    await _seed_reading(store, "2026-07-02T00:00:00Z", hr=120, spo2=98, sleep_state=8)
+    await _seed_reading(store, "2026-07-02T00:30:00Z", hr=122, spo2=97, sleep_state=8)
+    await _seed_reading(store, "2026-07-02T01:00:00Z", hr=150, spo2=90, sleep_state=15)
+    await _seed_reading(store, "2026-07-02T01:30:00Z", hr=155, spo2=89, sleep_state=15)
+    await _seed_reading(store, "2026-07-02T02:00:00Z", hr=126, spo2=97, sleep_state=1)
+    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/oxygen-challenges",
+            json={
+                "start_time": "2026-07-02T01:00:00+00:00",
+                "end_time": "2026-07-02T01:30:00+00:00",
+                "label": "Nap off oxygen",
+            },
+        ).json()
+        summary = client.get("/api/summary?hours=24").json()
+        insights = client.get("/api/insights?hours=24").json()
+        detail = client.get(f"/api/oxygen-challenges/{created['id']}").json()
+
+    assert created["label"] == "Nap off oxygen"
+    assert summary["challenge_count"] == 2
+    assert summary["oxygen_saturation"]["min"] == 97
+    assert insights["breathing"]["low_oxygen_samples"] == 0
+    assert detail["summary"]["avg_oxygen_saturation"] == 89.5
+    assert detail["summary"]["low_oxygen_samples"] == 2
+    assert detail["comparison"]["avg_oxygen_delta"] == -7.5
+    assert len(detail["readings"]) == 2
+
+
+@pytest.mark.asyncio
 async def test_notifications_endpoint_extracts_alerts_and_offline_periods(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)
@@ -248,6 +283,11 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "wheel:" in response.text
     assert "pinch:" in response.text
     assert "onPanComplete" in response.text
+    assert "O₂ challenges" in response.text
+    assert "/api/oxygen-challenges" in response.text
+    assert "challengeBands" in response.text
+    assert "stateStrip" in response.text
+    assert "Challenge data is excluded" in response.text
     assert "O₂ now + today" in response.text
     assert "Crypto" in response.text
     assert 'id="installApp"' in response.text

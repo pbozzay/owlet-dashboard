@@ -58,6 +58,9 @@ Dashboard features:
 - installable PWA shell with manifest, icons, service worker, and an in-app install button
 - live auto-refresh every 15 seconds with visible countdown
 - primary full-width vitals trace with synchronized drag/pan/zoom
+- oxygen challenge tracking for marked off-oxygen windows, shown as blue chart bands and excluded from normal averages/stats
+- oxygen challenge popup with per-challenge duration, avg/min O₂, avg HR, low/critical O₂ samples, sleep/awake time, and same-length prior-window comparison
+- compact sleep/wake accessory strip below the main vitals trace for quickly spotting whether events happen during sleep
 - O₂ trend signal chart with 30m trailing average, 4h baseline, and green/red short-minus-long direction bars
 - red offline/sock-off bands when Owlet reports zero-valued vitals
 - offline/zero readings are kept visible in the raw trace/table but excluded from averages, trends, and sleep analysis
@@ -78,6 +81,7 @@ Analytics endpoints:
 - Hourly rollups: <http://127.0.0.1:8788/api/rollups?bucket=hour&hours=24>
 - Daily rollups: <http://127.0.0.1:8788/api/rollups?bucket=day&hours=168>
 - Notifications: <http://127.0.0.1:8788/api/notifications?hours=24>
+- Oxygen challenges: <http://127.0.0.1:8788/api/oxygen-challenges?hours=24>
 - Crypto prices: <http://127.0.0.1:8788/api/crypto?hours=24>
 - Compact widget JSON: <http://127.0.0.1:8788/api/widget?hours=24>
 

@@ -9,6 +9,7 @@ import aiosqlite
 
 from app.models import OwletReading
 from app.notifications import NotificationEvent, extract_notifications
+from app.oxygen_challenges import challenge_analysis, parse_time, reading_in_any_period
 from app.quality import is_offline_reading
 
 
@@ -62,6 +63,22 @@ class ReadingStore:
             )
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_notifications_recorded_at ON notifications(recorded_at)"
+            )
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS oxygen_challenges (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    start_time TEXT NOT NULL,
+                    end_time TEXT,
+                    label TEXT NOT NULL DEFAULT 'Oxygen challenge',
+                    notes TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_oxygen_challenges_start ON oxygen_challenges(start_time)"
             )
             await db.execute(
                 """
@@ -144,15 +161,18 @@ class ReadingStore:
 
     async def get_summary(self, hours: int | None = 24) -> dict[str, Any]:
         readings = await self.get_readings(hours=hours)
-        valid_readings = [reading for reading in readings if not is_offline_reading(reading)]
+        analysis_readings = await self.exclude_challenge_readings(readings)
+        valid_readings = [reading for reading in analysis_readings if not is_offline_reading(reading)]
         first_recorded_at = readings[0].recorded_at.isoformat() if readings else None
         last_recorded_at = readings[-1].recorded_at.isoformat() if readings else None
         return {
             "hours": hours,
             "window": "all" if hours is None else f"{hours}h",
-            "count": len(readings),
+            "count": len(analysis_readings),
+            "total_count": len(readings),
             "valid_count": len(valid_readings),
-            "offline_count": len(readings) - len(valid_readings),
+            "offline_count": len(analysis_readings) - len(valid_readings),
+            "challenge_count": len(readings) - len(analysis_readings),
             "first_recorded_at": first_recorded_at,
             "last_recorded_at": last_recorded_at,
             "heart_rate": _metric_summary([r.heart_rate for r in valid_readings]),
@@ -160,6 +180,160 @@ class ReadingStore:
             "battery": _metric_summary([r.battery for r in readings]),
             "movement": _metric_summary([r.movement for r in valid_readings]),
         }
+
+    async def create_oxygen_challenge(
+        self,
+        start_time: str | datetime,
+        end_time: str | datetime | None = None,
+        label: str = "Oxygen challenge",
+        notes: str = "",
+    ) -> dict[str, Any]:
+        await self.init()
+        start = parse_time(start_time).isoformat()
+        end = parse_time(end_time).isoformat() if end_time else None
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                INSERT INTO oxygen_challenges (start_time, end_time, label, notes, updated_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (start, end, label or "Oxygen challenge", notes or ""),
+            )
+            await db.commit()
+            challenge_id = int(cursor.lastrowid)
+        return await self.get_oxygen_challenge(challenge_id)
+
+    async def update_oxygen_challenge(
+        self,
+        challenge_id: int,
+        *,
+        start_time: str | datetime | None = None,
+        end_time: str | datetime | None = None,
+        label: str | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        await self.init()
+        current = await self._get_oxygen_challenge_row(challenge_id)
+        if not current:
+            raise KeyError(challenge_id)
+        start = parse_time(start_time).isoformat() if start_time else current[1]
+        end = parse_time(end_time).isoformat() if end_time else current[2]
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE oxygen_challenges
+                SET start_time = ?, end_time = ?, label = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    start,
+                    end,
+                    label if label is not None else current[3],
+                    notes if notes is not None else current[4],
+                    challenge_id,
+                ),
+            )
+            await db.commit()
+        return await self.get_oxygen_challenge(challenge_id)
+
+    async def delete_oxygen_challenge(self, challenge_id: int) -> None:
+        await self.init()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM oxygen_challenges WHERE id = ?", (challenge_id,))
+            await db.commit()
+
+    async def get_oxygen_challenges(
+        self,
+        hours: int | None = 24,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        await self.init()
+        rows, total = await self._oxygen_challenge_rows(hours=hours, limit=limit, offset=offset)
+        readings = await self.get_readings(hours=None, limit=100_000)
+        latest = readings[-1].recorded_at if readings else None
+        items = [challenge_analysis(self._row_to_challenge(row), readings, latest) for row in rows]
+        return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+    async def get_oxygen_challenge(self, challenge_id: int) -> dict[str, Any]:
+        await self.init()
+        row = await self._get_oxygen_challenge_row(challenge_id)
+        if not row:
+            raise KeyError(challenge_id)
+        readings = await self.get_readings(hours=None, limit=100_000)
+        latest = readings[-1].recorded_at if readings else None
+        payload = challenge_analysis(self._row_to_challenge(row), readings, latest)
+        start = parse_time(payload["start_time"])
+        end = parse_time(payload["effective_end_time"])
+        duration = end - start
+        prior_start = start - duration
+        payload["readings"] = [
+            reading.model_dump(mode="json", exclude={"raw"})
+            for reading in readings
+            if start <= reading.recorded_at <= end
+        ]
+        payload["prior_readings"] = [
+            reading.model_dump(mode="json", exclude={"raw"})
+            for reading in readings
+            if prior_start <= reading.recorded_at <= start
+        ]
+        return payload
+
+    async def exclude_challenge_readings(self, readings: list[OwletReading]) -> list[OwletReading]:
+        intervals = await self.get_oxygen_challenge_intervals()
+        if not intervals:
+            return readings
+        return [reading for reading in readings if not reading_in_any_period(reading, intervals)]
+
+    async def get_oxygen_challenge_intervals(self) -> list[tuple[datetime, datetime]]:
+        await self.init()
+        latest = await self._latest_timestamp()
+        fallback_end = parse_time(latest) if latest else datetime.now()
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("SELECT start_time, end_time FROM oxygen_challenges ORDER BY start_time ASC")
+            rows = await cursor.fetchall()
+        return [(parse_time(row[0]), parse_time(row[1]) if row[1] else fallback_end) for row in rows]
+
+    async def _oxygen_challenge_rows(
+        self,
+        hours: int | None = 24,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[list[tuple[Any, ...]], int]:
+        latest = await self._latest_timestamp()
+        where = ""
+        params: list[Any] = []
+        if latest and hours is not None:
+            cutoff = parse_time(latest) - timedelta(hours=int(hours))
+            where = "WHERE (end_time IS NULL OR end_time >= ?)"
+            params.append(cutoff.isoformat())
+        async with aiosqlite.connect(self.db_path) as db:
+            count_cursor = await db.execute(f"SELECT COUNT(*) FROM oxygen_challenges {where}", params)
+            count_row = await count_cursor.fetchone()
+            cursor = await db.execute(
+                f"""
+                SELECT id, start_time, end_time, label, notes, created_at, updated_at
+                FROM oxygen_challenges
+                {where}
+                ORDER BY start_time DESC, id DESC
+                LIMIT ? OFFSET ?
+                """,
+                [*params, limit, offset],
+            )
+            rows = await cursor.fetchall()
+        return rows, int(count_row[0] or 0)
+
+    async def _get_oxygen_challenge_row(self, challenge_id: int) -> tuple[Any, ...] | None:
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT id, start_time, end_time, label, notes, created_at, updated_at
+                FROM oxygen_challenges
+                WHERE id = ?
+                """,
+                (challenge_id,),
+            )
+            return await cursor.fetchone()
 
     async def get_notifications(
         self,
@@ -325,6 +499,17 @@ class ReadingStore:
             sleep_state=row[9],
             details=json.loads(row[10]) if row[10] else {},
         )
+
+    def _row_to_challenge(self, row: tuple[Any, ...]) -> dict[str, Any]:
+        return {
+            "id": row[0],
+            "start_time": row[1],
+            "end_time": row[2],
+            "label": row[3],
+            "notes": row[4],
+            "created_at": row[5],
+            "updated_at": row[6],
+        }
 
 
 def _metric_summary(values: list[float | None]) -> dict[str, float | str | None]:

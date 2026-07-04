@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path as FilePath
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Path, Query, Request
+from fastapi import Body, FastAPI, HTTPException, Path, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from app.analytics import build_insights, build_rollups
@@ -22,6 +22,7 @@ from app.store import ReadingStore
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 STATIC_DIR = FilePath(__file__).parent / "static"
+JSON_BODY = Body(default_factory=dict)
 
 
 def create_app(
@@ -192,6 +193,7 @@ def create_app(
     @app.get("/api/insights")
     async def insights(hours: int | None = Query(default=None, ge=1, le=24 * 365)):
         rows = await store.get_readings(hours=hours, limit=100_000)
+        rows = await store.exclude_challenge_readings(rows)
         return build_insights(rows)
 
     @app.get("/share/{token}/api/insights")
@@ -201,6 +203,7 @@ def create_app(
     ):
         _require_share_token(token, settings)
         rows = await store.get_readings(hours=hours, limit=100_000)
+        rows = await store.exclude_challenge_readings(rows)
         return build_insights(rows)
 
     @app.get("/api/rollups")
@@ -209,6 +212,7 @@ def create_app(
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
     ):
         rows = await store.get_readings(hours=hours, limit=100_000)
+        rows = await store.exclude_challenge_readings(rows)
         return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
 
     @app.get("/share/{token}/api/rollups")
@@ -219,6 +223,7 @@ def create_app(
     ):
         _require_share_token(token, settings)
         rows = await store.get_readings(hours=hours, limit=100_000)
+        rows = await store.exclude_challenge_readings(rows)
         return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
 
     @app.get("/api/crypto")
@@ -251,6 +256,80 @@ def create_app(
         _require_share_token(token, settings)
         return await store.get_notifications(hours=hours, limit=limit, offset=offset)
 
+    @app.get("/api/oxygen-challenges")
+    async def oxygen_challenges(
+        hours: int | None = Query(default=None, ge=1, le=24 * 365),
+        limit: int = Query(default=100, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ):
+        return await store.get_oxygen_challenges(hours=hours, limit=limit, offset=offset)
+
+    @app.get("/share/{token}/api/oxygen-challenges")
+    async def shared_oxygen_challenges(
+        token: str = Path(min_length=20),
+        hours: int | None = Query(default=None, ge=1, le=24 * 365),
+        limit: int = Query(default=100, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ):
+        _require_share_token(token, settings)
+        return await store.get_oxygen_challenges(hours=hours, limit=limit, offset=offset)
+
+    @app.post("/api/oxygen-challenges")
+    async def create_oxygen_challenge(payload: dict[str, object] = JSON_BODY):
+        start_time = payload.get("start_time")
+        if not isinstance(start_time, str):
+            raise HTTPException(status_code=400, detail="start_time is required")
+        end_time = payload.get("end_time")
+        return await store.create_oxygen_challenge(
+            start_time=start_time,
+            end_time=end_time if isinstance(end_time, str) else None,
+            label=str(payload.get("label") or "Oxygen challenge"),
+            notes=str(payload.get("notes") or ""),
+        )
+
+    @app.get("/api/oxygen-challenges/{challenge_id}")
+    async def oxygen_challenge(challenge_id: int = Path(ge=1)):
+        try:
+            return await store.get_oxygen_challenge(challenge_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Challenge not found") from exc
+
+    @app.get("/share/{token}/api/oxygen-challenges/{challenge_id}")
+    async def shared_oxygen_challenge(
+        token: str = Path(min_length=20),
+        challenge_id: int = Path(ge=1),
+    ):
+        _require_share_token(token, settings)
+        try:
+            return await store.get_oxygen_challenge(challenge_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Challenge not found") from exc
+
+    @app.patch("/api/oxygen-challenges/{challenge_id}")
+    async def update_oxygen_challenge(
+        challenge_id: int = Path(ge=1),
+        payload: dict[str, object] = JSON_BODY,
+    ):
+        start_value = payload.get("start_time")
+        end_value = payload.get("end_time")
+        start_time = start_value if isinstance(start_value, str) else None
+        end_time = end_value if isinstance(end_value, str) else None
+        try:
+            return await store.update_oxygen_challenge(
+                challenge_id,
+                start_time=start_time,
+                end_time=end_time,
+                label=str(payload["label"]) if "label" in payload else None,
+                notes=str(payload["notes"]) if "notes" in payload else None,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Challenge not found") from exc
+
+    @app.delete("/api/oxygen-challenges/{challenge_id}")
+    async def delete_oxygen_challenge(challenge_id: int = Path(ge=1)):
+        await store.delete_oxygen_challenge(challenge_id)
+        return {"ok": True}
+
     @app.get("/api/widget")
     async def widget(hours: int = Query(default=24, ge=1, le=24 * 30)):
         return await _widget_payload(store, hours=hours)
@@ -269,9 +348,10 @@ def create_app(
 async def _widget_payload(store: ReadingStore, hours: int = 24) -> dict[str, object]:
     readings = await store.get_readings(hours=hours, limit=100_000)
     summary = await store.get_summary(hours=hours)
-    insights = build_insights(readings)
+    insights = build_insights(await store.exclude_challenge_readings(readings))
     notifications = await store.get_notifications(hours=hours, limit=1, offset=0)
-    latest = insights.get("latest") or {}
+    latest_reading = readings[-1].model_dump(mode="json", exclude={"raw"}) if readings else {}
+    latest = latest_reading or insights.get("latest") or {}
     breathing = insights.get("breathing") or {}
     latest_notification = notifications["items"][0] if notifications["items"] else None
     return {
