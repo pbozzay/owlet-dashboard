@@ -73,6 +73,17 @@ async def test_oxygen_challenges_are_stored_and_excluded_from_normal_stats(tmp_p
         summary = client.get("/api/summary?hours=24").json()
         insights = client.get("/api/insights?hours=24").json()
         detail = client.get(f"/api/oxygen-challenges/{created['id']}").json()
+        updated = client.patch(
+            f"/api/oxygen-challenges/{created['id']}",
+            json={
+                "start_time": "2026-07-02T00:55:00+00:00",
+                "end_time": "2026-07-02T01:35:00+00:00",
+                "label": "Edited oxygen challenge",
+                "notes": "Adjusted start/stop times",
+            },
+        ).json()
+        deleted = client.delete(f"/api/oxygen-challenges/{created['id']}").json()
+        after_delete = client.get("/api/oxygen-challenges?hours=24").json()
 
     assert created["label"] == "Nap off oxygen"
     assert summary["challenge_count"] == 2
@@ -82,6 +93,12 @@ async def test_oxygen_challenges_are_stored_and_excluded_from_normal_stats(tmp_p
     assert detail["summary"]["low_oxygen_samples"] == 2
     assert detail["comparison"]["avg_oxygen_delta"] == -7.5
     assert len(detail["readings"]) == 2
+    assert updated["label"] == "Edited oxygen challenge"
+    assert updated["notes"] == "Adjusted start/stop times"
+    assert updated["start_time"].startswith("2026-07-02T00:55:00")
+    assert updated["end_time"].startswith("2026-07-02T01:35:00")
+    assert deleted == {"ok": True}
+    assert after_delete["total"] == 0
 
 
 @pytest.mark.asyncio
@@ -283,14 +300,17 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "/api/crypto" in response.text
     assert "BTC price" in response.text
     assert "O₂ trend companion" in response.text
-    assert "MACD-style: recent 30m O₂ average vs 4h baseline" in response.text
-    assert "Bars above zero mean recent O₂ is running higher" in response.text
+    assert "How to read the O₂ trend companion" in response.text
+    assert "This is a MACD-style trend view for oxygen" in response.text
     assert "Formula: 30m trailing O₂ avg − 4h trailing O₂ avg" in response.text
-    assert "Offline/missing-data and oxygen challenge periods become visible gaps" in response.text
+    assert "Offline gaps and oxygen challenges are not bridged" in response.text
     assert "TREND_MAX_SAMPLE_GAP_MS" in response.text
     assert "y: null" in response.text
     assert "spanGaps: false" in response.text
-    assert response.text.index("id=\"vitalsChart\"") < response.text.index("id=\"oxygenTrendChart\"") < response.text.index("id=\"stateStrip\"")
+    assert "sleepPhaseHover" in response.text
+    assert "id=\"timePan\"" in response.text
+    assert "panToSliderValue" in response.text
+    assert response.text.index("id=\"vitalsChart\"") < response.text.index("id=\"stateStrip\"") < response.text.index("id=\"oxygenTrendChart\"")
     assert "wheel:" in response.text
     assert "pinch:" in response.text
     assert "onPanComplete" in response.text
@@ -299,6 +319,9 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "challengeBands" in response.text
     assert "stateStrip" in response.text
     assert "Challenge data is excluded" in response.text
+    assert "challengeEditForm" in response.text
+    assert "Save edits" in response.text
+    assert "Delete challenge" in response.text
     assert "readings-grid" in response.text
     assert "reading-detail-panel" in response.text
     assert "click any row on the left" in response.text

@@ -74,12 +74,12 @@ DASHBOARD_HTML = r"""
     .chart-stack { display: grid; gap: 14px; }
     .chart-panel { padding: 14px; }
     .chart-frame { position: relative; width: 100%; }
-    .chart-frame.main { height: 390px; }
+    .chart-frame.main { height: 370px; }
     .chart-frame.companion { height: 190px; }
     .chart-frame.secondary { height: 240px; }
     .chart-frame canvas { display: block; width: 100% !important; height: 100% !important; }
     .companion-chart {
-      margin-top: 12px;
+      margin-top: 10px;
       padding-top: 12px;
       border-top: 1px solid var(--line);
       background: linear-gradient(180deg, rgba(248, 250, 252, .75), rgba(255, 255, 255, .45));
@@ -88,6 +88,13 @@ DASHBOARD_HTML = r"""
     .companion-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 6px; padding: 0 2px; }
     .companion-header h3 { color: var(--text); margin: 0; }
     .companion-note { margin: 5px 2px 0; color: var(--muted); font-size: .8rem; line-height: 1.35; }
+    .info-popover-wrap { position: relative; display: inline-flex; align-items: center; }
+    .info-button { width: 28px; height: 28px; border-radius: 999px; padding: 0; display: inline-grid; place-items: center; background: #eff6ff; color: #1d4ed8; font-weight: 950; }
+    .info-popover { display: none; position: absolute; right: 0; top: calc(100% + 8px); width: min(360px, calc(100vw - 32px)); z-index: 25; background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 14px; padding: 12px; color: var(--text); font-size: .84rem; line-height: 1.35; text-transform: none; letter-spacing: normal; }
+    .info-popover-wrap:hover .info-popover, .info-popover-wrap:focus-within .info-popover { display: block; }
+    .time-pan-control { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; margin-top: 8px; color: var(--muted); font-size: .78rem; }
+    .time-pan-control input[type="range"] { width: 100%; padding: 0; accent-color: var(--blue); }
+    .time-pan-control input[disabled] { opacity: .4; cursor: not-allowed; }
     .chart-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
     .chart-hint { color: var(--muted); font-size: .8rem; }
     .update-chip { opacity: 0; transform: translateY(-2px); color: var(--green); font-size: .8rem; font-weight: 900; transition: opacity .45s ease, transform .45s ease; }
@@ -109,7 +116,7 @@ DASHBOARD_HTML = r"""
     .crypto-change { font-weight: 900; }
     .notification-button { position: relative; }
     .notification-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: #fef2f2; color: #b91c1c; font-size: .72rem; font-weight: 900; }
-    .notifications-popover { position: absolute; right: 0; top: calc(100% + 8px); width: min(420px, calc(100vw - 28px)); background: #fff; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 12px; z-index: 30; }
+    .notifications-popover { position: absolute; right: 0; top: calc(100% + 8px); width: min(420px, calc(100vw - 28px)); max-height: min(72vh, 520px); overflow: auto; background: #fff; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 12px; z-index: 30; }
     .notifications-popover.hidden { display: none; }
     .notification-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; }
     .notification-item { border: 1px solid var(--line); border-left: 5px solid var(--amber); border-radius: 13px; padding: 9px 10px; background: #fffaf0; }
@@ -119,7 +126,7 @@ DASHBOARD_HTML = r"""
     .notification-meta { color: var(--muted); font-size: .78rem; margin-top: 3px; line-height: 1.3; }
     .challenge-button { background: #eff6ff; color: #1d4ed8; }
     .challenge-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: #dbeafe; color: #1d4ed8; font-size: .72rem; font-weight: 900; }
-    .challenge-popover { position: absolute; right: 0; top: calc(100% + 8px); width: min(520px, calc(100vw - 28px)); background: #fff; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 12px; z-index: 32; }
+    .challenge-popover { position: absolute; right: 0; top: calc(100% + 8px); width: min(520px, calc(100vw - 28px)); max-height: min(74vh, 620px); overflow: auto; background: #fff; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 12px; z-index: 32; }
     .challenge-popover.hidden, .challenge-modal.hidden { display: none; }
     .challenge-list { display: grid; gap: 8px; max-height: 390px; overflow: auto; }
     .challenge-item { border: 1px solid #bfdbfe; border-left: 5px solid var(--blue); border-radius: 13px; padding: 9px 10px; background: #eff6ff; }
@@ -127,11 +134,22 @@ DASHBOARD_HTML = r"""
     .challenge-title { display: flex; justify-content: space-between; gap: 8px; font-weight: 900; }
     .challenge-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 7px; font-size: .78rem; }
     .challenge-metrics span { background: rgba(255,255,255,.68); border: 1px solid rgba(191,219,254,.8); border-radius: 10px; padding: 5px 6px; }
-    .challenge-modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: rgba(15, 23, 42, .35); }
+    .challenge-modal { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 16px; background: rgba(15, 23, 42, .35); }
     .challenge-modal-card { width: min(980px, 100%); max-height: min(780px, calc(100vh - 32px)); overflow: auto; background: #fff; border-radius: 22px; box-shadow: var(--shadow); padding: 16px; }
+    .challenge-edit-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; padding: 12px; background: #f8fafc; border: 1px solid var(--line); border-radius: 16px; }
+    .challenge-edit-form label { display: grid; gap: 5px; }
+    .challenge-edit-form input, .challenge-edit-form textarea { width: 100%; }
+    .challenge-edit-form textarea { min-height: 66px; resize: vertical; }
+    .challenge-edit-form .full { grid-column: 1 / -1; }
+    .danger-button { background: #fff1f2; color: #991b1b; border-color: #fecdd3; }
     .challenge-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
     .challenge-summary-grid .mini { min-width: 0; }
-    .state-strip { display: flex; height: 16px; border-radius: 999px; overflow: hidden; background: #e2e8f0; border: 1px solid var(--line); margin: 8px 0 0; }
+    .state-strip-wrap { margin: -2px var(--chart-right-pad, 0px) 0 var(--chart-left-pad, 0px); }
+    .state-strip { display: flex; height: 18px; border-radius: 0 0 10px 10px; overflow: hidden; background: #e2e8f0; border: 1px solid var(--line); border-top: 0; cursor: crosshair; }
+    .state-segment { min-width: 1px; }
+    .state-segment:hover { filter: saturate(1.2) brightness(1.03); }
+    .state-time-axis { position: relative; height: 18px; color: var(--muted); font-size: .72rem; }
+    .state-time-axis span { position: absolute; top: 3px; transform: translateX(-50%); white-space: nowrap; }
     .state-segment.light { background: rgba(124, 58, 237, .72); }
     .state-segment.deep { background: rgba(37, 99, 235, .72); }
     .state-segment.awake { background: rgba(180, 83, 9, .72); }
@@ -193,7 +211,7 @@ DASHBOARD_HTML = r"""
       h1 { font-size: clamp(1.75rem, 12vw, 2.7rem); }
       .subtitle { display: none; }
       .toolbar, .panel, .card { border-radius: 16px; box-shadow: 0 10px 26px rgba(15, 23, 42, .08); }
-      .toolbar { padding: 7px; gap: 7px; margin: 8px 0; }
+      .toolbar { padding: 7px; gap: 7px; margin: 8px 0; backdrop-filter: none; }
       .control-group { gap: 6px; width: 100%; }
       .filter-cluster { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
       .filter-cluster select { width: 100%; }
@@ -215,6 +233,13 @@ DASHBOARD_HTML = r"""
       .chart-frame.main { height: 430px; }
       .chart-frame.companion { height: 215px; }
       .chart-frame.secondary { height: 295px; }
+      .notifications-popover, .challenge-popover { position: fixed; left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; max-height: min(78vh, 620px); border-radius: 18px; z-index: 60; }
+      .challenge-modal { align-items: end; padding: 8px; }
+      .challenge-modal-card { width: 100%; max-height: 88vh; border-radius: 18px 18px 12px 12px; padding: 12px; }
+      .challenge-summary-grid, .challenge-edit-form { grid-template-columns: 1fr; }
+      .challenge-edit-form .full { grid-column: auto; }
+      .time-pan-control { grid-template-columns: 1fr; gap: 4px; }
+      .state-time-axis { font-size: .66rem; }
       .small { font-size: .76rem; }
       .big { font-size: 2rem; }
       .mini-row { gap: 6px; }
@@ -337,23 +362,32 @@ DASHBOARD_HTML = r"""
           </div>
         </div>
         <div class="chart-frame main"><canvas id="vitalsChart"></canvas></div>
+        <div id="stateStripWrap" class="state-strip-wrap" title="Sleep/wake/offline state across the visible vitals window">
+          <div id="stateStrip" class="state-strip"></div>
+          <div id="stateTimeAxis" class="state-time-axis"></div>
+        </div>
         <div class="companion-chart" aria-label="Oxygen trend companion chart">
           <div class="companion-header">
             <h3>O₂ trend companion</h3>
-            <span class="small">MACD-style: recent 30m O₂ average vs 4h baseline</span>
+            <span class="info-popover-wrap">
+              <button class="info-button" type="button" aria-label="How to read the O₂ trend companion">i</button>
+              <span class="info-popover" role="tooltip">
+                This is a MACD-style trend view for oxygen. The blue line is the recent 30-minute O₂ average. The purple dashed line is the 4-hour baseline. Green bars mean recent O₂ is running above baseline; red bars mean it is running below baseline. Offline gaps and oxygen challenges are not bridged — the averages restart after those gaps.
+              </span>
+            </span>
           </div>
           <div class="chart-frame companion"><canvas id="oxygenTrendChart"></canvas></div>
-          <p class="companion-note">
-            Bars above zero mean recent O₂ is running higher than the 4h baseline; bars below zero mean recent O₂ is running lower.
-            Offline/missing-data and oxygen challenge periods become visible gaps, and the moving averages restart after the gap.
-          </p>
         </div>
-        <div id="stateStrip" class="state-strip" title="Sleep/wake/offline state across the visible vitals window"></div>
         <div class="state-legend">
           <span style="--dot: rgba(124,58,237,.72)">light sleep</span>
           <span style="--dot: rgba(37,99,235,.72)">deep sleep</span>
           <span style="--dot: rgba(180,83,9,.72)">awake</span>
           <span style="--dot: rgba(239,68,68,.5)">offline</span>
+        </div>
+        <div class="time-pan-control">
+          <span id="panStartLabel">—</span>
+          <input id="timePan" type="range" min="0" max="1000" value="0" disabled aria-label="Scroll visible time window" />
+          <span id="panEndLabel">—</span>
         </div>
       </div>
       <div class="panel chart-panel secondary-chart">
@@ -410,6 +444,24 @@ DASHBOARD_HTML = r"""
         <button id="closeChallengeModal" type="button">Close</button>
       </div>
       <div id="challengeSummary" class="challenge-summary-grid"></div>
+      <form id="challengeEditForm" class="challenge-edit-form">
+        <label>Label
+          <input id="challengeEditLabel" name="label" type="text" />
+        </label>
+        <label>Start time
+          <input id="challengeEditStart" name="start_time" type="datetime-local" />
+        </label>
+        <label>End time
+          <input id="challengeEditEnd" name="end_time" type="datetime-local" />
+        </label>
+        <label class="full">Notes
+          <textarea id="challengeEditNotes" name="notes"></textarea>
+        </label>
+        <div class="control-group full" style="justify-content: space-between;">
+          <button id="saveChallengeEdits" type="submit">Save edits</button>
+          <button id="deleteChallenge" class="danger-button" type="button">Delete challenge</button>
+        </div>
+      </form>
       <div class="chart-frame secondary"><canvas id="challengeDetailChart"></canvas></div>
       <p class="small" id="challengeNotes"></p>
     </div>
@@ -441,6 +493,16 @@ DASHBOARD_HTML = r"""
     let zoomWindow = null;
     let lastLatestTimestamp = null;
     let deferredInstallPrompt = null;
+    let currentChallengeDetail = null;
+    let hoveredStateInterval = null;
+
+    const sleepPhaseColors = {
+      light: 'rgba(124, 58, 237, .13)',
+      deep: 'rgba(37, 99, 235, .13)',
+      awake: 'rgba(180, 83, 9, .13)',
+      inactive: 'rgba(148, 163, 184, .12)',
+      offline: 'rgba(239, 68, 68, .14)'
+    };
 
     const offlineBandsPlugin = {
       id: 'offlineBands',
@@ -551,7 +613,23 @@ DASHBOARD_HTML = r"""
         }
       }
     };
-    Chart.register(challengeBandsPlugin, offlineBandsPlugin, notificationGlyphsPlugin, notificationHoverPlugin);
+    const sleepPhaseHoverPlugin = {
+      id: 'sleepPhaseHover',
+      beforeDatasetsDraw(chart) {
+        if (chart.canvas.id !== 'vitalsChart' || !hoveredStateInterval || !chart.scales?.x) return;
+        const { ctx, chartArea, scales } = chart;
+        const left = Math.max(chartArea.left, scales.x.getPixelForValue(hoveredStateInterval.start));
+        const right = Math.min(chartArea.right, scales.x.getPixelForValue(hoveredStateInterval.end));
+        if (!Number.isFinite(left) || !Number.isFinite(right) || right <= left) return;
+        ctx.save();
+        ctx.fillStyle = sleepPhaseColors[hoveredStateInterval.cls] || sleepPhaseColors.inactive;
+        ctx.strokeStyle = ctx.fillStyle.replace('.13', '.34').replace('.14', '.34').replace('.12', '.30');
+        ctx.fillRect(left, chartArea.top, right - left, chartArea.bottom - chartArea.top);
+        ctx.strokeRect(left, chartArea.top, right - left, chartArea.bottom - chartArea.top);
+        ctx.restore();
+      }
+    };
+    Chart.register(challengeBandsPlugin, offlineBandsPlugin, sleepPhaseHoverPlugin, notificationGlyphsPlugin, notificationHoverPlugin);
 
     const el = (id) => document.getElementById(id);
     const fmt = (value, suffix = '') => value === null || value === undefined ? '—' : `${value}${suffix}`;
@@ -590,6 +668,18 @@ DASHBOARD_HTML = r"""
       const date = new Date(iso);
       if (compact) return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       return date.toLocaleString([], { dateStyle: 'short', timeStyle: 'medium' });
+    }
+
+    function toDateTimeLocal(iso) {
+      if (!iso) return '';
+      const date = new Date(iso);
+      if (Number.isNaN(date.getTime())) return '';
+      const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+      return local.toISOString().slice(0, 16);
+    }
+
+    function fromDateTimeLocal(value) {
+      return value ? new Date(value).toISOString() : null;
     }
 
     function average(values) {
@@ -927,21 +1017,21 @@ DASHBOARD_HTML = r"""
       return `${context.dataset.label}: ${value === null || value === undefined ? '—' : value}`;
     }
 
-    function legendOptions() {
+    function legendOptions(overrides = {}) {
       const mobile = window.matchMedia('(max-width: 640px)').matches;
       return {
-        position: mobile ? 'chartArea' : 'bottom',
-        align: 'start',
+        position: overrides.position || (mobile ? 'chartArea' : 'bottom'),
+        align: overrides.align || 'start',
         labels: { boxWidth: mobile ? 8 : 12, boxHeight: mobile ? 8 : 12, padding: mobile ? 6 : 12, usePointStyle: true, font: { size: mobile ? 10 : 12 } }
       };
     }
 
-    function xScaleOptions() {
+    function xScaleOptions({ hideTicks = false } = {}) {
       return {
         type: 'linear',
         min: zoomWindow?.min,
         max: zoomWindow?.max,
-        ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: window.matchMedia('(max-width: 640px)').matches ? 6 : 14, callback: timeTick }
+        ticks: { display: !hideTicks, maxRotation: 0, autoSkip: true, maxTicksLimit: window.matchMedia('(max-width: 640px)').matches ? 6 : 14, callback: timeTick }
       };
     }
 
@@ -959,9 +1049,9 @@ DASHBOARD_HTML = r"""
       };
     }
 
-    function chartOptions(extraScales) {
+    function chartOptions(extraScales, options = {}) {
       const mobile = window.matchMedia('(max-width: 640px)').matches;
-      const scales = { x: xScaleOptions(), ...extraScales };
+      const scales = { x: xScaleOptions({ hideTicks: options.hideXTicks }), ...extraScales };
       if (mobile) {
         Object.entries(scales).forEach(([key, scale]) => {
           if (key !== 'x' && scale.title) scale.title.display = false;
@@ -973,7 +1063,7 @@ DASHBOARD_HTML = r"""
         maintainAspectRatio: false,
         animation: { duration: 450 },
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: legendOptions(), tooltip: { callbacks: { label: tooltipLabel } }, zoom: zoomOptions(), challengeBands: { intervals: challengeIntervals() }, offlineBands: { intervals: offlineIntervals() } },
+        plugins: { legend: legendOptions(options.legend || {}), tooltip: { callbacks: { label: tooltipLabel } }, zoom: zoomOptions(), challengeBands: { intervals: challengeIntervals() }, offlineBands: { intervals: offlineIntervals() } },
         scales
       };
     }
@@ -1040,6 +1130,7 @@ DASHBOARD_HTML = r"""
         chart.update('none');
       });
       renderStateStrip();
+      updatePanControl();
       syncInProgress = false;
     }
 
@@ -1052,6 +1143,7 @@ DASHBOARD_HTML = r"""
         chart.update('none');
       });
       renderStateStrip();
+      updatePanControl();
     }
 
     function upsertChart(existing, canvasId, config) {
@@ -1083,17 +1175,67 @@ DASHBOARD_HTML = r"""
           spo2: { type: 'linear', position: 'right', suggestedMin: 88, suggestedMax: 100, grid: { drawOnChartArea: false }, title: { display: true, text: 'SpO₂' } },
           btc: { type: 'linear', position: 'right', display: false, grid: { drawOnChartArea: false } },
           move: { display: false }
-        })
+        }, { hideXTicks: true, legend: { position: 'top', align: 'end' } })
       });
       attachNotificationHover(vitalsChart);
       renderOxygenTrendChart();
       renderStateStrip();
+      updatePanControl();
     }
 
     function visibleRange() {
       if (zoomWindow) return zoomWindow;
       const times = readings.map(row => Date.parse(row.recorded_at)).filter(Number.isFinite);
       return times.length ? { min: Math.min(...times), max: Math.max(...times) } : null;
+    }
+
+    function fullDataRange() {
+      const times = readings.map(row => Date.parse(row.recorded_at)).filter(Number.isFinite);
+      return times.length ? { min: Math.min(...times), max: Math.max(...times) } : null;
+    }
+
+    function updatePrimaryChartAlignment() {
+      if (!vitalsChart?.chartArea) return;
+      const { left, right } = vitalsChart.chartArea;
+      const width = vitalsChart.width || 0;
+      el('stateStripWrap').style.setProperty('--chart-left-pad', `${Math.max(0, left)}px`);
+      el('stateStripWrap').style.setProperty('--chart-right-pad', `${Math.max(0, width - right)}px`);
+    }
+
+    function updatePanControl() {
+      const slider = el('timePan');
+      const full = fullDataRange();
+      const visible = visibleRange();
+      if (!full || !visible || full.max <= full.min) {
+        slider.disabled = true;
+        el('panStartLabel').textContent = '—';
+        el('panEndLabel').textContent = '—';
+        return;
+      }
+      const width = visible.max - visible.min;
+      const span = full.max - full.min;
+      slider.disabled = width >= span - 1000;
+      slider.value = slider.disabled ? 0 : Math.round(((visible.min - full.min) / Math.max(1, span - width)) * 1000);
+      el('panStartLabel').textContent = timeTick(visible.min);
+      el('panEndLabel').textContent = timeTick(visible.max);
+    }
+
+    function panToSliderValue(value) {
+      const full = fullDataRange();
+      const visible = visibleRange();
+      if (!full || !visible) return;
+      const width = visible.max - visible.min;
+      const maxStart = full.max - width;
+      if (maxStart <= full.min) return;
+      const start = full.min + (Number(value) / 1000) * (maxStart - full.min);
+      zoomWindow = { min: start, max: start + width };
+      chartList().forEach(chart => {
+        chart.options.scales.x.min = zoomWindow.min;
+        chart.options.scales.x.max = zoomWindow.max;
+        chart.update('none');
+      });
+      renderStateStrip();
+      updatePanControl();
     }
 
     function stateClass(row) {
@@ -1107,8 +1249,10 @@ DASHBOARD_HTML = r"""
 
     function renderStateStrip() {
       const range = visibleRange();
+      updatePrimaryChartAlignment();
       if (!range || range.max <= range.min || !readings.length) {
         el('stateStrip').innerHTML = '';
+        el('stateTimeAxis').innerHTML = '';
         return;
       }
       const segments = [];
@@ -1118,9 +1262,28 @@ DASHBOARD_HTML = r"""
         const left = Math.max(start, range.min);
         const right = Math.min(next, range.max);
         if (!Number.isFinite(left) || !Number.isFinite(right) || right <= left) return;
-        segments.push({ cls: stateClass(row), width: ((right - left) / (range.max - range.min)) * 100, label: `${stateLabel(row.sleep_state)} · ${localTime(row.recorded_at)}` });
+        const cls = stateClass(row);
+        const label = `${isOffline(row) ? 'offline / sock off' : stateLabel(row.sleep_state)} · ${localTime(row.recorded_at)}`;
+        segments.push({ cls, start: left, end: right, width: ((right - left) / (range.max - range.min)) * 100, label });
       });
-      el('stateStrip').innerHTML = segments.map(segment => `<span class="state-segment ${segment.cls}" title="${segment.label}" style="width:${Math.max(.15, segment.width)}%"></span>`).join('');
+      el('stateStrip').innerHTML = segments.map(segment => `<span class="state-segment ${segment.cls}" title="${segment.label}" data-start="${segment.start}" data-end="${segment.end}" data-cls="${segment.cls}" style="width:${Math.max(.15, segment.width)}%"></span>`).join('');
+      const ticks = [0, .25, .5, .75, 1].map(position => `<span style="left:${position * 100}%">${timeTick(range.min + (range.max - range.min) * position)}</span>`).join('');
+      el('stateTimeAxis').innerHTML = ticks;
+      [...el('stateStrip').querySelectorAll('.state-segment')].forEach(segment => {
+        const setHover = () => {
+          hoveredStateInterval = { start: Number(segment.dataset.start), end: Number(segment.dataset.end), cls: segment.dataset.cls };
+          vitalsChart?.update('none');
+        };
+        const clearHover = () => {
+          hoveredStateInterval = null;
+          vitalsChart?.update('none');
+        };
+        segment.addEventListener('mouseenter', setHover);
+        segment.addEventListener('focus', setHover);
+        segment.addEventListener('touchstart', setHover, { passive: true });
+        segment.addEventListener('mouseleave', clearHover);
+        segment.addEventListener('blur', clearHover);
+      });
     }
 
     function renderOxygenTrendChart() {
@@ -1288,13 +1451,23 @@ DASHBOARD_HTML = r"""
     }
 
     async function openChallengeDetail(id) {
+      el('challengesPanel').classList.add('hidden');
+      el('challengesToggle').setAttribute('aria-expanded', 'false');
+      el('notificationsPanel').classList.add('hidden');
+      el('notificationsToggle').setAttribute('aria-expanded', 'false');
       const detail = await fetchJson(`${API_BASE}/api/oxygen-challenges/${id}`);
+      currentChallengeDetail = detail;
       const summary = detail.summary || {};
       const prior = detail.prior_summary || {};
       const comparison = detail.comparison || {};
       el('challengeModalTitle').textContent = detail.label || 'Oxygen challenge';
       el('challengeModalMeta').textContent = `${localTime(detail.start_time)} → ${detail.active ? 'active' : localTime(detail.effective_end_time)} · ${durationText(summary.duration_seconds)} off oxygen`;
       el('challengeNotes').textContent = detail.notes || 'Challenge data is excluded from normal dashboard averages and compared against the same-length window immediately before oxygen came off.';
+      el('challengeEditForm').style.display = SHARE_MODE ? 'none' : 'grid';
+      el('challengeEditLabel').value = detail.label || 'Oxygen challenge';
+      el('challengeEditStart').value = toDateTimeLocal(detail.start_time);
+      el('challengeEditEnd').value = detail.end_time ? toDateTimeLocal(detail.end_time) : '';
+      el('challengeEditNotes').value = detail.notes || '';
       el('challengeSummary').innerHTML = [
         ['Avg O₂', fmt(summary.avg_oxygen_saturation, '%'), `vs prior ${fmt(prior.avg_oxygen_saturation, '%')} (${signed(comparison.avg_oxygen_delta, ' pts')})`],
         ['Min O₂', fmt(summary.min_oxygen_saturation, '%'), `vs prior ${fmt(prior.min_oxygen_saturation, '%')} (${signed(comparison.min_oxygen_delta, ' pts')})`],
@@ -1303,6 +1476,44 @@ DASHBOARD_HTML = r"""
       ].map(([label, value, foot]) => `<div class="mini"><span class="eyebrow">${label}</span><b>${value}</b><small>${foot}</small></div>`).join('');
       el('challengeModal').classList.remove('hidden');
       renderChallengeDetailChart(detail);
+    }
+
+    async function saveChallengeEdits(event) {
+      event.preventDefault();
+      if (!currentChallengeDetail) return;
+      const payload = {
+        label: el('challengeEditLabel').value || 'Oxygen challenge',
+        start_time: fromDateTimeLocal(el('challengeEditStart').value),
+        notes: el('challengeEditNotes').value || ''
+      };
+      if (!payload.start_time) {
+        alert('Start time is required.');
+        return;
+      }
+      const endTime = fromDateTimeLocal(el('challengeEditEnd').value);
+      if (endTime) payload.end_time = endTime;
+      const response = await fetch(`${API_BASE}/api/oxygen-challenges/${currentChallengeDetail.id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) throw new Error(`Could not update challenge: ${response.status}`);
+      await refresh();
+      await openChallengeDetail(currentChallengeDetail.id);
+    }
+
+    async function deleteCurrentChallenge() {
+      if (!currentChallengeDetail) return;
+      if (!window.confirm('Delete this oxygen challenge? Its readings will return to normal stats.')) return;
+      const response = await fetch(`${API_BASE}/api/oxygen-challenges/${currentChallengeDetail.id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error(`Could not delete challenge: ${response.status}`);
+      currentChallengeDetail = null;
+      el('challengeModal').classList.add('hidden');
+      await refresh();
     }
 
     function renderChallengeDetailChart(detail) {
@@ -1389,6 +1600,8 @@ DASHBOARD_HTML = r"""
     el('download').addEventListener('click', downloadCsv);
     el('resetZoom').addEventListener('click', resetZoom);
     el('challengesToggle').addEventListener('click', () => {
+      el('notificationsPanel').classList.add('hidden');
+      el('notificationsToggle').setAttribute('aria-expanded', 'false');
       const panel = el('challengesPanel');
       const hidden = panel.classList.toggle('hidden');
       el('challengesToggle').setAttribute('aria-expanded', String(!hidden));
@@ -1396,8 +1609,13 @@ DASHBOARD_HTML = r"""
     el('startChallenge').addEventListener('click', startChallenge);
     el('endChallenge').addEventListener('click', endActiveChallenge);
     el('markVisibleChallenge').addEventListener('click', markVisibleChallenge);
-    el('closeChallengeModal').addEventListener('click', () => el('challengeModal').classList.add('hidden'));
+    el('closeChallengeModal').addEventListener('click', () => { currentChallengeDetail = null; el('challengeModal').classList.add('hidden'); });
+    el('challengeEditForm').addEventListener('submit', saveChallengeEdits);
+    el('deleteChallenge').addEventListener('click', deleteCurrentChallenge);
+    el('timePan').addEventListener('input', event => panToSliderValue(event.target.value));
     el('notificationsToggle').addEventListener('click', () => {
+      el('challengesPanel').classList.add('hidden');
+      el('challengesToggle').setAttribute('aria-expanded', 'false');
       const panel = el('notificationsPanel');
       const hidden = panel.classList.toggle('hidden');
       el('notificationsToggle').setAttribute('aria-expanded', String(!hidden));
@@ -1407,7 +1625,7 @@ DASHBOARD_HTML = r"""
     ['vitalsChart', 'oxygenTrendChart', 'rollupChart', 'stateChart'].forEach(id => {
       el(id).addEventListener('dblclick', resetZoom);
     });
-    window.addEventListener('resize', () => chartList().forEach(chart => { chart.options.plugins.legend = legendOptions(); chart.update('none'); }));
+    window.addEventListener('resize', () => { renderCharts(); renderRollups(); updatePanControl(); });
     if ('serviceWorker' in navigator && !SHARE_MODE) {
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').then(updateInstallButton).catch(updateInstallButton));
     }
