@@ -159,11 +159,13 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert 'rel="manifest"' in response.text
     assert "serviceWorker" in response.text
     assert "offlineBands" in response.text
-    assert response.text.index("id=\"vitalsChart\"") < response.text.index("Today at a glance")
+    assert 'id="installApp"' in response.text
+    assert response.text.index("aria-label=\"At a glance\"") < response.text.index("id=\"vitalsChart\"")
     assert response.text.index("id=\"rollupChart\"") < response.text.index("id=\"stateChart\"")
-    assert "Today at a glance" in response.text
-    assert "Breathing trend" in response.text
-    assert "Drill-down" in response.text
+    assert "O₂ now" in response.text
+    assert "O₂ today" in response.text
+    assert "Heart rate" in response.text
+    assert "Trend" in response.text
 
 
 def test_pwa_assets_are_served(tmp_path):
@@ -176,6 +178,7 @@ def test_pwa_assets_are_served(tmp_path):
         icon = client.get("/icon-192.png")
 
     assert manifest.status_code == 200
+    assert manifest.json()["id"] == "/"
     assert manifest.json()["display"] == "standalone"
     assert manifest.json()["start_url"] == "/"
     assert worker.status_code == 200

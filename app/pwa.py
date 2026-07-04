@@ -3,6 +3,7 @@ from __future__ import annotations
 MANIFEST = {
     "name": "Owlet Dashboard",
     "short_name": "Owlet",
+    "id": "/",
     "description": "Private Owlet Dream Sock / Smart Sock history dashboard.",
     "start_url": "/",
     "scope": "/",
@@ -10,6 +11,7 @@ MANIFEST = {
     "background_color": "#f5f7fb",
     "theme_color": "#122033",
     "orientation": "portrait-primary",
+    "categories": ["health", "utilities"],
     "icons": [
         {
             "src": "/icon-192.png",

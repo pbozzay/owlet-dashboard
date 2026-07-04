@@ -58,6 +58,8 @@ DASHBOARD_HTML = r"""
     .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 10px; margin: 14px 0; position: sticky; top: 8px; z-index: 10; }
     .control-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .refresh-cluster { margin-left: auto; justify-content: flex-end; }
+    .install-button { display: none; }
+    .install-button.show { display: inline-flex; align-items: center; gap: 6px; }
     label { color: var(--muted); font-size: .86rem; font-weight: 800; }
     select, input, button {
       border: 1px solid var(--line); background: #fff; color: var(--text); border-radius: 12px;
@@ -80,7 +82,12 @@ DASHBOARD_HTML = r"""
     .update-chip.show { opacity: 1; transform: translateY(0); }
     .pulse-new { animation: pulseNew .9s ease; }
     @keyframes pulseNew { 0% { background: #dcfce7; } 100% { background: transparent; } }
-    .insight-grid { grid-template-columns: 1.1fr 1fr 1fr; margin-top: 14px; }
+    .glance-strip { display: grid; grid-template-columns: 1.15fr repeat(4, minmax(150px, .75fr)); gap: 10px; margin: 10px 0 14px; }
+    .glance-card { min-height: 92px; padding: 12px 13px; }
+    .glance-card strong { display: block; font-size: clamp(1.45rem, 3vw, 2.25rem); line-height: 1; letter-spacing: -.045em; margin: 4px 0; }
+    .glance-card small { display: block; color: var(--muted); line-height: 1.25; }
+    .glance-card .inline-stat { color: var(--text); font-weight: 850; }
+    .glance-progress { height: 7px; margin-top: 7px; }
     .metric-grid { grid-template-columns: repeat(4, minmax(140px, 1fr)); margin-top: 14px; }
     .card, .panel { padding: 16px; }
     .hero-card { min-height: 172px; }
@@ -114,7 +121,9 @@ DASHBOARD_HTML = r"""
     .progress span:nth-child(3) { background: var(--amber); }
     @media (max-width: 1080px) {
       .hero { align-items: flex-start; flex-direction: column; }
-      .insight-grid, .metric-grid, .details-grid { grid-template-columns: 1fr; }
+      .glance-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .glance-card:first-child { grid-column: span 2; }
+      .metric-grid, .details-grid { grid-template-columns: 1fr; }
       .status { white-space: normal; }
       .toolbar { position: static; }
       .chart-frame.main { height: 360px; }
@@ -131,10 +140,16 @@ DASHBOARD_HTML = r"""
       .filter-cluster { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
       .filter-cluster select { width: 100%; }
       .refresh-cluster { width: 100%; justify-content: space-between; }
+      .install-button.show { display: inline-flex; }
       label { font-size: .76rem; }
       select, button { padding: .45rem .55rem; border-radius: 10px; font-size: .86rem; }
       button.icon-button { width: 34px; height: 34px; }
       .chart-stack, .grid { gap: 8px; }
+      .glance-strip { gap: 7px; margin: 8px 0; }
+      .glance-card { min-height: 66px; padding: 8px 9px; }
+      .glance-card:first-child { grid-column: span 1; }
+      .glance-card strong { font-size: 1.35rem; margin: 2px 0; }
+      .glance-card small { font-size: .75rem; }
       .chart-panel, .panel, .card { padding: 9px; }
       .panel-title { gap: 8px; margin-bottom: 5px; align-items: flex-start; }
       .panel-title { flex-wrap: wrap; }
@@ -187,9 +202,42 @@ DASHBOARD_HTML = r"""
         </select>
       </div>
       <div class="control-group refresh-cluster">
+        <button id="installApp" class="install-button" type="button" title="Install Owlet as an app">Install app</button>
         <span class="small" id="refreshNote">Refreshing…</span>
         <button id="refresh" class="primary">Refresh</button>
       </div>
+    </section>
+
+    <section class="glance-strip" aria-label="At a glance">
+      <article class="card glance-card">
+        <span class="eyebrow">O₂ now</span>
+        <strong id="latestOxygen">—</strong>
+        <small id="latestSummary">Waiting for latest reading…</small>
+      </article>
+      <article class="card glance-card">
+        <span class="eyebrow">O₂ today</span>
+        <strong id="todayOxygen">—</strong>
+        <small>Recent <span class="inline-stat" id="recentOxygen">—</span> · Prior <span class="inline-stat" id="priorOxygen">—</span> · Low <span class="inline-stat" id="lowOxygen">—</span></small>
+      </article>
+      <article class="card glance-card">
+        <span class="eyebrow">Heart rate</span>
+        <strong id="latestHr">—</strong>
+        <small>State <span class="inline-stat" id="latestState">—</span> · Move <span class="inline-stat" id="latestMove">—</span></small>
+      </article>
+      <article class="card glance-card">
+        <span class="eyebrow">Trend</span>
+        <strong id="breathingDirection">—</strong>
+        <small id="breathingSentence">Not enough data yet.</small>
+      </article>
+      <article class="card glance-card">
+        <span class="eyebrow">Sleep</span>
+        <strong id="sleepTotal">—</strong>
+        <small id="sleepSummary">Estimated from intervals.</small>
+        <div class="progress glance-progress" title="Light sleep / deep sleep / awake">
+          <span id="lightBar"></span><span id="deepBar"></span><span id="awakeBar"></span>
+        </div>
+        <small>Light <span class="inline-stat" id="lightSleep">—</span> · Deep <span class="inline-stat" id="deepSleep">—</span> · Awake <span class="inline-stat" id="awakeTime">—</span></small>
+      </article>
     </section>
 
     <section class="chart-stack" aria-label="Primary charts">
@@ -222,42 +270,6 @@ DASHBOARD_HTML = r"""
         </div>
         <div class="chart-frame secondary"><canvas id="stateChart"></canvas></div>
       </div>
-    </section>
-
-    <section class="grid insight-grid">
-      <article class="card hero-card">
-        <h3>Today at a glance</h3>
-        <div class="big" id="latestOxygen">—</div>
-        <div class="sub" id="latestSummary">Waiting for latest reading…</div>
-        <div class="mini-row">
-          <div class="mini"><span class="eyebrow">Heart</span><b id="latestHr">—</b></div>
-          <div class="mini"><span class="eyebrow">State</span><b id="latestState">—</b></div>
-          <div class="mini"><span class="eyebrow">Move</span><b id="latestMove">—</b></div>
-        </div>
-      </article>
-      <article class="card hero-card">
-        <h3>Breathing trend</h3>
-        <div class="big" id="breathingDirection">—</div>
-        <div class="insight-text" id="breathingSentence">Not enough data yet.</div>
-        <div class="mini-row">
-          <div class="mini"><span class="eyebrow">Recent avg O₂</span><b id="recentOxygen">—</b></div>
-          <div class="mini"><span class="eyebrow">Prior avg O₂</span><b id="priorOxygen">—</b></div>
-          <div class="mini"><span class="eyebrow">Low O₂ samples</span><b id="lowOxygen">—</b></div>
-        </div>
-      </article>
-      <article class="card hero-card">
-        <h3>Sleep / awake estimate</h3>
-        <div class="big" id="sleepTotal">—</div>
-        <div class="sub" id="sleepSummary">Estimated from reading intervals in this window.</div>
-        <div class="progress" title="Light sleep / deep sleep / awake">
-          <span id="lightBar"></span><span id="deepBar"></span><span id="awakeBar"></span>
-        </div>
-        <div class="mini-row">
-          <div class="mini"><span class="eyebrow">Light</span><b id="lightSleep">—</b></div>
-          <div class="mini"><span class="eyebrow">Deep</span><b id="deepSleep">—</b></div>
-          <div class="mini"><span class="eyebrow">Awake</span><b id="awakeTime">—</b></div>
-        </div>
-      </article>
     </section>
 
     <section class="grid metric-grid" id="metricCards"></section>
@@ -304,6 +316,7 @@ DASHBOARD_HTML = r"""
     let syncInProgress = false;
     let zoomWindow = null;
     let lastLatestTimestamp = null;
+    let deferredInstallPrompt = null;
 
     const offlineBandsPlugin = {
       id: 'offlineBands',
@@ -347,6 +360,23 @@ DASHBOARD_HTML = r"""
       const date = new Date(iso);
       if (compact) return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       return date.toLocaleString([], { dateStyle: 'short', timeStyle: 'medium' });
+    }
+
+    function average(values) {
+      const clean = values.filter(value => value !== null && value !== undefined && Number.isFinite(Number(value))).map(Number);
+      if (!clean.length) return null;
+      return clean.reduce((sum, value) => sum + value, 0) / clean.length;
+    }
+
+    function todayAverageOxygen() {
+      const latest = readings[readings.length - 1];
+      if (!latest) return null;
+      const latestDate = new Date(latest.recorded_at);
+      const sameLocalDay = readings.filter(row => {
+        const date = new Date(row.recorded_at);
+        return !isOffline(row) && date.toDateString() === latestDate.toDateString();
+      });
+      return average(sameLocalDay.map(row => row.oxygen_saturation));
     }
 
     function timeTick(value) {
@@ -416,6 +446,8 @@ DASHBOARD_HTML = r"""
     function renderInsights() {
       const latest = insights.latest;
       el('latestOxygen').textContent = latest ? fmt(latest.oxygen_saturation, '% O₂') : '—';
+      const todayO2 = todayAverageOxygen();
+      el('todayOxygen').textContent = todayO2 === null ? '—' : `${todayO2.toFixed(1).replace(/\.0$/, '')}%`;
       el('latestHr').textContent = latest ? fmt(latest.heart_rate, ' bpm') : '—';
       el('latestState').textContent = latest ? latest.sleep_state_label : '—';
       el('latestMove').textContent = latest ? num(latest.movement) : '—';
@@ -681,6 +713,38 @@ DASHBOARD_HTML = r"""
       if (secondsUntilRefresh === 0) refresh();
     }
 
+    function updateInstallButton() {
+      const button = el('installApp');
+      if (SHARE_MODE || window.matchMedia('(display-mode: standalone)').matches) {
+        button.classList.remove('show');
+        return;
+      }
+      button.classList.add('show');
+      button.textContent = deferredInstallPrompt ? 'Install app' : 'Install help';
+    }
+
+    window.addEventListener('beforeinstallprompt', event => {
+      event.preventDefault();
+      deferredInstallPrompt = event;
+      updateInstallButton();
+    });
+
+    window.addEventListener('appinstalled', () => {
+      deferredInstallPrompt = null;
+      el('installApp').classList.remove('show');
+    });
+
+    el('installApp').addEventListener('click', async () => {
+      if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        await deferredInstallPrompt.userChoice.catch(() => null);
+        deferredInstallPrompt = null;
+        updateInstallButton();
+        return;
+      }
+      alert('Chrome may hide the install shortcut after the app is already installed, before the page finishes loading, or behind Cloudflare Access until you are logged in. Use Chrome menu → Cast, save, and share → Install page as app.');
+    });
+
     el('window').addEventListener('change', () => refresh({ resetZoom: true }));
     el('bucket').addEventListener('change', () => refresh({ resetZoom: true }));
     el('refresh').addEventListener('click', () => refresh());
@@ -691,8 +755,9 @@ DASHBOARD_HTML = r"""
     });
     window.addEventListener('resize', () => chartList().forEach(chart => { chart.options.plugins.legend = legendOptions(); chart.update('none'); }));
     if ('serviceWorker' in navigator && !SHARE_MODE) {
-      window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+      window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').then(updateInstallButton).catch(updateInstallButton));
     }
+    updateInstallButton();
     refresh({ resetZoom: true });
     setInterval(tickCountdown, 1000);
   </script>

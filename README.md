@@ -55,7 +55,7 @@ Open:
 
 Dashboard features:
 
-- installable PWA shell with manifest, icons, and service worker
+- installable PWA shell with manifest, icons, service worker, and an in-app install button
 - live auto-refresh every 15 seconds with visible countdown
 - primary full-width vitals trace with synchronized drag-to-zoom across all charts
 - red offline/sock-off bands when Owlet reports zero-valued vitals
