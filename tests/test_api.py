@@ -308,14 +308,15 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "BTC price" in response.text
     assert "O₂ trend companion" in response.text
     assert "How to read the O₂ trend companion" in response.text
-    assert "This is a MACD-style trend view for oxygen" in response.text
-    assert "Formula: 30m trailing O₂ avg − 4h trailing O₂ avg" in response.text
-    assert "Offline gaps and oxygen challenges are not bridged" in response.text
+    assert "MACD-style oxygen view" in response.text
+    assert "Recent O₂ is running above baseline" in response.text
+    assert "legend: { display: false }" in response.text
     assert "TREND_MAX_SAMPLE_GAP_MS" in response.text
     assert "y: null" in response.text
     assert "spanGaps: false" in response.text
-    assert "Trend signal: gap" in response.text
-    assert "No continuous normal-support data here" in response.text
+    assert "Trend gap — offline, missing data, or O₂ challenge." in response.text
+    assert "companion-info" in response.text
+    assert "companion-header" not in response.text
     assert "requestIdleCallback" in response.text
     assert "hydrateSecondaryData" in response.text
     assert "renderCharts({ deferTrend: true })" in response.text
@@ -350,6 +351,13 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "closeNotificationsPanel" in response.text
     assert "closeChallengesPanel" in response.text
     assert "safeRefresh" in response.text
+    assert "Refresh (15s)" in response.text
+    assert "refreshNote" not in response.text
+    assert "batteryStatus" in response.text
+    assert "battery_minutes" in response.text
+    assert "latestBattery" not in response.text
+    assert "lowOxygen" not in response.text
+    assert "const visibility = new Map" in response.text
     assert "readings-grid" in response.text
     assert "reading-detail-panel" in response.text
     assert "click any row on the left" in response.text

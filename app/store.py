@@ -480,6 +480,7 @@ class ReadingStore:
             heart_rate=row[2],
             oxygen_saturation=row[3],
             battery=row[4],
+            battery_minutes=_raw_metric(raw, "battery_minutes", "btt", "BATTERY_MINUTES"),
             movement=row[5],
             sleep_state=row[6],
             skin_temperature=row[7],
@@ -537,3 +538,19 @@ def _metric_summary(values: list[float | None]) -> dict[str, float | str | None]
         "latest": clean[-1],
         "trend": trend,
     }
+
+
+def _raw_metric(raw: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = raw.get(key)
+        if isinstance(value, dict) and "value" in value:
+            value = value.get("value")
+        if isinstance(value, dict):
+            continue
+        if value in (None, ""):
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None

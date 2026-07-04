@@ -12,6 +12,7 @@ class OwletReading(BaseModel):
     heart_rate: float | None = None
     oxygen_saturation: float | None = None
     battery: float | None = None
+    battery_minutes: float | None = None
     movement: float | None = None
     sleep_state: str | None = None
     skin_temperature: float | None = None
@@ -67,6 +68,7 @@ def normalize_reading(raw: dict[str, Any], device_serial: str) -> OwletReading:
         _first_present(raw, ("last_updated", "lastUpdated", "timestamp", "data_updated_at"))
     )
     battery = _first_present(raw, ("battery", "battery_percentage", "BATT_LEVEL"))
+    battery_minutes = _first_present(raw, ("battery_minutes", "btt", "BATTERY_MINUTES"))
     sleep_state = _first_present(raw, ("sleep_state", "SLEEP_STATE"))
 
     return OwletReading(
@@ -77,6 +79,7 @@ def normalize_reading(raw: dict[str, Any], device_serial: str) -> OwletReading:
             _first_present(raw, ("oxygen_saturation", "oxygen_level", "OXYGEN_LEVEL", "ox"))
         ),
         battery=_to_float(battery),
+        battery_minutes=_to_float(battery_minutes),
         movement=_to_float(_first_present(raw, ("movement", "MOVEMENT", "mv", "movement_bucket"))),
         sleep_state=None if sleep_state is None else str(sleep_state),
         skin_temperature=_to_float(

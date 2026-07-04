@@ -61,6 +61,14 @@ DASHBOARD_HTML = r"""
     .toolbar-right { position: relative; }
     .install-button { display: none; }
     .install-button.show { display: inline-flex; align-items: center; gap: 6px; }
+    .battery-pill { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; background: #f8fafc; color: var(--text); }
+    .battery-shell { width: 28px; height: 15px; border: 2px solid currentColor; border-radius: 4px; padding: 2px; position: relative; display: inline-flex; align-items: stretch; }
+    .battery-shell::after { content: ''; position: absolute; right: -5px; top: 4px; width: 3px; height: 5px; border-radius: 0 2px 2px 0; background: currentColor; }
+    .battery-fill { display: block; min-width: 2px; border-radius: 2px; background: currentColor; }
+    .battery-pill.good { color: var(--green); background: #ecfdf5; border-color: #bbf7d0; }
+    .battery-pill.mid { color: var(--amber); background: #fffbeb; border-color: #fde68a; }
+    .battery-pill.low { color: var(--red); background: #fff1f2; border-color: #fecdd3; }
+    .battery-pill.unknown { color: var(--muted); background: #f8fafc; }
     label { color: var(--muted); font-size: .86rem; font-weight: 800; }
     select, input, button {
       border: 1px solid var(--line); background: #fff; color: var(--text); border-radius: 12px;
@@ -78,17 +86,9 @@ DASHBOARD_HTML = r"""
     .chart-frame.companion { height: 190px; }
     .chart-frame.secondary { height: 240px; }
     .chart-frame canvas { display: block; width: 100% !important; height: 100% !important; }
-    .companion-chart {
-      margin-top: 10px;
-      padding-top: 12px;
-      border-top: 1px solid var(--line);
-      background: linear-gradient(180deg, rgba(248, 250, 252, .75), rgba(255, 255, 255, .45));
-      border-radius: 16px;
-    }
-    .companion-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 6px; padding: 0 2px; }
-    .companion-header h3 { color: var(--text); margin: 0; }
-    .companion-note { margin: 5px 2px 0; color: var(--muted); font-size: .8rem; line-height: 1.35; }
+    .companion-chart { margin-top: 2px; padding-top: 0; background: transparent; }
     .info-popover-wrap { position: relative; display: inline-flex; align-items: center; }
+    .companion-info { position: absolute; right: 6px; top: 6px; z-index: 2; }
     .info-button { width: 28px; height: 28px; border-radius: 999px; padding: 0; display: inline-grid; place-items: center; background: #eff6ff; color: #1d4ed8; font-weight: 950; }
     .info-popover { display: none; position: absolute; right: 0; top: calc(100% + 8px); width: min(360px, calc(100vw - 32px)); z-index: 25; background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 14px; padding: 12px; color: var(--text); font-size: .84rem; line-height: 1.35; text-transform: none; letter-spacing: normal; }
     .info-popover-wrap:hover .info-popover, .info-popover-wrap:focus-within .info-popover { display: block; }
@@ -295,9 +295,12 @@ DASHBOARD_HTML = r"""
       <div class="control-group refresh-cluster toolbar-right">
         <button id="challengesToggle" class="challenge-button" type="button" aria-expanded="false">O₂ challenges / add <span id="challengeCount" class="challenge-count">0</span></button>
         <button id="notificationsToggle" class="notification-button" type="button" aria-expanded="false">Notifications <span id="notificationCount" class="notification-count">0</span></button>
+        <button id="batteryStatus" class="battery-pill unknown" type="button" title="Battery details">
+          <span class="battery-shell" aria-hidden="true"><span id="batteryFill" class="battery-fill" style="width: 0%;"></span></span>
+          <span id="batteryLabel">—</span>
+        </button>
         <button id="installApp" class="install-button" type="button" title="Install Owlet as an app">Install app</button>
-        <span class="small" id="refreshNote">Refreshing…</span>
-        <button id="refresh" class="primary">Refresh</button>
+        <button id="refresh" class="primary">Refresh (15s)</button>
         <div id="challengesPanel" class="challenge-popover hidden" role="dialog" aria-modal="true" aria-label="Oxygen challenges">
           <div class="panel-title">
             <h2>Oxygen challenges</h2>
@@ -330,7 +333,7 @@ DASHBOARD_HTML = r"""
         <span class="eyebrow">O₂ now + today</span>
         <strong id="latestOxygen">—</strong>
         <small><span class="inline-stat" id="todayOxygen">—</span> 24h avg · <span class="inline-stat" id="o2Compare">—</span></small>
-        <small>Prior <span class="inline-stat" id="priorOxygen">—</span> · Low <span class="inline-stat" id="lowOxygen">—</span> · battery <span class="inline-stat" id="latestBattery">—</span></small>
+        <small>Prior <span class="inline-stat" id="priorOxygen">—</span></small>
       </article>
       <article class="card glance-card">
         <span class="eyebrow">Heart rate</span>
@@ -376,16 +379,14 @@ DASHBOARD_HTML = r"""
           <div id="stateTimeAxis" class="state-time-axis"></div>
         </div>
         <div class="companion-chart" aria-label="Oxygen trend companion chart">
-          <div class="companion-header">
-            <h3>O₂ trend companion</h3>
-            <span class="info-popover-wrap">
+          <div class="chart-frame companion"><canvas id="oxygenTrendChart"></canvas>
+            <span class="info-popover-wrap companion-info">
               <button class="info-button" type="button" aria-label="How to read the O₂ trend companion">i</button>
               <span class="info-popover" role="tooltip">
-                This is a MACD-style trend view for oxygen. The blue line is the recent 30-minute O₂ average. The purple dashed line is the 4-hour baseline. Green bars mean recent O₂ is running above baseline; red bars mean it is running below baseline. Offline gaps and oxygen challenges are not bridged — the averages restart after those gaps.
+                O₂ trend companion: a MACD-style oxygen view. It compares recent 30-minute O₂ against the 4-hour baseline. Green means recent O₂ is above baseline; red means below. Offline gaps and oxygen challenges are not bridged.
               </span>
             </span>
           </div>
-          <div class="chart-frame companion"><canvas id="oxygenTrendChart"></canvas></div>
         </div>
         <div class="state-legend">
           <span style="--dot: rgba(124,58,237,.72)">light sleep</span>
@@ -707,6 +708,42 @@ DASHBOARD_HTML = r"""
     const signed = (value, suffix = '') => value === null || value === undefined ? '—' : `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(1).replace(/\.0$/, '')}${suffix}`;
     const chartList = () => [vitalsChart, oxygenTrendChart, rollupChart, stateChart].filter(Boolean);
 
+    function batteryClass(level) {
+      const value = Number(level);
+      if (!Number.isFinite(value)) return 'unknown';
+      if (value <= 20) return 'low';
+      if (value <= 45) return 'mid';
+      return 'good';
+    }
+
+    function batteryTime(minutes) {
+      const value = Number(minutes);
+      if (!Number.isFinite(value) || value <= 0) return 'estimate unavailable';
+      const hrs = Math.floor(value / 60);
+      const mins = Math.round(value % 60);
+      if (hrs <= 0) return `${mins}m remaining`;
+      return `${hrs}h ${mins}m remaining`;
+    }
+
+    function renderBatteryStatus(latest) {
+      const level = latest?.battery;
+      const minutes = latest?.battery_minutes;
+      const numeric = Number(level);
+      const cls = batteryClass(level);
+      const pill = el('batteryStatus');
+      pill.className = `battery-pill ${cls}`;
+      el('batteryLabel').textContent = Number.isFinite(numeric) ? `${Math.round(numeric)}%` : '—';
+      el('batteryFill').style.width = Number.isFinite(numeric) ? `${Math.max(4, Math.min(100, numeric))}%` : '0%';
+      pill.title = Number.isFinite(numeric)
+        ? `Battery ${Math.round(numeric)}% · ${batteryTime(minutes)}`
+        : 'Battery unavailable';
+      pill.setAttribute('aria-label', pill.title);
+    }
+
+    function updateRefreshButton(text = null) {
+      el('refresh').textContent = text || `Refresh (${secondsUntilRefresh}s)`;
+    }
+
     function challengeIntervals() {
       return (challenges.items || []).map(challenge => ({
         start: Date.parse(challenge.start_time),
@@ -819,6 +856,7 @@ DASHBOARD_HTML = r"""
 
     async function refresh({ resetZoom = false } = {}) {
       secondsUntilRefresh = REFRESH_SECONDS;
+      updateRefreshButton('Refreshing…');
       const token = ++refreshToken;
       const previousLatest = lastLatestTimestamp;
       const qs = queryParams();
@@ -843,10 +881,11 @@ DASHBOARD_HTML = r"""
       renderCharts({ deferTrend: true });
       renderNotifications();
       renderChallenges();
+      updateRefreshButton();
       if (previousLatest && lastLatestTimestamp && lastLatestTimestamp !== previousLatest) showNewDataPulse();
       hydrateSecondaryData({ qs, rollupQs, cryptoHours, token }).catch(error => {
         console.error(error);
-        el('refreshNote').textContent = 'Some details failed';
+        el('refresh').title = 'Some details failed; core readings are still shown.';
       });
     }
 
@@ -878,6 +917,7 @@ DASHBOARD_HTML = r"""
       const label = offlineNow ? 'Device offline / sock off' : (health.collecting ? 'Collecting live' : 'Stored data only');
       const dotClass = offlineNow ? 'offline' : (health.collecting ? 'good' : '');
       el('status').innerHTML = `<span class="status-dot ${dotClass}"></span>${label} · ${mode}`;
+      renderBatteryStatus(latest);
     }
 
     function renderInsights() {
@@ -891,13 +931,12 @@ DASHBOARD_HTML = r"""
       el('avgHr').textContent = hrCompare.current === null ? '—' : fmt(hrCompare.current.toFixed(0), ' bpm');
       el('latestState').textContent = latest ? latest.sleep_state_label : '—';
       el('latestMove').textContent = latest ? num(latest.movement) : '—';
-      el('latestBattery').textContent = latest ? fmt(latest.battery, '%') : '—';
+      renderBatteryStatus(latest);
 
       const breathing = insights.breathing;
       el('o2Compare').textContent = comparisonText(oxygenCompare, 1, ' pts');
       el('o2Compare').className = `inline-stat ${oxygenCompare.css}`;
       el('priorOxygen').textContent = oxygenCompare.prior === null ? fmt(breathing.previous_avg_oxygen, '%') : fmt(oxygenCompare.prior.toFixed(1), '%');
-      el('lowOxygen').textContent = breathing.low_oxygen_samples;
       el('hrCompare').textContent = comparisonText(hrCompare, 0, ' bpm');
       el('hrCompare').className = `inline-stat ${hrCompare.css}`;
 
@@ -1080,38 +1119,24 @@ DASHBOARD_HTML = r"""
       if (context.dataset.id === 'o2TrendSignal') {
         const value = context.parsed?.y;
         if (value === null || value === undefined || !Number.isFinite(Number(value))) {
-          return [
-            'Trend signal: gap',
-            'This point is intentionally blank because the device was offline, data was missing, or this was an oxygen challenge.',
-            'The averages restart after the gap instead of bridging stale readings.'
-          ];
+          return 'Trend gap — offline, missing data, or O₂ challenge.';
         }
-        const direction = value >= 0 ? 'above' : 'below';
-        return [
-          `Trend signal: ${value >= 0 ? '+' : ''}${value.toFixed(2)} O₂ pts`,
-          `Meaning: the recent 30m average is ${Math.abs(value).toFixed(2)} pts ${direction} the 4h baseline.`,
-          value >= 0 ? 'Read: short-term O₂ is running stronger than baseline.' : 'Read: short-term O₂ is running weaker than baseline.',
-          'Formula: 30m trailing O₂ avg − 4h trailing O₂ avg.',
-          'Gaps/offline/challenges are not bridged; averages restart after them.'
-        ];
+        if (value > 0.25) return 'Recent O₂ is running above baseline.';
+        if (value < -0.25) return 'Recent O₂ is running below baseline.';
+        return 'Recent O₂ is near baseline.';
       }
       if (context.dataset.id === 'o2Trailing30') {
-        const value = context.parsed?.y;
-        return value === null || value === undefined || !Number.isFinite(Number(value))
-          ? ['Recent O₂ average: gap', 'No continuous normal-support data here.']
-          : [`Recent O₂ average: ${value.toFixed(2)}%`, 'This smooths the last ~30 minutes of continuous normal-support readings.'];
+        return null;
       }
       if (context.dataset.id === 'o2Baseline4h') {
-        const value = context.parsed?.y;
-        return value === null || value === undefined || !Number.isFinite(Number(value))
-          ? ['Baseline O₂ average: gap', 'No continuous normal-support data here.']
-          : [`Baseline O₂ average: ${value.toFixed(2)}%`, 'This smooths the last ~4 hours of continuous normal-support readings.'];
+        return null;
       }
       const value = context.parsed?.y;
       return `${context.dataset.label}: ${value === null || value === undefined ? '—' : value}`;
     }
 
     function legendOptions(overrides = {}) {
+      if (overrides.display === false) return { display: false };
       const mobile = window.matchMedia('(max-width: 640px)').matches;
       return {
         position: overrides.position || (mobile ? 'chartArea' : 'bottom'),
@@ -1242,6 +1267,18 @@ DASHBOARD_HTML = r"""
 
     function upsertChart(existing, canvasId, config) {
       if (!existing) return new Chart(el(canvasId), config);
+      const visibility = new Map();
+      existing.data.datasets.forEach((dataset, index) => {
+        const key = dataset.id || dataset.label;
+        if (!key) return;
+        const metaHidden = existing.getDatasetMeta(index)?.hidden;
+        visibility.set(key, typeof metaHidden === 'boolean' ? metaHidden : !!dataset.hidden);
+      });
+      config.data.datasets.forEach(dataset => {
+        const key = dataset.id || dataset.label;
+        if (!key || !visibility.has(key)) return;
+        dataset.hidden = visibility.get(key);
+      });
       existing.data = config.data;
       existing.options.plugins = config.options.plugins;
       existing.options.scales = config.options.scales;
@@ -1288,9 +1325,9 @@ DASHBOARD_HTML = r"""
         type: 'line',
         data: { datasets: [] },
         options: chartOptions({
-          oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100, title: { display: true, text: 'O₂ avg' } },
-          signal: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '30m - 4h pts' } }
-        })
+          oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100 },
+          signal: { type: 'linear', position: 'right', grid: { drawOnChartArea: false } }
+        }, { legend: { display: false } })
       });
     }
 
@@ -1530,9 +1567,9 @@ DASHBOARD_HTML = r"""
           ]
         },
         options: chartOptions({
-          oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100, title: { display: true, text: 'O₂ avg' } },
-          signal: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '30m - 4h pts' }, ticks: { callback: value => `${value > 0 ? '+' : ''}${value}` } }
-        })
+          oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100 },
+          signal: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, ticks: { callback: value => `${value > 0 ? '+' : ''}${value}` } }
+        }, { legend: { display: false } })
       });
     }
 
@@ -1832,14 +1869,15 @@ DASHBOARD_HTML = r"""
         await refresh(options);
       } catch (error) {
         console.error(error);
-        el('refreshNote').textContent = 'Refresh failed';
+        updateRefreshButton('Refresh failed');
         el('status').innerHTML = '<span class="status-dot offline"></span>Refresh failed · keeping last loaded data';
+        setTimeout(() => updateRefreshButton(), 1500);
       }
     }
 
     function tickCountdown() {
       secondsUntilRefresh = Math.max(0, secondsUntilRefresh - 1);
-      el('refreshNote').textContent = `Auto-refresh in ${secondsUntilRefresh}s`;
+      updateRefreshButton();
       if (secondsUntilRefresh === 0) safeRefresh();
     }
 
