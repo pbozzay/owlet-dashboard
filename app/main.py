@@ -6,12 +6,12 @@ import secrets
 from contextlib import asynccontextmanager
 from typing import Literal
 
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, HTTPException, Path, Query, Request
 from fastapi.responses import HTMLResponse, Response
 
 from app.analytics import build_insights, build_rollups
 from app.config import Settings
-from app.dashboard import DASHBOARD_HTML
+from app.dashboard import render_dashboard
 from app.poller import Poller, create_owlet_poller
 from app.store import ReadingStore
 
@@ -63,6 +63,11 @@ def create_app(
 
     @app.middleware("http")
     async def require_basic_auth(request: Request, call_next):
+        if request.url.path.startswith("/share/"):
+            if _share_path_is_authorized(request.url.path, settings.owlet_share_token):
+                return await call_next(request)
+            return Response(status_code=404)
+
         if not settings.basic_auth_enabled:
             return await call_next(request)
 
@@ -97,7 +102,12 @@ def create_app(
 
     @app.get("/", response_class=HTMLResponse)
     async def dashboard() -> str:
-        return DASHBOARD_HTML
+        return render_dashboard()
+
+    @app.get("/share/{token}", response_class=HTMLResponse)
+    async def shared_dashboard(token: str = Path(min_length=20)) -> str:
+        _require_share_token(token, settings)
+        return render_dashboard(api_base=f"/share/{token}", share_mode=True)
 
     @app.get("/api/health")
     async def health() -> dict[str, object]:
@@ -106,6 +116,16 @@ def create_app(
             "collecting": "poller" in state,
             "has_credentials": settings.has_owlet_credentials,
             "database_path": str(settings.database_path),
+        }
+
+    @app.get("/share/{token}/api/health")
+    async def shared_health(token: str = Path(min_length=20)) -> dict[str, object]:
+        _require_share_token(token, settings)
+        return {
+            "ok": True,
+            "collecting": "poller" in state,
+            "has_credentials": False,
+            "database_path": "shared read-only view",
         }
 
     @app.get("/api/readings")
@@ -118,12 +138,39 @@ def create_app(
         exclude = None if include_raw else {"raw"}
         return [row.model_dump(mode="json", exclude=exclude) for row in rows]
 
+    @app.get("/share/{token}/api/readings")
+    async def shared_readings(
+        token: str = Path(min_length=20),
+        hours: int | None = Query(default=None, ge=1, le=24 * 365),
+        limit: int = Query(default=5000, ge=1, le=100_000),
+    ):
+        _require_share_token(token, settings)
+        rows = await store.get_readings(hours=hours, limit=limit)
+        return [row.model_dump(mode="json", exclude={"raw"}) for row in rows]
+
     @app.get("/api/summary")
     async def summary(hours: int | None = Query(default=None, ge=1, le=24 * 365)):
         return await store.get_summary(hours=hours)
 
+    @app.get("/share/{token}/api/summary")
+    async def shared_summary(
+        token: str = Path(min_length=20),
+        hours: int | None = Query(default=None, ge=1, le=24 * 365),
+    ):
+        _require_share_token(token, settings)
+        return await store.get_summary(hours=hours)
+
     @app.get("/api/insights")
     async def insights(hours: int | None = Query(default=None, ge=1, le=24 * 365)):
+        rows = await store.get_readings(hours=hours, limit=100_000)
+        return build_insights(rows)
+
+    @app.get("/share/{token}/api/insights")
+    async def shared_insights(
+        token: str = Path(min_length=20),
+        hours: int | None = Query(default=None, ge=1, le=24 * 365),
+    ):
+        _require_share_token(token, settings)
         rows = await store.get_readings(hours=hours, limit=100_000)
         return build_insights(rows)
 
@@ -135,7 +182,30 @@ def create_app(
         rows = await store.get_readings(hours=hours, limit=100_000)
         return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
 
+    @app.get("/share/{token}/api/rollups")
+    async def shared_rollups(
+        token: str = Path(min_length=20),
+        bucket: Literal["5m", "15m", "30m", "hour", "6h", "12h", "day"] = Query(default="hour"),
+        hours: int | None = Query(default=None, ge=1, le=24 * 365),
+    ):
+        _require_share_token(token, settings)
+        rows = await store.get_readings(hours=hours, limit=100_000)
+        return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
+
     return app
+
+
+def _require_share_token(token: str, settings: Settings) -> None:
+    expected = settings.owlet_share_token or ""
+    if not expected or not secrets.compare_digest(token, expected):
+        raise HTTPException(status_code=404)
+
+
+def _share_path_is_authorized(path: str, token: str | None) -> bool:
+    if not token or not path.startswith("/share/"):
+        return False
+    candidate = path.removeprefix("/share/").split("/", 1)[0]
+    return bool(candidate) and secrets.compare_digest(candidate, token)
 
 
 app = create_app()

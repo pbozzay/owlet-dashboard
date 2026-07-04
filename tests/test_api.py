@@ -141,6 +141,45 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "Drill-down" in response.text
 
 
+@pytest.mark.asyncio
+async def test_share_link_serves_read_only_dashboard_and_api_without_basic_auth(tmp_path):
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    await store.insert_reading(
+        normalize_reading(
+            {
+                "heart_rate": 120,
+                "oxygen_saturation": 98,
+                "last_updated": "2026-07-02T01:00:00Z",
+                "raw": {"secretish": "not exposed"},
+            },
+            "AC123",
+        )
+    )
+    token = "share-token-with-enough-length"
+    settings = _test_settings(
+        owlet_basic_auth_username="parent",
+        owlet_basic_auth_password="secret-pass",
+        owlet_share_token=token,
+    )
+    app = create_app(store=store, settings=settings, start_poller=False)
+
+    with TestClient(app) as client:
+        dashboard = client.get(f"/share/{token}")
+        readings = client.get(f"/share/{token}/api/readings?include_raw=true")
+        wrong = client.get("/share/wrong-token-with-enough-length")
+        normal_api = client.get("/api/health")
+
+    assert dashboard.status_code == 200
+    assert f'const API_BASE = "/share/{token}";' in dashboard.text
+    assert "Shared read-only view" in dashboard.text
+    assert readings.status_code == 200
+    assert readings.json()[0]["heart_rate"] == 120
+    assert "raw" not in readings.json()[0]
+    assert wrong.status_code == 404
+    assert normal_api.status_code == 401
+
+
 def test_basic_auth_protects_dashboard_and_api_when_configured(tmp_path):
     store = ReadingStore(tmp_path / "owlet.sqlite3")
     settings = _test_settings(

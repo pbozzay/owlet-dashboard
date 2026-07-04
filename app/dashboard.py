@@ -281,6 +281,8 @@ DASHBOARD_HTML = r"""
   </main>
 
   <script>
+    const API_BASE = "__API_BASE__";
+    const SHARE_MODE = __SHARE_MODE__;
     const REFRESH_SECONDS = 15;
     let readings = [];
     let filtered = [];
@@ -349,11 +351,11 @@ DASHBOARD_HTML = r"""
       const qs = queryParams();
       const rollupQs = queryParams({ bucket: el('bucket').value });
       const [health, rows, stats, insightData, rollupData] = await Promise.all([
-        fetchJson('/api/health'),
-        fetchJson(`/api/readings?${qs}`),
-        fetchJson(`/api/summary?${qs}`),
-        fetchJson(`/api/insights?${qs}`),
-        fetchJson(`/api/rollups?${rollupQs}`)
+        fetchJson(`${API_BASE}/api/health`),
+        fetchJson(`${API_BASE}/api/readings?${qs}`),
+        fetchJson(`${API_BASE}/api/summary?${qs}`),
+        fetchJson(`${API_BASE}/api/insights?${qs}`),
+        fetchJson(`${API_BASE}/api/rollups?${rollupQs}`)
       ]);
       readings = rows;
       summary = stats;
@@ -371,7 +373,8 @@ DASHBOARD_HTML = r"""
     }
 
     function renderStatus(health) {
-      el('status').innerHTML = `<span class="status-dot ${health.collecting ? 'good' : ''}"></span>${health.collecting ? 'Collecting live' : 'Stored data only'} · ${health.database_path}`;
+      const mode = SHARE_MODE ? 'Shared read-only view' : health.database_path;
+      el('status').innerHTML = `<span class="status-dot ${health.collecting ? 'good' : ''}"></span>${health.collecting ? 'Collecting live' : 'Stored data only'} · ${mode}`;
     }
 
     function renderInsights() {
@@ -637,3 +640,10 @@ DASHBOARD_HTML = r"""
 </body>
 </html>
 """
+
+
+def render_dashboard(api_base: str = "", *, share_mode: bool = False) -> str:
+    return (
+        DASHBOARD_HTML.replace("__API_BASE__", api_base)
+        .replace("__SHARE_MODE__", "true" if share_mode else "false")
+    )

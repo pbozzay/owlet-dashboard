@@ -81,6 +81,16 @@ curl -L https://owlet.bozzay.app/
 
 Unauthenticated requests should redirect to a Cloudflare Access login page at `bozzay.cloudflareaccess.com`, not return the FastAPI dashboard HTML directly.
 
+## Magic share link
+
+The app supports an optional unauthenticated, read-only magic link:
+
+```text
+https://owlet.bozzay.app/share/<OWLET_SHARE_TOKEN>
+```
+
+The token lives only in the local `.env` file as `OWLET_SHARE_TOKEN`; do not commit it. Cloudflare Access has a separate path-specific self-hosted app for `owlet.bozzay.app/share/*` with a bypass policy, while the root dashboard remains protected by the normal Access login. Share API routes always exclude raw Owlet payloads, even if `include_raw=true` is requested.
+
 ## Local deployment registry
 
 This deployment is also tracked in:

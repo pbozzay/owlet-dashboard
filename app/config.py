@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     port: int = Field(default=8788, alias="PORT")
     owlet_basic_auth_username: str | None = Field(default=None, alias="OWLET_BASIC_AUTH_USERNAME")
     owlet_basic_auth_password: str | None = Field(default=None, alias="OWLET_BASIC_AUTH_PASSWORD")
+    owlet_share_token: str | None = Field(default=None, alias="OWLET_SHARE_TOKEN")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
@@ -26,3 +27,7 @@ class Settings(BaseSettings):
     @property
     def basic_auth_enabled(self) -> bool:
         return bool(self.owlet_basic_auth_username and self.owlet_basic_auth_password)
+
+    @property
+    def share_enabled(self) -> bool:
+        return bool(self.owlet_share_token)
