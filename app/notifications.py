@@ -35,6 +35,12 @@ ALERT_RULES = [
     ("high_oxygen", "info", "High oxygen alert", "Owlet high oxygen alert is active.", ("high_oxygen_alert", "HIGH_OX_ALRT")),
 ]
 
+ALERT_MASK_BITS = {
+    16: ("sock_disconnected", "warning", "Sock disconnected", "Owlet reports that the sock is disconnected."),
+    64: ("sock_off", "warning", "Sock off", "Owlet reports that the sock is off."),
+    256: ("low_battery", "warning", "Low battery alert", "Owlet low battery alert is active."),
+}
+
 
 def extract_notifications(reading: OwletReading) -> list[NotificationEvent]:
     events: list[NotificationEvent] = []
@@ -59,20 +65,50 @@ def extract_notifications(reading: OwletReading) -> list[NotificationEvent]:
             )
         )
 
+    _append_alert_mask_events(reading, events)
+
+    return events
+
+
+def _append_alert_mask_events(reading: OwletReading, events: list[NotificationEvent]) -> None:
     alerts_mask = _raw_value(reading.raw, "alerts_mask")
-    if _numeric(alerts_mask) not in (None, 0):
+    mask_value = _numeric(alerts_mask)
+    if mask_value in (None, 0):
+        return
+
+    mask = int(mask_value)
+    known_bits = 0
+    existing_types = {event.event_type for event in events}
+    for bit, (event_type, severity, title, message) in ALERT_MASK_BITS.items():
+        if not mask & bit:
+            continue
+        known_bits |= bit
+        if event_type in existing_types:
+            continue
+        events.append(
+            _event(
+                reading,
+                event_type,
+                severity,
+                title,
+                message,
+                {"source": "alerts_mask", "value": mask, "bit": bit},
+            )
+        )
+        existing_types.add(event_type)
+
+    unknown_bits = mask & ~known_bits
+    if unknown_bits:
         events.append(
             _event(
                 reading,
                 "alerts_mask",
                 "warning",
                 "Owlet alert flag",
-                f"Owlet REAL_TIME_VITALS alert mask is {alerts_mask}.",
-                {"source": "alerts_mask", "value": alerts_mask},
+                f"Owlet REAL_TIME_VITALS alert mask has unknown bit(s): {unknown_bits}.",
+                {"source": "alerts_mask", "value": mask, "unknown_bits": unknown_bits},
             )
         )
-
-    return events
 
 
 def _event(

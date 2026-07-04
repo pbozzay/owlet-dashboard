@@ -121,6 +121,7 @@ async def test_notifications_endpoint_extracts_alerts_and_offline_periods(tmp_pa
                 "last_updated": "2026-07-02T01:00:00Z",
                 "low_oxygen_alert": True,
                 "SOCK_DISCON_ALRT": {"value": 1},
+                "alerts_mask": 16,
             },
             "AC123",
         )
@@ -136,6 +137,8 @@ async def test_notifications_endpoint_extracts_alerts_and_offline_periods(tmp_pa
     assert "low_oxygen" in event_types
     assert "sock_disconnected" in event_types
     assert "offline_zero_vitals" in event_types
+    assert "alerts_mask" not in event_types
+    assert "Owlet REAL_TIME_VITALS alert mask is 16" not in response.text
     assert payload["total"] == 3
 
 
