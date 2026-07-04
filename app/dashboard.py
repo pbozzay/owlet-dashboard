@@ -146,6 +146,10 @@ DASHBOARD_HTML = r"""
     .small { color: var(--muted); font-size: .86rem; }
     .insight-text { font-size: 1.08rem; font-weight: 750; line-height: 1.35; margin: 12px 0; }
     .details-grid { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); margin-top: 14px; }
+    .readings-grid { grid-template-columns: minmax(0, 1.45fr) minmax(320px, .55fr); margin-top: 14px; align-items: start; }
+    .readings-panel .table-wrap { max-height: 560px; }
+    .reading-detail-panel { position: sticky; top: 88px; }
+    .reading-detail-panel .raw-box { max-height: 520px; }
     table { width: 100%; border-collapse: collapse; font-size: .9rem; }
     th, td { padding: 10px 9px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
     th { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; background: #f8fafc; position: sticky; top: 0; z-index: 1; }
@@ -153,6 +157,7 @@ DASHBOARD_HTML = r"""
     tr.offline-row td { background: #fff1f2; color: #991b1b; }
     tr.offline-row:hover td { background: #ffe4e6; }
     tr.challenge-row td { background: #eff6ff; color: #1e3a8a; }
+    tr.selected-row td { background: #ecfeff !important; box-shadow: inset 0 0 0 999px rgba(14, 165, 233, .08); }
     .table-wrap { overflow: auto; max-width: 100%; max-height: 460px; border: 1px solid var(--line); border-radius: 16px; }
     .raw-box { white-space: pre-wrap; word-break: break-word; background: var(--dark); color: #dbeafe; border-radius: 16px; padding: 14px; max-height: 280px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; }
     .empty { padding: 28px; text-align: center; color: var(--muted); border: 1px dashed #cbd5e1; border-radius: 18px; background: #f8fafc; }
@@ -163,7 +168,8 @@ DASHBOARD_HTML = r"""
     @media (max-width: 1080px) {
       .hero { align-items: flex-start; flex-direction: column; }
       .glance-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .metric-grid, .details-grid { grid-template-columns: 1fr; }
+      .metric-grid, .details-grid, .readings-grid { grid-template-columns: 1fr; }
+      .reading-detail-panel { position: static; }
       .status { white-space: normal; }
       .toolbar { position: static; }
       .chart-frame.main { height: 360px; }
@@ -353,29 +359,29 @@ DASHBOARD_HTML = r"""
 
     <section class="grid metric-grid" id="metricCards"></section>
 
-    <section class="grid details-grid">
-      <div class="panel">
+    <section class="panel" style="margin-top: 14px;">
         <div class="panel-title">
           <h2>Drill-down table</h2>
           <span class="small">averages + sleep/awake estimates</span>
         </div>
         <div class="table-wrap"><table id="rollupTable"></table></div>
+    </section>
+
+    <section class="grid readings-grid" aria-label="Readings and selected detail">
+      <div class="panel readings-panel">
+        <div class="panel-title">
+          <h2>Readings table</h2>
+          <span class="small" id="tableCount">—</span>
+        </div>
+        <div class="table-wrap"><table id="readingsTable"></table></div>
       </div>
-      <div class="panel">
+      <div class="panel reading-detail-panel">
         <div class="panel-title">
           <h2>Selected reading</h2>
-          <span class="small">click a reading row</span>
+          <span class="small">click any row on the left</span>
         </div>
         <pre id="raw" class="raw-box">No reading selected yet.</pre>
       </div>
-    </section>
-
-    <section class="panel" style="margin-top: 14px;">
-      <div class="panel-title">
-        <h2>Readings table</h2>
-        <span class="small" id="tableCount">—</span>
-      </div>
-      <div class="table-wrap"><table id="readingsTable"></table></div>
     </section>
   </main>
 
@@ -1141,6 +1147,8 @@ DASHBOARD_HTML = r"""
       el('readingsTable').innerHTML = `<thead><tr><th>Time</th><th>Serial</th><th>HR</th><th>O₂</th><th>Move</th><th>State</th><th>Battery</th><th>Temp</th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="empty">No readings yet.</td></tr>'}</tbody>`;
       [...el('readingsTable').querySelectorAll('tbody tr[data-index]')].forEach(tr => {
         tr.addEventListener('click', () => {
+          el('readingsTable').querySelectorAll('tr.selected-row').forEach(row => row.classList.remove('selected-row'));
+          tr.classList.add('selected-row');
           const row = readings[Number(tr.dataset.index)];
           el('raw').textContent = JSON.stringify(row, null, 2);
         });

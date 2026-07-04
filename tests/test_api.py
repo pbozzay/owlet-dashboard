@@ -292,11 +292,16 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "challengeBands" in response.text
     assert "stateStrip" in response.text
     assert "Challenge data is excluded" in response.text
+    assert "readings-grid" in response.text
+    assert "reading-detail-panel" in response.text
+    assert "click any row on the left" in response.text
+    assert "selected-row" in response.text
     assert "O₂ now + today" in response.text
     assert "Crypto" in response.text
     assert 'id="installApp"' in response.text
     assert response.text.index("aria-label=\"At a glance\"") < response.text.index("id=\"vitalsChart\"")
     assert response.text.index("id=\"rollupChart\"") < response.text.index("id=\"stateChart\"")
+    assert response.text.index("Readings table") < response.text.index("Selected reading")
     assert "O₂ now + today" in response.text
     assert "Heart rate" in response.text
     assert "Crypto" in response.text
