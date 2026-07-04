@@ -59,7 +59,7 @@ Dashboard features:
 - live auto-refresh every 15 seconds with visible countdown
 - primary full-width vitals trace with synchronized drag/pan/zoom
 - oxygen challenge tracking for marked off-oxygen windows, shown as blue chart bands and excluded from normal averages/stats
-- mobile-safe oxygen challenge popup with editable start/end times, notes, delete action, per-challenge duration, avg/min O₂, avg HR, low/critical O₂ samples, sleep/awake time, and same-length prior-window comparison
+- mobile-safe oxygen challenge modal with an explicit Add new O₂ challenge form, editable start/end times, notes, delete action, per-challenge duration, avg/min O₂, avg HR, low/critical O₂ samples, sleep/awake time, and same-length prior-window comparison
 - compact sleep/wake accessory strip directly under the main vitals trace with aligned time labels and hover-highlighted sleep-phase bands on the main chart
 - attached O₂ trend companion chart inside the main vitals card, using a MACD-style 30m average vs 4h baseline signal with an info tooltip and visible gaps across offline/missing-data periods
 - synchronized horizontal time scrollbar for panning the visible window across all aligned charts after zooming
@@ -72,7 +72,7 @@ Dashboard features:
 - low-oxygen sample count for the selected window
 - sleep/awake estimate using Owlet sleep-state codes (`1=awake`, `8=light sleep`, `15=deep sleep`)
 - 5m/15m/30m/1h/6h/12h/daily drill-down averages for oxygen, HR, sleep, and awake time
-- compact mobile layout with bottom-sheet popovers for notifications and oxygen challenges
+- compact mobile layout with true fixed modals for notifications and oxygen challenges
 - click a row to inspect that normalized reading
 - CSV download for the current filtered view
 

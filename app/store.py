@@ -211,13 +211,14 @@ class ReadingStore:
         end_time: str | datetime | None = None,
         label: str | None = None,
         notes: str | None = None,
+        clear_end_time: bool = False,
     ) -> dict[str, Any]:
         await self.init()
         current = await self._get_oxygen_challenge_row(challenge_id)
         if not current:
             raise KeyError(challenge_id)
         start = parse_time(start_time).isoformat() if start_time else current[1]
-        end = parse_time(end_time).isoformat() if end_time else current[2]
+        end = None if clear_end_time else (parse_time(end_time).isoformat() if end_time else current[2])
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """

@@ -314,6 +314,7 @@ def create_app(
         end_value = payload.get("end_time")
         start_time = start_value if isinstance(start_value, str) else None
         end_time = end_value if isinstance(end_value, str) else None
+        clear_end_time = "end_time" in payload and not end_time
         try:
             return await store.update_oxygen_challenge(
                 challenge_id,
@@ -321,6 +322,7 @@ def create_app(
                 end_time=end_time,
                 label=str(payload["label"]) if "label" in payload else None,
                 notes=str(payload["notes"]) if "notes" in payload else None,
+                clear_end_time=clear_end_time,
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Challenge not found") from exc

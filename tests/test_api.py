@@ -82,6 +82,10 @@ async def test_oxygen_challenges_are_stored_and_excluded_from_normal_stats(tmp_p
                 "notes": "Adjusted start/stop times",
             },
         ).json()
+        active_again = client.patch(
+            f"/api/oxygen-challenges/{created['id']}",
+            json={"end_time": None},
+        ).json()
         deleted = client.delete(f"/api/oxygen-challenges/{created['id']}").json()
         after_delete = client.get("/api/oxygen-challenges?hours=24").json()
 
@@ -97,6 +101,8 @@ async def test_oxygen_challenges_are_stored_and_excluded_from_normal_stats(tmp_p
     assert updated["notes"] == "Adjusted start/stop times"
     assert updated["start_time"].startswith("2026-07-02T00:55:00")
     assert updated["end_time"].startswith("2026-07-02T01:35:00")
+    assert active_again["end_time"] is None
+    assert active_again["active"] is True
     assert deleted == {"ok": True}
     assert after_delete["total"] == 0
 
@@ -287,6 +293,7 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert '<option value="5m">5 minutes</option>' in response.text
     assert '<button id="download" class="icon-button"' in response.text
     assert "chartjs-plugin-zoom" in response.text
+    assert "mobile-web-app-capable" in response.text
     assert 'rel="manifest"' in response.text
     assert "serviceWorker" in response.text
     assert "offlineBands" in response.text
@@ -307,6 +314,8 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "TREND_MAX_SAMPLE_GAP_MS" in response.text
     assert "y: null" in response.text
     assert "spanGaps: false" in response.text
+    assert "Trend signal: gap" in response.text
+    assert "No continuous normal-support data here" in response.text
     assert "sleepPhaseHover" in response.text
     assert "id=\"timePan\"" in response.text
     assert "panToSliderValue" in response.text
@@ -315,6 +324,9 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "pinch:" in response.text
     assert "onPanComplete" in response.text
     assert "O₂ challenges" in response.text
+    assert "O₂ challenges / add" in response.text
+    assert "Add new O₂ challenge" in response.text
+    assert "Use visible chart window" in response.text
     assert "/api/oxygen-challenges" in response.text
     assert "challengeBands" in response.text
     assert "stateStrip" in response.text
@@ -322,6 +334,9 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "challengeEditForm" in response.text
     assert "Save edits" in response.text
     assert "Delete challenge" in response.text
+    assert "closeNotificationsPanel" in response.text
+    assert "closeChallengesPanel" in response.text
+    assert "safeRefresh" in response.text
     assert "readings-grid" in response.text
     assert "reading-detail-panel" in response.text
     assert "click any row on the left" in response.text
@@ -382,15 +397,24 @@ async def test_share_link_serves_read_only_dashboard_and_api_without_basic_auth(
     with TestClient(app) as client:
         dashboard = client.get(f"/share/{token}")
         readings = client.get(f"/share/{token}/api/readings?include_raw=true")
+        summary = client.get(f"/share/{token}/api/summary?limit=100000&hours=24")
+        insights = client.get(f"/share/{token}/api/insights?limit=100000&hours=24")
+        rollups = client.get(f"/share/{token}/api/rollups?limit=100000&bucket=hour&hours=24")
         wrong = client.get("/share/wrong-token-with-enough-length")
         normal_api = client.get("/api/health")
 
     assert dashboard.status_code == 200
     assert f'const API_BASE = "/share/{token}";' in dashboard.text
     assert "Shared read-only view" in dashboard.text
+    assert 'rel="manifest"' not in dashboard.text
+    assert "serviceWorker.register" in dashboard.text
     assert readings.status_code == 200
     assert readings.json()[0]["heart_rate"] == 120
     assert "raw" not in readings.json()[0]
+    assert summary.status_code == 200
+    assert insights.status_code == 200
+    assert rollups.status_code == 200
+    assert rollups.json()["bucket"] == "hour"
     assert wrong.status_code == 404
     assert normal_api.status_code == 401
 

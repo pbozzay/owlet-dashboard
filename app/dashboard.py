@@ -5,10 +5,10 @@ DASHBOARD_HTML = r"""
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#122033" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="Owlet" />
-  <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="apple-touch-icon" href="/icon-192.png" />
+  __PWA_HEAD__
   <title>Owlet Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
@@ -233,8 +233,12 @@ DASHBOARD_HTML = r"""
       .chart-frame.main { height: 430px; }
       .chart-frame.companion { height: 215px; }
       .chart-frame.secondary { height: 295px; }
-      .notifications-popover, .challenge-popover { position: fixed; left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; max-height: min(78vh, 620px); border-radius: 18px; z-index: 60; }
-      .challenge-modal { align-items: end; padding: 8px; }
+      .notifications-popover, .challenge-popover { position: fixed; inset: 8px; width: auto; max-height: none; border-radius: 18px; z-index: 80; display: flex; flex-direction: column; box-shadow: 0 0 0 9999px rgba(15, 23, 42, .35), var(--shadow); }
+      .notifications-popover.hidden, .challenge-popover.hidden { display: none; }
+      .notification-list, .challenge-list { max-height: none; flex: 1; }
+      .challenge-actions { display: grid !important; grid-template-columns: 1fr 1fr; align-items: stretch; }
+      .challenge-actions .wide { grid-column: 1 / -1; }
+      .challenge-modal { align-items: center; padding: 8px; }
       .challenge-modal-card { width: 100%; max-height: 88vh; border-radius: 18px 18px 12px 12px; padding: 12px; }
       .challenge-summary-grid, .challenge-edit-form { grid-template-columns: 1fr; }
       .challenge-edit-form .full { grid-column: auto; }
@@ -285,27 +289,28 @@ DASHBOARD_HTML = r"""
         </select>
       </div>
       <div class="control-group refresh-cluster toolbar-right">
-        <button id="challengesToggle" class="challenge-button" type="button" aria-expanded="false">O₂ challenges <span id="challengeCount" class="challenge-count">0</span></button>
+        <button id="challengesToggle" class="challenge-button" type="button" aria-expanded="false">O₂ challenges / add <span id="challengeCount" class="challenge-count">0</span></button>
         <button id="notificationsToggle" class="notification-button" type="button" aria-expanded="false">Notifications <span id="notificationCount" class="notification-count">0</span></button>
         <button id="installApp" class="install-button" type="button" title="Install Owlet as an app">Install app</button>
         <span class="small" id="refreshNote">Refreshing…</span>
         <button id="refresh" class="primary">Refresh</button>
-        <div id="challengesPanel" class="challenge-popover hidden" role="dialog" aria-label="Oxygen challenges">
+        <div id="challengesPanel" class="challenge-popover hidden" role="dialog" aria-modal="true" aria-label="Oxygen challenges">
           <div class="panel-title">
             <h2>Oxygen challenges</h2>
-            <span class="small" id="challengePage">—</span>
+            <div class="control-group"><span class="small" id="challengePage">—</span><button id="closeChallengesPanel" type="button">Close</button></div>
           </div>
-          <div class="control-group" id="challengeActions" style="justify-content: space-between; margin-bottom: 10px;">
+          <div class="control-group challenge-actions" id="challengeActions" style="justify-content: space-between; margin-bottom: 10px;">
+            <button id="addChallenge" class="primary wide" type="button">Add new O₂ challenge</button>
             <button id="startChallenge" type="button">Start now</button>
             <button id="endChallenge" type="button">End active</button>
-            <button id="markVisibleChallenge" type="button">Mark visible window</button>
+            <button id="markVisibleChallenge" class="wide" type="button">Use visible chart window</button>
           </div>
           <div id="challengeList" class="challenge-list"></div>
         </div>
-        <div id="notificationsPanel" class="notifications-popover hidden" role="dialog" aria-label="Notifications">
+        <div id="notificationsPanel" class="notifications-popover hidden" role="dialog" aria-modal="true" aria-label="Notifications">
           <div class="panel-title">
             <h2>Notifications</h2>
-            <span class="small" id="notificationPage">—</span>
+            <div class="control-group"><span class="small" id="notificationPage">—</span><button id="closeNotificationsPanel" type="button">Close</button></div>
           </div>
           <div id="notificationList" class="notification-list"></div>
           <div class="control-group" style="justify-content: space-between; margin-top: 10px;">
@@ -462,7 +467,7 @@ DASHBOARD_HTML = r"""
           <button id="deleteChallenge" class="danger-button" type="button">Delete challenge</button>
         </div>
       </form>
-      <div class="chart-frame secondary"><canvas id="challengeDetailChart"></canvas></div>
+      <div id="challengeDetailChartFrame" class="chart-frame secondary"><canvas id="challengeDetailChart"></canvas></div>
       <p class="small" id="challengeNotes"></p>
     </div>
   </div>
@@ -1001,7 +1006,14 @@ DASHBOARD_HTML = r"""
       if (context.dataset.id === 'notifications') return context.raw.tooltipLines;
       if (context.dataset.id === 'btcPrice') return `BTC price: ${money(context.parsed.y)}`;
       if (context.dataset.id === 'o2TrendSignal') {
-        const value = context.parsed.y;
+        const value = context.parsed?.y;
+        if (value === null || value === undefined || !Number.isFinite(Number(value))) {
+          return [
+            'Trend signal: gap',
+            'This point is intentionally blank because the device was offline, data was missing, or this was an oxygen challenge.',
+            'The averages restart after the gap instead of bridging stale readings.'
+          ];
+        }
         const direction = value >= 0 ? 'above' : 'below';
         return [
           `Trend signal: ${value >= 0 ? '+' : ''}${value.toFixed(2)} O₂ pts`,
@@ -1011,9 +1023,19 @@ DASHBOARD_HTML = r"""
           'Gaps/offline/challenges are not bridged; averages restart after them.'
         ];
       }
-      if (context.dataset.id === 'o2Trailing30') return [`Recent O₂ average: ${context.parsed.y.toFixed(2)}%`, 'This smooths the last ~30 minutes of continuous normal-support readings.'];
-      if (context.dataset.id === 'o2Baseline4h') return [`Baseline O₂ average: ${context.parsed.y.toFixed(2)}%`, 'This smooths the last ~4 hours of continuous normal-support readings.'];
-      const value = context.parsed.y;
+      if (context.dataset.id === 'o2Trailing30') {
+        const value = context.parsed?.y;
+        return value === null || value === undefined || !Number.isFinite(Number(value))
+          ? ['Recent O₂ average: gap', 'No continuous normal-support data here.']
+          : [`Recent O₂ average: ${value.toFixed(2)}%`, 'This smooths the last ~30 minutes of continuous normal-support readings.'];
+      }
+      if (context.dataset.id === 'o2Baseline4h') {
+        const value = context.parsed?.y;
+        return value === null || value === undefined || !Number.isFinite(Number(value))
+          ? ['Baseline O₂ average: gap', 'No continuous normal-support data here.']
+          : [`Baseline O₂ average: ${value.toFixed(2)}%`, 'This smooths the last ~4 hours of continuous normal-support readings.'];
+      }
+      const value = context.parsed?.y;
       return `${context.dataset.label}: ${value === null || value === undefined ? '—' : value}`;
     }
 
@@ -1446,8 +1468,31 @@ DASHBOARD_HTML = r"""
     async function markVisibleChallenge() {
       const range = visibleRange();
       if (!range || range.max <= range.min) return;
-      const label = window.prompt('Challenge label', 'Oxygen challenge') || 'Oxygen challenge';
-      await saveChallenge({ start_time: new Date(range.min).toISOString(), end_time: new Date(range.max).toISOString(), label, notes: 'Marked from visible chart window' });
+      openNewChallengeModal({ start: new Date(range.min).toISOString(), end: new Date(range.max).toISOString(), notes: 'Marked from visible chart window' });
+    }
+
+    function openNewChallengeModal(prefill = {}) {
+      currentChallengeDetail = null;
+      el('challengesPanel').classList.add('hidden');
+      el('challengesToggle').setAttribute('aria-expanded', 'false');
+      el('challengeModalTitle').textContent = 'Add O₂ challenge';
+      el('challengeModalMeta').textContent = 'Create an off-oxygen window by choosing start and end times.';
+      el('challengeSummary').innerHTML = '';
+      el('challengeSummary').style.display = 'none';
+      el('challengeDetailChartFrame').style.display = 'none';
+      el('challengeNotes').textContent = 'Tip: use “Use visible chart window” after zooming to prefill the exact chart interval.';
+      el('challengeEditForm').style.display = 'grid';
+      el('challengeEditLabel').value = prefill.label || 'Oxygen challenge';
+      el('challengeEditStart').value = toDateTimeLocal(prefill.start || new Date().toISOString());
+      el('challengeEditEnd').value = prefill.end ? toDateTimeLocal(prefill.end) : '';
+      el('challengeEditNotes').value = prefill.notes || '';
+      el('deleteChallenge').style.display = 'none';
+      el('saveChallengeEdits').textContent = 'Add challenge';
+      if (challengeDetailChart) {
+        challengeDetailChart.destroy();
+        challengeDetailChart = null;
+      }
+      el('challengeModal').classList.remove('hidden');
     }
 
     async function openChallengeDetail(id) {
@@ -1463,11 +1508,15 @@ DASHBOARD_HTML = r"""
       el('challengeModalTitle').textContent = detail.label || 'Oxygen challenge';
       el('challengeModalMeta').textContent = `${localTime(detail.start_time)} → ${detail.active ? 'active' : localTime(detail.effective_end_time)} · ${durationText(summary.duration_seconds)} off oxygen`;
       el('challengeNotes').textContent = detail.notes || 'Challenge data is excluded from normal dashboard averages and compared against the same-length window immediately before oxygen came off.';
+      el('challengeSummary').style.display = 'grid';
+      el('challengeDetailChartFrame').style.display = 'block';
       el('challengeEditForm').style.display = SHARE_MODE ? 'none' : 'grid';
       el('challengeEditLabel').value = detail.label || 'Oxygen challenge';
       el('challengeEditStart').value = toDateTimeLocal(detail.start_time);
       el('challengeEditEnd').value = detail.end_time ? toDateTimeLocal(detail.end_time) : '';
       el('challengeEditNotes').value = detail.notes || '';
+      el('deleteChallenge').style.display = SHARE_MODE ? 'none' : '';
+      el('saveChallengeEdits').textContent = 'Save edits';
       el('challengeSummary').innerHTML = [
         ['Avg O₂', fmt(summary.avg_oxygen_saturation, '%'), `vs prior ${fmt(prior.avg_oxygen_saturation, '%')} (${signed(comparison.avg_oxygen_delta, ' pts')})`],
         ['Min O₂', fmt(summary.min_oxygen_saturation, '%'), `vs prior ${fmt(prior.min_oxygen_saturation, '%')} (${signed(comparison.min_oxygen_delta, ' pts')})`],
@@ -1480,7 +1529,6 @@ DASHBOARD_HTML = r"""
 
     async function saveChallengeEdits(event) {
       event.preventDefault();
-      if (!currentChallengeDetail) return;
       const payload = {
         label: el('challengeEditLabel').value || 'Oxygen challenge',
         start_time: fromDateTimeLocal(el('challengeEditStart').value),
@@ -1491,16 +1539,20 @@ DASHBOARD_HTML = r"""
         return;
       }
       const endTime = fromDateTimeLocal(el('challengeEditEnd').value);
-      if (endTime) payload.end_time = endTime;
-      const response = await fetch(`${API_BASE}/api/oxygen-challenges/${currentChallengeDetail.id}`, {
-        method: 'PATCH',
+      payload.end_time = endTime;
+      const url = currentChallengeDetail
+        ? `${API_BASE}/api/oxygen-challenges/${currentChallengeDetail.id}`
+        : `${API_BASE}/api/oxygen-challenges`;
+      const response = await fetch(url, {
+        method: currentChallengeDetail ? 'PATCH' : 'POST',
         credentials: 'include',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      if (!response.ok) throw new Error(`Could not update challenge: ${response.status}`);
+      if (!response.ok) throw new Error(`Could not save challenge: ${response.status}`);
+      const saved = await response.json();
       await refresh();
-      await openChallengeDetail(currentChallengeDetail.id);
+      await openChallengeDetail(saved.id);
     }
 
     async function deleteCurrentChallenge() {
@@ -1556,10 +1608,20 @@ DASHBOARD_HTML = r"""
       setTimeout(() => chip.classList.remove('show'), 1800);
     }
 
+    async function safeRefresh(options = {}) {
+      try {
+        await refresh(options);
+      } catch (error) {
+        console.error(error);
+        el('refreshNote').textContent = 'Refresh failed';
+        el('status').innerHTML = '<span class="status-dot offline"></span>Refresh failed · keeping last loaded data';
+      }
+    }
+
     function tickCountdown() {
       secondsUntilRefresh = Math.max(0, secondsUntilRefresh - 1);
       el('refreshNote').textContent = `Auto-refresh in ${secondsUntilRefresh}s`;
-      if (secondsUntilRefresh === 0) refresh();
+      if (secondsUntilRefresh === 0) safeRefresh();
     }
 
     function updateInstallButton() {
@@ -1594,9 +1656,9 @@ DASHBOARD_HTML = r"""
       alert('Chrome may hide the install shortcut after the app is already installed, before the page finishes loading, or behind Cloudflare Access until you are logged in. Use Chrome menu → Cast, save, and share → Install page as app.');
     });
 
-    el('window').addEventListener('change', () => { notificationPageOffset = 0; refresh({ resetZoom: true }); });
-    el('bucket').addEventListener('change', () => refresh({ resetZoom: true }));
-    el('refresh').addEventListener('click', () => refresh());
+    el('window').addEventListener('change', () => { notificationPageOffset = 0; safeRefresh({ resetZoom: true }); });
+    el('bucket').addEventListener('change', () => safeRefresh({ resetZoom: true }));
+    el('refresh').addEventListener('click', () => safeRefresh());
     el('download').addEventListener('click', downloadCsv);
     el('resetZoom').addEventListener('click', resetZoom);
     el('challengesToggle').addEventListener('click', () => {
@@ -1608,7 +1670,10 @@ DASHBOARD_HTML = r"""
     });
     el('startChallenge').addEventListener('click', startChallenge);
     el('endChallenge').addEventListener('click', endActiveChallenge);
+    el('addChallenge').addEventListener('click', () => openNewChallengeModal());
     el('markVisibleChallenge').addEventListener('click', markVisibleChallenge);
+    el('closeChallengesPanel').addEventListener('click', () => { el('challengesPanel').classList.add('hidden'); el('challengesToggle').setAttribute('aria-expanded', 'false'); });
+    el('closeNotificationsPanel').addEventListener('click', () => { el('notificationsPanel').classList.add('hidden'); el('notificationsToggle').setAttribute('aria-expanded', 'false'); });
     el('closeChallengeModal').addEventListener('click', () => { currentChallengeDetail = null; el('challengeModal').classList.add('hidden'); });
     el('challengeEditForm').addEventListener('submit', saveChallengeEdits);
     el('deleteChallenge').addEventListener('click', deleteCurrentChallenge);
@@ -1630,7 +1695,7 @@ DASHBOARD_HTML = r"""
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').then(updateInstallButton).catch(updateInstallButton));
     }
     updateInstallButton();
-    refresh({ resetZoom: true });
+    safeRefresh({ resetZoom: true });
     setInterval(tickCountdown, 1000);
   </script>
 </body>
@@ -1639,7 +1704,13 @@ DASHBOARD_HTML = r"""
 
 
 def render_dashboard(api_base: str = "", *, share_mode: bool = False) -> str:
+    pwa_head = (
+        ""
+        if share_mode
+        else '<link rel="manifest" href="/manifest.webmanifest" />\n  <link rel="apple-touch-icon" href="/icon-192.png" />'
+    )
     return (
         DASHBOARD_HTML.replace("__API_BASE__", api_base)
         .replace("__SHARE_MODE__", "true" if share_mode else "false")
+        .replace("__PWA_HEAD__", pwa_head)
     )
