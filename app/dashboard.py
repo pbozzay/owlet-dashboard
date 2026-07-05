@@ -1640,23 +1640,43 @@ DASHBOARD_HTML = r"""
     function ballparkClass(row) {
       const sleepSeconds = (row.light_sleep_seconds || 0) + (row.deep_sleep_seconds || 0);
       const awakeSeconds = row.awake_seconds || 0;
-      const total = sleepSeconds + awakeSeconds;
+      const movementSeconds = row.movement_seconds || 0;
+      const total = row.duration_seconds || sleepSeconds + awakeSeconds;
       if (total <= 0) return null;
-      if (sleepSeconds >= total * 0.55) return (row.deep_sleep_seconds || 0) > (row.light_sleep_seconds || 0) ? 'deep' : 'light';
+      const awakeLikeSeconds = Math.min(total, awakeSeconds + movementSeconds);
+      const movementBurst = movementSeconds >= Math.max(120, total * 0.18);
+      if (awakeLikeSeconds >= total * 0.35 || (movementBurst && (row.max_movement || 0) >= (row.movement_awake_threshold || 10))) return 'awake';
       if (awakeSeconds >= total * 0.55) return 'awake';
+      if (sleepSeconds >= total * 0.55) return (row.deep_sleep_seconds || 0) > (row.light_sleep_seconds || 0) ? 'deep' : 'light';
       return sleepSeconds >= awakeSeconds ? 'light' : 'awake';
+    }
+
+    function subtractIntervals(interval, blockers) {
+      let pieces = [interval];
+      blockers.forEach(blocker => {
+        pieces = pieces.flatMap(piece => {
+          if (blocker.end <= piece.start || blocker.start >= piece.end) return [piece];
+          const split = [];
+          if (blocker.start > piece.start) split.push({ ...piece, end: Math.min(blocker.start, piece.end) });
+          if (blocker.end < piece.end) split.push({ ...piece, start: Math.max(blocker.end, piece.start) });
+          return split;
+        });
+      });
+      return pieces.filter(piece => piece.end > piece.start);
     }
 
     function rollupIntervals(range = visibleRange()) {
       if (!range || !rollups.length) return [];
       const bucketMs = bucketDurationMs();
-      return rollups.map((row, index) => {
+      const blockers = offlineIntervals();
+      return rollups.flatMap((row, index) => {
         const start = Date.parse(row.bucket_start);
         const nextStart = rollups[index + 1] ? Date.parse(rollups[index + 1].bucket_start) : start + bucketMs;
         const end = Number.isFinite(nextStart) && nextStart > start ? nextStart : start + bucketMs;
         const cls = ballparkClass(row);
-        if (!Number.isFinite(start) || !Number.isFinite(end) || !cls) return null;
-        return { start: Math.max(start, range.min), end: Math.min(end, range.max), cls };
+        if (!Number.isFinite(start) || !Number.isFinite(end) || !cls) return [];
+        const clipped = { start: Math.max(start, range.min), end: Math.min(end, range.max), cls };
+        return subtractIntervals(clipped, blockers);
       }).filter(item => item && item.end > item.start);
     }
 

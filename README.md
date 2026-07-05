@@ -62,6 +62,7 @@ Dashboard features:
 - mobile-safe oxygen challenge modal with an explicit Add new O₂ challenge form, editable start/end times, notes, delete action, per-challenge duration, avg/min O₂, avg HR, low/critical O₂ samples, sleep/awake time, and same-length prior-window comparison
 - compact sleep/wake accessory strip directly under the main vitals trace with aligned time labels, time-based hover mapping, and hover-highlighted sleep-phase bands on the main chart
 - optional full-height sleep/wake highlights on the main chart, with exact state windows or ballpark average-window mode
+- ballpark sleep/wake highlights exclude exact disconnected/no-signal spans and treat meaningful movement bursts as awake evidence
 - compact O₂ trend companion chart inside the main vitals card, calculated after the primary dashboard renders, using a MACD-style 30m average vs 4h baseline signal with a concise insight tooltip and visible gaps across offline/missing-data periods
 - synchronized horizontal time scrollbar for panning the visible window across all aligned charts, with extra history loaded behind the default range and lazy older-history loading near the left edge
 - grey disconnected/offline bands when Owlet reports zero-valued vitals or explicit sock disconnected/off flags, including stale nonzero vitals held during disconnects

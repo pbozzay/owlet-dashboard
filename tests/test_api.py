@@ -421,6 +421,9 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "sleepHighlightToggle" in response.text
     assert "sleepBallparkToggle" in response.text
     assert "Ballpark by average window" in response.text
+    assert "movementSeconds" in response.text
+    assert "awakeLikeSeconds" in response.text
+    assert "subtractIntervals" in response.text
     assert "setStateStripHoverFromEvent" in response.text
     assert "attachStateChartHover" in response.text
     assert "id=\"timePan\"" in response.text

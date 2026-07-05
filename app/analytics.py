@@ -20,6 +20,7 @@ AWAKE_STATE = "1"
 MAX_DURATION_GAP_SECONDS = 30 * 60
 LOW_OXYGEN_SAMPLE_THRESHOLD = 92
 BREATHING_TREND_THRESHOLD = 0.5
+MOVEMENT_AWAKE_THRESHOLD = 10
 
 
 def sleep_state_label(value: str | int | float | None) -> str:
@@ -60,6 +61,12 @@ def build_rollups(readings: list[OwletReading], bucket: Bucket = "hour") -> list
             duration for reading, duration in valid_pairs if _normalized_sleep_state(reading) == "15"
         )
         offline_seconds = sum(duration for reading, duration in pairs if is_offline_reading(reading))
+        movement_values = [row.movement for row in valid_rows]
+        movement_seconds = sum(
+            duration
+            for reading, duration in valid_pairs
+            if reading.movement is not None and reading.movement >= MOVEMENT_AWAKE_THRESHOLD
+        )
         rollups.append(
             {
                 "bucket": bucket,
@@ -72,7 +79,13 @@ def build_rollups(readings: list[OwletReading], bucket: Bucket = "hour") -> list
                 "avg_heart_rate": _avg([row.heart_rate for row in valid_rows]),
                 "avg_oxygen_saturation": _avg([row.oxygen_saturation for row in valid_rows]),
                 "min_oxygen_saturation": _min([row.oxygen_saturation for row in valid_rows]),
-                "avg_movement": _avg([row.movement for row in valid_rows]),
+                "avg_movement": _avg(movement_values),
+                "max_movement": _max(movement_values),
+                "movement_seconds": movement_seconds,
+                "movement_samples": sum(
+                    1 for row in valid_rows if row.movement is not None and row.movement >= MOVEMENT_AWAKE_THRESHOLD
+                ),
+                "movement_awake_threshold": MOVEMENT_AWAKE_THRESHOLD,
                 "sleep_seconds": sleep_seconds,
                 "light_sleep_seconds": light_seconds,
                 "deep_sleep_seconds": deep_seconds,
@@ -273,6 +286,13 @@ def _min(values: list[float | int | None]) -> float | None:
     if not clean:
         return None
     return min(clean)
+
+
+def _max(values: list[float | int | None]) -> float | None:
+    clean = [float(value) for value in values if value is not None]
+    if not clean:
+        return None
+    return max(clean)
 
 
 def _breathing_direction(delta: float | None) -> str:

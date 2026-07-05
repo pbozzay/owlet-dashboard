@@ -41,6 +41,10 @@ def test_build_rollups_computes_hourly_averages_and_duration_estimates():
     assert rollups[0]["sleep_seconds"] == 3600
     assert rollups[0]["awake_seconds"] == 0
     assert rollups[1]["awake_seconds"] == 1800
+    assert rollups[1]["max_movement"] == 0
+    assert rollups[1]["movement_seconds"] == 0
+    assert rollups[1]["movement_samples"] == 0
+    assert rollups[1]["movement_awake_threshold"] == 10
 
 
 def test_build_rollups_supports_requested_average_windows():
@@ -111,3 +115,20 @@ def test_zero_vital_periods_are_excluded_from_rollups_and_insights():
     assert insights["offline_count"] == 2
     assert insights["breathing"]["avg_oxygen_saturation"] == 95
     assert insights["breathing"]["min_oxygen_saturation"] == 94
+
+
+def test_build_rollups_counts_active_movement_as_awake_context():
+    readings = [
+        _reading("2026-07-03T10:00:00Z", movement=1, sleep_state=8),
+        _reading("2026-07-03T10:05:00Z", movement=22, sleep_state=8),
+        _reading("2026-07-03T10:10:00Z", movement=35, sleep_state=8),
+        _reading("2026-07-03T10:15:00Z", movement=2, sleep_state=8),
+    ]
+
+    rollup = build_rollups(readings, bucket="hour")[0]
+
+    assert rollup["sleep_seconds"] == 900
+    assert rollup["awake_seconds"] == 0
+    assert rollup["movement_seconds"] == 600
+    assert rollup["movement_samples"] == 2
+    assert rollup["max_movement"] == 35
