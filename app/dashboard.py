@@ -516,6 +516,8 @@ DASHBOARD_HTML = r"""
     let secondsUntilRefresh = REFRESH_SECONDS;
     let syncInProgress = false;
     let zoomWindow = null;
+    let loadedHours = null;
+    let loadingOlderHistory = false;
     let lastLatestTimestamp = null;
     let deferredInstallPrompt = null;
     let currentChallengeDetail = null;
@@ -819,6 +821,16 @@ DASHBOARD_HTML = r"""
       return value === 'all' ? null : Number(value);
     }
 
+    function historyHoursForSelection(hours = selectedHours()) {
+      if (!hours) return null;
+      return Math.min(24 * 365, Math.max(hours * 3, hours + 48));
+    }
+
+    function selectedWindowMs() {
+      const hours = selectedHours();
+      return hours ? hours * 60 * 60 * 1000 : null;
+    }
+
     function localTime(iso, compact = false) {
       if (!iso) return '—';
       const date = new Date(iso);
@@ -895,10 +907,11 @@ DASHBOARD_HTML = r"""
       return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     }
 
-    function queryParams(extra = {}) {
+    function queryParams(extra = {}, options = {}) {
       const window = el('window').value;
       const params = new URLSearchParams({ limit: '100000', ...extra });
-      if (window !== 'all') params.set('hours', window);
+      const hours = options.hoursOverride ?? (window === 'all' ? null : window);
+      if (hours) params.set('hours', hours);
       return params.toString();
     }
 
@@ -913,14 +926,17 @@ DASHBOARD_HTML = r"""
       updateRefreshButton('Refreshing…');
       const token = ++refreshToken;
       const previousLatest = lastLatestTimestamp;
+      const wasAtLatest = resetZoom || visibleWindowAtLoadedEnd();
+      if (resetZoom || loadedHours === null || selectedHours() === null) loadedHours = historyHoursForSelection();
       const qs = queryParams();
-      const rollupQs = queryParams({ bucket: el('bucket').value });
-      const notificationQs = queryParams({ limit: '500', offset: '0' });
-      const challengeQs = queryParams({ limit: '100', offset: '0' });
+      const dataQs = queryParams({}, { hoursOverride: loadedHours });
+      const rollupQs = queryParams({ bucket: el('bucket').value }, { hoursOverride: loadedHours });
+      const notificationQs = queryParams({ limit: '500', offset: '0' }, { hoursOverride: loadedHours });
+      const challengeQs = queryParams({ limit: '100', offset: '0' }, { hoursOverride: loadedHours });
       const cryptoHours = selectedHours() || 720;
       const [health, rows, notificationData, challengeData] = await Promise.all([
         fetchJson(`${API_BASE}/api/health`),
-        fetchJson(`${API_BASE}/api/readings?${qs}`),
+        fetchJson(`${API_BASE}/api/readings?${dataQs}`),
         fetchJson(`${API_BASE}/api/notifications?${notificationQs}`),
         fetchJson(`${API_BASE}/api/oxygen-challenges?${challengeQs}`)
       ]);
@@ -929,7 +945,7 @@ DASHBOARD_HTML = r"""
       notifications = notificationData;
       challenges = challengeData;
       lastLatestTimestamp = readings.length ? readings[readings.length - 1].recorded_at : null;
-      if (resetZoom) zoomWindow = null;
+      if (resetZoom || wasAtLatest || !zoomWindow) zoomWindow = defaultVisibleRange();
       renderStatus(health);
       applyFilter();
       renderCharts({ deferTrend: true });
@@ -937,15 +953,15 @@ DASHBOARD_HTML = r"""
       renderChallenges();
       updateRefreshButton();
       if (previousLatest && lastLatestTimestamp && lastLatestTimestamp !== previousLatest) showNewDataPulse();
-      hydrateSecondaryData({ qs, rollupQs, cryptoHours, token }).catch(error => {
+      hydrateSecondaryData({ qs, dataQs, rollupQs, cryptoHours, token }).catch(error => {
         console.error(error);
         el('refresh').title = 'Some details failed; core readings are still shown.';
       });
     }
 
-    async function hydrateSecondaryData({ qs, rollupQs, cryptoHours, token }) {
+    async function hydrateSecondaryData({ qs, dataQs, rollupQs, cryptoHours, token }) {
       const [compareRows, stats, insightData, rollupData, cryptoData] = await Promise.all([
-        fetchJson(`${API_BASE}/api/readings?hours=48&limit=100000`),
+        fetchJson(`${API_BASE}/api/readings?${dataQs}`),
         fetchJson(`${API_BASE}/api/summary?${qs}`),
         fetchJson(`${API_BASE}/api/insights?${qs}`),
         fetchJson(`${API_BASE}/api/rollups?${rollupQs}`),
@@ -1042,14 +1058,42 @@ DASHBOARD_HTML = r"""
 
     function downsample(rows, maxPoints = 1200) {
       if (rows.length <= maxPoints) return rows;
+      const range = visibleRange();
       const step = Math.ceil(rows.length / maxPoints);
-      return rows.filter((_, index) => index % step === 0 || index === rows.length - 1 || isOffline(rows[index]));
+      return rows.filter((row, index) => {
+        const time = Date.parse(row.recorded_at);
+        const visibleEdge = range && (time === range.min || time === range.max);
+        return visibleEdge || index % step === 0 || index === rows.length - 1 || isOffline(row);
+      });
     }
 
     function downsamplePoints(points, maxPoints = 1200) {
-      if (points.length <= maxPoints) return points;
+      const range = visibleRange();
+      if (points.length <= maxPoints) return extendPointsToVisibleEdges(points, range);
       const step = Math.ceil(points.length / maxPoints);
-      return points.filter((point, index) => point.y === null || index % step === 0 || index === points.length - 1);
+      const sampled = points.filter((point, index) => {
+        const visibleEdge = range && (point.x === range.min || point.x === range.max);
+        return visibleEdge || point.y === null || index % step === 0 || index === points.length - 1;
+      });
+      return extendPointsToVisibleEdges(sampled, range, points);
+    }
+
+    function extendPointsToVisibleEdges(points, range = visibleRange(), sourcePoints = points) {
+      if (!range || !points.length || range.max <= range.min) return points;
+      const visible = sourcePoints.filter(point => point && Number.isFinite(point.x) && point.x >= range.min && point.x <= range.max);
+      if (!visible.length) return points;
+      const extended = points.slice();
+      const first = visible[0];
+      const last = visible[visible.length - 1];
+      if (first.x > range.min && !extended.some(point => point.x === range.min)) extended.push({ ...first, x: range.min });
+      if (last.x < range.max && !extended.some(point => point.x === range.max)) extended.push({ ...last, x: range.max });
+      return extended.sort((a, b) => a.x - b.x);
+    }
+
+    function readingSeries(key) {
+      const sampled = downsample(readings).map(row => ({ x: Date.parse(row.recorded_at), y: row[key] }));
+      const source = readings.map(row => ({ x: Date.parse(row.recorded_at), y: row[key] }));
+      return extendPointsToVisibleEdges(sampled, visibleRange(), source);
     }
 
     function rollingOxygenAverage(minutes, challengeWindows = challengeIntervals()) {
@@ -1208,10 +1252,12 @@ DASHBOARD_HTML = r"""
     }
 
     function xScaleOptions({ hideTicks = false } = {}) {
+      const range = visibleRange();
       return {
         type: 'linear',
-        min: zoomWindow?.min,
-        max: zoomWindow?.max,
+        offset: false,
+        min: range?.min,
+        max: range?.max,
         ticks: { display: !hideTicks, maxRotation: 0, autoSkip: true, maxTicksLimit: window.matchMedia('(max-width: 640px)').matches ? 6 : 14, callback: timeTick }
       };
     }
@@ -1316,11 +1362,11 @@ DASHBOARD_HTML = r"""
     }
 
     function resetZoom() {
-      zoomWindow = null;
+      zoomWindow = defaultVisibleRange();
       chartList().forEach(chart => {
         if (typeof chart.resetZoom === 'function') chart.resetZoom('none');
-        chart.options.scales.x.min = undefined;
-        chart.options.scales.x.max = undefined;
+        chart.options.scales.x.min = zoomWindow?.min;
+        chart.options.scales.x.max = zoomWindow?.max;
         chart.update('none');
       });
       renderStateStrip();
@@ -1349,16 +1395,14 @@ DASHBOARD_HTML = r"""
     }
 
     function renderCharts({ deferTrend = false } = {}) {
-      const sampled = downsample(readings);
-      const dataPoint = (row, key) => ({ x: Date.parse(row.recorded_at), y: row[key] });
       const btcHidden = vitalsChart?.data.datasets.find(dataset => dataset.id === 'btcPrice')?.hidden ?? true;
       vitalsChart = upsertChart(vitalsChart, 'vitalsChart', {
         type: 'line',
         data: {
           datasets: [
-            { label: 'Heart rate', data: sampled.map(r => dataPoint(r, 'heart_rate')), borderColor: '#dc2626', backgroundColor: '#dc262620', yAxisID: 'hr', spanGaps: true, pointRadius: 0, tension: .25 },
-            { label: 'SpO₂', data: sampled.map(r => dataPoint(r, 'oxygen_saturation')), borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'spo2', spanGaps: true, pointRadius: 0, tension: .25 },
-            { label: 'Movement', data: sampled.map(r => dataPoint(r, 'movement')), borderColor: '#059669', backgroundColor: '#05966920', yAxisID: 'move', spanGaps: true, pointRadius: 0, tension: .2 },
+            { label: 'Heart rate', data: readingSeries('heart_rate'), borderColor: '#dc2626', backgroundColor: '#dc262620', yAxisID: 'hr', spanGaps: true, pointRadius: 0, tension: .25 },
+            { label: 'SpO₂', data: readingSeries('oxygen_saturation'), borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'spo2', spanGaps: true, pointRadius: 0, tension: .25 },
+            { label: 'Movement', data: readingSeries('movement'), borderColor: '#059669', backgroundColor: '#05966920', yAxisID: 'move', spanGaps: true, pointRadius: 0, tension: .2 },
             { id: 'btcPrice', label: 'BTC price', data: cryptoBitcoinPoints(), borderColor: '#f97316', backgroundColor: '#f9731620', yAxisID: 'btc', hidden: btcHidden, spanGaps: true, pointRadius: 0, tension: .25 },
             { id: 'notifications', type: 'scatter', label: 'Notifications', data: notificationPoints(), yAxisID: 'spo2', pointStyle: 'triangle', pointRadius: 9, pointHoverRadius: 13, hitRadius: 24, showLine: false, borderWidth: 2, borderColor: '#92400e', backgroundColor: '#f59e0b' }
           ]
@@ -1406,15 +1450,62 @@ DASHBOARD_HTML = r"""
       }
     }
 
-    function visibleRange() {
-      if (zoomWindow) return zoomWindow;
-      const times = readings.map(row => Date.parse(row.recorded_at)).filter(Number.isFinite);
+    function dataRange(rows = readings) {
+      const times = rows.map(row => Date.parse(row.recorded_at)).filter(Number.isFinite);
       return times.length ? { min: Math.min(...times), max: Math.max(...times) } : null;
     }
 
+    function defaultVisibleRange() {
+      const full = dataRange();
+      if (!full) return null;
+      const width = selectedWindowMs();
+      if (!width) return full;
+      const floor = full.max - width;
+      const visible = dataRange(readings.filter(row => {
+        const time = Date.parse(row.recorded_at);
+        return Number.isFinite(time) && time >= floor && time <= full.max;
+      }));
+      if (visible && visible.max > visible.min) return visible;
+      return { min: Math.max(full.min, floor), max: full.max };
+    }
+
+    function visibleRange() {
+      if (zoomWindow?.max > zoomWindow?.min) return zoomWindow;
+      return defaultVisibleRange();
+    }
+
+    function visibleWindowAtLoadedEnd() {
+      const full = dataRange();
+      if (!zoomWindow || !full) return true;
+      return Math.abs(zoomWindow.max - full.max) < 5 * 60 * 1000;
+    }
+
     function fullDataRange() {
-      const times = readings.map(row => Date.parse(row.recorded_at)).filter(Number.isFinite);
-      return times.length ? { min: Math.min(...times), max: Math.max(...times) } : null;
+      return dataRange();
+    }
+
+    async function loadOlderHistoryIfNeeded() {
+      if (SHARE_MODE || loadingOlderHistory || selectedHours() === null) return;
+      const slider = el('timePan');
+      if (slider.disabled || Number(slider.value) > 20) return;
+      const nextHours = Math.min(24 * 365, Math.max((loadedHours || selectedHours()) * 2, (loadedHours || selectedHours()) + 24));
+      if (!loadedHours || nextHours <= loadedHours) return;
+      loadingOlderHistory = true;
+      const previousTitle = slider.title;
+      slider.title = `Loading ${nextHours}h of history…`;
+      loadedHours = nextHours;
+      await safeRefresh();
+      slider.title = previousTitle || 'Scroll left for older loaded history; release near the left edge to load more.';
+      loadingOlderHistory = false;
+    }
+
+    function visibleRows() {
+      const range = visibleRange();
+      if (!range) return readings;
+      return readings.filter(row => {
+        const time = Date.parse(row.recorded_at);
+        return Number.isFinite(time) && time >= range.min && time <= range.max;
+      });
     }
 
     function updatePrimaryChartAlignment() {
@@ -1439,6 +1530,7 @@ DASHBOARD_HTML = r"""
       const span = full.max - full.min;
       slider.disabled = width >= span - 1000;
       slider.value = slider.disabled ? 0 : Math.round(((visible.min - full.min) / Math.max(1, span - width)) * 1000);
+      slider.title = selectedHours() === null ? 'Showing all loaded history.' : 'Scroll left for older loaded history; release near the left edge to load more.';
       el('panStartLabel').textContent = timeTick(visible.min);
       el('panEndLabel').textContent = timeTick(visible.max);
     }
@@ -2032,6 +2124,7 @@ DASHBOARD_HTML = r"""
     el('challengeEditForm').addEventListener('submit', saveChallengeEdits);
     el('deleteChallenge').addEventListener('click', deleteCurrentChallenge);
     el('timePan').addEventListener('input', event => panToSliderValue(event.target.value));
+    el('timePan').addEventListener('change', () => loadOlderHistoryIfNeeded().catch(console.error));
     el('sleepHighlightToggle').addEventListener('change', event => {
       sleepHighlightEnabled = event.target.checked;
       el('sleepBallparkToggle').disabled = !sleepHighlightEnabled;

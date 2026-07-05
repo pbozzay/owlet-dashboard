@@ -404,6 +404,14 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "requestIdleCallback" in response.text
     assert "hydrateSecondaryData" in response.text
     assert "renderCharts({ deferTrend: true })" in response.text
+    assert "historyHoursForSelection" in response.text
+    assert "defaultVisibleRange" in response.text
+    assert "extendPointsToVisibleEdges" in response.text
+    assert "readingSeries('heart_rate')" in response.text
+    assert "offset: false" in response.text
+    assert "dataQs" in response.text
+    assert "loadOlderHistoryIfNeeded" in response.text
+    assert "release near the left edge to load more" in response.text
     assert "oxygenTrendSignal(shortAvg, longAvg)" in response.text
     assert "sleepPhaseHover" in response.text
     assert "sleepBands" in response.text

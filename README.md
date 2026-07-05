@@ -63,7 +63,7 @@ Dashboard features:
 - compact sleep/wake accessory strip directly under the main vitals trace with aligned time labels, time-based hover mapping, and hover-highlighted sleep-phase bands on the main chart
 - optional full-height sleep/wake highlights on the main chart, with exact state windows or ballpark average-window mode
 - compact O₂ trend companion chart inside the main vitals card, calculated after the primary dashboard renders, using a MACD-style 30m average vs 4h baseline signal with a concise insight tooltip and visible gaps across offline/missing-data periods
-- synchronized horizontal time scrollbar for panning the visible window across all aligned charts after zooming
+- synchronized horizontal time scrollbar for panning the visible window across all aligned charts, with extra history loaded behind the default range and lazy older-history loading near the left edge
 - grey disconnected/offline bands when Owlet reports zero-valued vitals or explicit sock disconnected/off flags, including stale nonzero vitals held during disconnects
 - offline/no-signal readings are zeroed in the dashboard trace/table, kept in raw payloads for debugging, and excluded from averages, trends, and sleep analysis
 - Owlet alert/notification capture for low oxygen, sock disconnect/off, heart-rate, battery, and base-power alerts emitted by Owlet/API data; measured SpO₂ dips are shown in stats/challenges/graphs but do not create notification-pane alerts
