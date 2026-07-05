@@ -7,7 +7,7 @@ from typing import Any
 
 import aiosqlite
 
-from app.models import OwletReading
+from app.models import OwletReading, raw_alert_mask_has, raw_flag_active
 from app.notifications import NotificationEvent, extract_notifications
 from app.oxygen_challenges import challenge_analysis, parse_time, reading_in_any_period
 from app.quality import is_offline_reading
@@ -483,6 +483,8 @@ class ReadingStore:
             battery_minutes=_raw_metric(raw, "battery_minutes", "btt", "BATTERY_MINUTES"),
             movement=row[5],
             sleep_state=row[6],
+            sock_disconnected=raw_flag_active(raw, "sock_disconnected", "SOCK_DISCON_ALRT") or raw_alert_mask_has(raw, 16),
+            sock_off=raw_flag_active(raw, "sock_off", "SOCK_OFF") or raw_alert_mask_has(raw, 64),
             skin_temperature=row[7],
             raw=raw,
         )

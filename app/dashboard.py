@@ -734,7 +734,7 @@ DASHBOARD_HTML = r"""
     const trendClass = (trend) => `trend-${trend || 'unknown'}`;
     const stateLabel = (value) => ({ '0': 'inactive', '1': 'awake', '8': 'light sleep', '15': 'deep sleep' }[String(value)] || `state ${value ?? 'unknown'}`);
     const zeroOrNegative = (value) => value !== null && value !== undefined && Number(value) <= 0;
-    const isOffline = (row) => zeroOrNegative(row?.heart_rate) || zeroOrNegative(row?.oxygen_saturation);
+    const isOffline = (row) => !!(row?.sock_disconnected || row?.sock_off || zeroOrNegative(row?.heart_rate) || zeroOrNegative(row?.oxygen_saturation));
     const durationText = (seconds) => seconds ? `${Math.floor(seconds / 3600)}h ${Math.round((seconds % 3600) / 60)}m`.replace(/^0h /, '') : '0m';
     const signed = (value, suffix = '') => value === null || value === undefined ? '—' : `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(1).replace(/\.0$/, '')}${suffix}`;
     const chartList = () => [vitalsChart, oxygenTrendChart, rollupChart, stateChart].filter(Boolean);

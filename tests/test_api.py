@@ -50,6 +50,44 @@ async def test_summary_excludes_zero_offline_vitals_from_metric_averages(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_sock_disconnected_nonzero_vitals_are_treated_as_offline(tmp_path):
+    db_path = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db_path)
+    await store.init()
+    await _seed_reading(store, "2026-07-02T01:00:00Z", hr=120, spo2=98)
+    await store.insert_reading(
+        normalize_reading(
+            {
+                "heart_rate": 120,
+                "oxygen_saturation": 98,
+                "battery": 95,
+                "last_updated": "2026-07-02T01:05:00Z",
+                "sock_disconnected": True,
+                "SOCK_DISCON_ALRT": {"value": 1},
+                "alerts_mask": 16,
+            },
+            "AC123",
+        )
+    )
+    await _seed_reading(store, "2026-07-02T01:10:00Z", hr=130, spo2=97)
+    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+
+    with TestClient(app) as client:
+        readings = client.get("/api/readings?hours=24").json()
+        summary = client.get("/api/summary?hours=24").json()
+        rollups = client.get("/api/rollups?bucket=hour&hours=24").json()
+
+    assert readings[1]["sock_disconnected"] is True
+    assert readings[1]["sock_off"] is False
+    assert summary["count"] == 3
+    assert summary["valid_count"] == 2
+    assert summary["offline_count"] == 1
+    assert summary["heart_rate"]["avg"] == 125
+    assert summary["oxygen_saturation"]["avg"] == 97.5
+    assert rollups["rollups"][0]["offline_samples"] == 1
+
+
+@pytest.mark.asyncio
 async def test_oxygen_challenges_are_stored_and_excluded_from_normal_stats(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)
@@ -326,6 +364,8 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert 'rel="manifest"' in response.text
     assert "serviceWorker" in response.text
     assert "offlineBands" in response.text
+    assert "row?.sock_disconnected" in response.text
+    assert "row?.sock_off" in response.text
     assert "notificationGlyphs" in response.text
     assert "oxygen85Threshold" in response.text
     assert "85% O₂" in response.text
