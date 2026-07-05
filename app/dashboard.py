@@ -90,7 +90,6 @@ DASHBOARD_HTML = r"""
     .chart-frame.secondary { height: 240px; }
     .chart-frame canvas { display: block; width: 100% !important; height: 100% !important; }
     .companion-chart { margin-top: 2px; padding-top: 0; background: transparent; }
-    .trend-line-label { position: absolute; left: 8px; top: 6px; z-index: 2; background: rgba(239, 246, 255, .92); color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 999px; padding: 3px 8px; font-size: .72rem; font-weight: 900; pointer-events: none; }
     .info-popover-wrap { position: relative; display: inline-flex; align-items: center; }
     .companion-info { position: absolute; right: 6px; top: 6px; z-index: 2; }
     .info-button { width: 28px; height: 28px; border-radius: 999px; padding: 0; display: inline-grid; place-items: center; background: #eff6ff; color: #1d4ed8; font-weight: 950; }
@@ -255,6 +254,9 @@ DASHBOARD_HTML = r"""
       .chart-panel, .panel, .card { padding: 9px; }
       .panel-title { gap: 8px; margin-bottom: 5px; align-items: flex-start; }
       .panel-title { flex-wrap: wrap; }
+      .primary-chart > .panel-title { flex-wrap: nowrap; align-items: center; }
+      .primary-chart .chart-actions { flex: 0 0 auto; margin-left: auto; }
+      .primary-chart .o2-add-button { min-width: 58px; font-size: .9rem; padding: .48rem .62rem; }
       .details-grid .panel-title .small { flex-basis: 100%; }
       .chart-hint { display: none; }
       .chart-frame.main { height: 430px; }
@@ -372,7 +374,7 @@ DASHBOARD_HTML = r"""
         <div class="panel-title">
           <div>
             <h2>Main vitals trace</h2>
-            <span class="chart-hint">Drag across any chart to zoom. Double-click to reset.</span>
+            <span class="chart-hint">Drag charts to pan. Desktop drag-select zooms; double-click resets.</span>
           </div>
           <div class="chart-actions">
             <span class="update-chip" id="updateChip">New data</span>
@@ -426,7 +428,6 @@ DASHBOARD_HTML = r"""
         </div>
         <div class="companion-chart" aria-label="Oxygen trend companion chart">
           <div class="chart-frame companion"><canvas id="oxygenTrendChart"></canvas>
-            <span class="trend-line-label" id="trendLineLabel">Recent O₂ avg</span>
             <span class="info-popover-wrap companion-info">
               <button class="info-button" type="button" aria-label="How to read the O₂ trend companion">i</button>
               <span class="info-popover" role="tooltip">
@@ -845,6 +846,15 @@ DASHBOARD_HTML = r"""
     function selectedHours() {
       const value = el('window').value;
       return value === 'all' ? null : Number(value);
+    }
+
+    function isMobileViewport() {
+      return window.matchMedia('(max-width: 640px)').matches;
+    }
+
+    function applyResponsiveDefaultWindow() {
+      const selector = el('window');
+      if (isMobileViewport() && selector?.value === '24') selector.value = '6';
     }
 
     function historyHoursForSelection(hours = selectedHours()) {
@@ -1383,11 +1393,12 @@ DASHBOARD_HTML = r"""
     }
 
     function zoomOptions() {
+      const mobile = isMobileViewport();
       return {
         limits: { x: { min: 'original', max: 'original' } },
-        pan: { enabled: true, mode: 'x', onPanComplete: ({ chart }) => syncZoomFrom(chart) },
+        pan: { enabled: true, mode: 'x', threshold: mobile ? 4 : 8, onPanComplete: ({ chart }) => syncZoomFrom(chart) },
         zoom: {
-          drag: { enabled: true, backgroundColor: 'rgba(37, 99, 235, .12)', borderColor: 'rgba(37, 99, 235, .55)', borderWidth: 1 },
+          drag: { enabled: !mobile, backgroundColor: 'rgba(37, 99, 235, .12)', borderColor: 'rgba(37, 99, 235, .55)', borderWidth: 1 },
           wheel: { enabled: true, speed: 0.08 },
           pinch: { enabled: true },
           mode: 'x',
@@ -1915,22 +1926,23 @@ DASHBOARD_HTML = r"""
       const challengeWindows = challengeIntervals();
       const shortMinutes = smoothingMinutes() || 30;
       const longMinutes = Math.max(240, shortMinutes * 8);
+      const shortLabel = `${shortMinutes}m O₂ avg`;
+      const signalLabel = `${shortMinutes}m − ${Math.round(longMinutes / 60)}h signal`;
       const shortAvg = rollingOxygenAverage(shortMinutes, challengeWindows);
       const longAvg = rollingOxygenAverage(longMinutes, challengeWindows);
       const signal = oxygenTrendSignal(shortAvg, longAvg);
-      el('trendLineLabel').textContent = `${smoothingLabel()} O₂ avg`;
       oxygenTrendChart = upsertChart(oxygenTrendChart, 'oxygenTrendChart', {
         type: 'line',
         data: {
           datasets: [
-            { id: 'o2Trailing30', label: `${smoothingLabel()} O₂ avg`, data: shortAvg, borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, spanGaps: false },
+            { id: 'o2Trailing30', label: shortLabel, data: shortAvg, borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, spanGaps: false },
             { id: 'o2Baseline4h', label: `Baseline ${Math.round(longMinutes / 60)}h O₂ avg`, data: longAvg, borderColor: '#7c3aed', backgroundColor: '#7c3aed20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, borderDash: [6, 4], spanGaps: false },
-            { id: 'o2TrendSignal', type: 'bar', label: `${smoothingLabel()} − ${Math.round(longMinutes / 60)}h signal`, data: signal, yAxisID: 'signal', backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(5, 150, 105, .42)' : 'rgba(220, 38, 38, .42)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#059669' : '#dc2626', borderWidth: 1 }
+            { id: 'o2TrendSignal', type: 'bar', label: signalLabel, data: signal, yAxisID: 'signal', backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(5, 150, 105, .42)' : 'rgba(220, 38, 38, .42)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#059669' : '#dc2626', borderWidth: 1 }
           ]
         },
         options: chartOptions({
           oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100, title: { display: true, text: 'O₂ avg (%)' } },
-          signal: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: `${smoothingLabel()} signal` }, ticks: { callback: value => `${value > 0 ? '+' : ''}${value}` } }
+          signal: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: `${shortMinutes}m signal` }, ticks: { callback: value => `${value > 0 ? '+' : ''}${value}` } }
         }, { legend: { display: false }, keepAxisTitles: true })
       });
     }
@@ -2229,7 +2241,10 @@ DASHBOARD_HTML = r"""
       el('o2AddMenuToggle').setAttribute('aria-expanded', String(!hidden));
     }
 
-    if (SHARE_MODE) el('o2AddWrap').style.display = 'none';
+    if (SHARE_MODE) {
+      el('o2AddMenu').innerHTML = '<span class="small">Open the full dashboard to add O₂ challenges.</span>';
+      el('o2AddMenuToggle').title = 'Open the full dashboard to add O₂ challenges';
+    }
 
     window.addEventListener('beforeinstallprompt', event => {
       event.preventDefault();
@@ -2279,10 +2294,10 @@ DASHBOARD_HTML = r"""
     el('markVisibleChallenge').addEventListener('click', markVisibleChallenge);
     el('o2AddMenuToggle').addEventListener('click', event => {
       event.stopPropagation();
-      if (!SHARE_MODE) toggleO2AddMenu();
+      toggleO2AddMenu();
     });
-    el('menuNewChallenge').addEventListener('click', () => { closeO2AddMenu(); openNewChallengeModal(); });
-    el('menuVisibleChallenge').addEventListener('click', () => { closeO2AddMenu(); markVisibleChallenge(); });
+    el('menuNewChallenge')?.addEventListener('click', () => { closeO2AddMenu(); openNewChallengeModal(); });
+    el('menuVisibleChallenge')?.addEventListener('click', () => { closeO2AddMenu(); markVisibleChallenge(); });
     el('closeChallengesPanel').addEventListener('click', () => { el('challengesPanel').classList.add('hidden'); el('challengesToggle').setAttribute('aria-expanded', 'false'); });
     el('closeNotificationsPanel').addEventListener('click', () => { el('notificationsPanel').classList.add('hidden'); el('notificationsToggle').setAttribute('aria-expanded', 'false'); });
     el('closeChallengeModal').addEventListener('click', () => { currentChallengeDetail = null; el('challengeModal').classList.add('hidden'); });
@@ -2323,6 +2338,7 @@ DASHBOARD_HTML = r"""
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').then(updateInstallButton).catch(updateInstallButton));
     }
     updateInstallButton();
+    applyResponsiveDefaultWindow();
     loadDevices().then(() => safeRefresh({ resetZoom: true }));
     setInterval(tickCountdown, 1000);
   </script>

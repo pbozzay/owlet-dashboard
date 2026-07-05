@@ -440,7 +440,8 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "O₂ avg (%)" in response.text
     assert "30m − 4h signal" in response.text
     assert "Blue line:" not in response.text
-    assert "trendLineLabel" in response.text
+    assert "trendLineLabel" not in response.text
+    assert "Raw points O₂ avg" not in response.text
     assert "Trend signal" in response.text
     assert "legend: { display: false }" in response.text
     assert "TREND_MAX_SAMPLE_GAP_MS" in response.text
@@ -490,6 +491,10 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert response.text.index("id=\"vitalsChart\"") < response.text.index("id=\"stateStrip\"") < response.text.index("id=\"oxygenTrendChart\"")
     assert "wheel:" in response.text
     assert "pinch:" in response.text
+    assert "applyResponsiveDefaultWindow" in response.text
+    assert "selector.value = '6'" in response.text
+    assert "drag: { enabled: !mobile" in response.text
+    assert "pan: { enabled: true" in response.text
     assert "onPanComplete" in response.text
     assert "O₂ challenges" in response.text
     assert "O₂ challenge" in response.text
