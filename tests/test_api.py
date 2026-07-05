@@ -397,6 +397,7 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert 'id="deviceSelect"' in response.text
     assert "/api/devices" in response.text
     assert 'id="smoothing"' in response.text
+    assert '<option selected value="raw">Raw points</option>' in response.text
     assert '<option value="5">5 min avg</option>' in response.text
     assert 'id="quickAddChallenge"' in response.text
     assert 'id="quickVisibleChallenge"' in response.text
@@ -408,7 +409,7 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "serviceWorker" in response.text
     assert "offlineBands" in response.text
     assert "rgba(100, 116, 139, 0.14)" in response.text
-    assert "disconnected/offline" in response.text
+    assert "Device offline / sock off" in response.text
     assert "row?.sock_disconnected" in response.text
     assert "row?.sock_off" in response.text
     assert "notificationGlyphs" in response.text
@@ -444,7 +445,11 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "defaultVisibleRange" in response.text
     assert "extendPointsToVisibleEdges" in response.text
     assert "readingSeries('heart_rate')" in response.text
+    assert "rollingAverageForKey" in response.text
+    assert "if (isOffline(row) || !Number.isFinite(value))" in response.text
     assert "offset: false" in response.text
+    assert "hr: { type: 'linear', position: 'left', min: 0" in response.text
+    assert "spo2: { type: 'linear', position: 'right', min: 0" in response.text
     assert "dataQs" in response.text
     assert "loadOlderHistoryIfNeeded" in response.text
     assert "release near the left edge to load more" in response.text
@@ -456,7 +461,7 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "sleepStageInfo" in response.text
     assert "sleepHighlightToggle" in response.text
     assert "sleepBallparkToggle" in response.text
-    assert "Ballpark by average window" in response.text
+    assert "Ballpark average window" in response.text
     assert "movementSeconds" in response.text
     assert "awakeLikeSeconds" in response.text
     assert "subtractIntervals" in response.text
@@ -464,6 +469,7 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "attachStateChartHover" in response.text
     assert "id=\"timePan\"" in response.text
     assert "panToSliderValue" in response.text
+    assert response.text.index("chart-toolbar") < response.text.index("id=\"vitalsChart\"")
     assert response.text.index("sleep-overlay-controls") < response.text.index("id=\"vitalsChart\"")
     assert response.text.index("id=\"vitalsChart\"") < response.text.index("id=\"stateStrip\"") < response.text.index("id=\"oxygenTrendChart\"")
     assert "wheel:" in response.text
@@ -471,7 +477,8 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "onPanComplete" in response.text
     assert "O₂ challenges" in response.text
     assert "O₂ challenges / add" in response.text
-    assert "＋ Add O₂ challenge" in response.text
+    assert "O₂ challenge" in response.text
+    assert "＋ Add challenge" in response.text
     assert "Add new O₂ challenge" in response.text
     assert "Add one from this popup" in response.text
     assert "data-add-challenge-empty" in response.text
@@ -514,7 +521,10 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert response.text.index("Readings table") < response.text.index("Selected reading")
     assert "O₂ now + today" in response.text
     assert "Heart rate" in response.text
+    assert response.text.index("Heart rate") < response.text.index("Sleep") < response.text.index("Crypto")
+    assert "currentSleepStatus" in response.text
     assert "Crypto" in response.text
+    assert "state-legend" not in response.text
 
 
 def test_pwa_assets_are_served(tmp_path):

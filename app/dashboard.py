@@ -96,9 +96,14 @@ DASHBOARD_HTML = r"""
     .info-button { width: 28px; height: 28px; border-radius: 999px; padding: 0; display: inline-grid; place-items: center; background: #eff6ff; color: #1d4ed8; font-weight: 950; }
     .info-popover { display: none; position: absolute; right: 0; top: calc(100% + 8px); width: min(360px, calc(100vw - 32px)); z-index: 25; background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 14px; padding: 12px; color: var(--text); font-size: .84rem; line-height: 1.35; text-transform: none; letter-spacing: normal; }
     .info-popover-wrap:hover .info-popover, .info-popover-wrap:focus-within .info-popover { display: block; }
-    .chart-control-bar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 8px 0 10px; }
-    .chart-control-bar label { display: inline-flex; align-items: center; gap: 6px; }
-    .chart-control-bar select { min-width: 142px; }
+    .chart-toolbar { display: grid; gap: 8px; margin: 10px 0 10px; }
+    .control-section { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; border: 1px solid rgba(226,232,240,.9); background: rgba(248,250,252,.78); border-radius: 14px; }
+    .control-section-title { color: var(--muted); font-size: .72rem; font-weight: 950; text-transform: uppercase; letter-spacing: .08em; margin-right: 2px; }
+    .control-field { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .78rem; font-weight: 850; }
+    .control-field select { min-width: 132px; }
+    .chart-toolbar .inline-toggle { border: 1px solid rgba(203,213,225,.9); border-radius: 999px; padding: 6px 9px; background: #fff; color: var(--text); }
+    .challenge-section { background: rgba(239,246,255,.8); border-color: rgba(191,219,254,.95); }
+    .challenge-section .small { margin-left: auto; }
     .challenge-primary-action { background: #1d4ed8; color: #fff; border-color: #1d4ed8; box-shadow: 0 8px 24px rgba(37,99,235,.22); }
     .time-pan-control { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; margin-top: 8px; color: var(--muted); font-size: .78rem; }
     .time-pan-control input[type="range"] { width: 100%; padding: 0; accent-color: var(--blue); }
@@ -168,12 +173,10 @@ DASHBOARD_HTML = r"""
     .state-segment.awake { background: rgba(180, 83, 9, .72); }
     .state-segment.inactive { background: rgba(148, 163, 184, .72); }
     .state-segment.offline { background: rgba(100, 116, 139, .48); }
-    .state-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; color: var(--muted); font-size: .74rem; }
-    .state-legend span::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; background: var(--dot); }
     .state-tooltip { position: fixed; z-index: 120; max-width: min(300px, calc(100vw - 24px)); background: #0f172a; color: #f8fafc; border: 1px solid rgba(255,255,255,.12); box-shadow: var(--shadow); border-radius: 12px; padding: 8px 10px; font-size: .78rem; line-height: 1.3; pointer-events: none; }
     .state-tooltip.hidden { display: none; }
     .state-tooltip b { display: block; color: #fff; margin-bottom: 2px; }
-    .sleep-overlay-controls { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px 12px; margin: -2px 0 8px; color: var(--muted); font-size: .78rem; }
+    .sleep-overlay-controls { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px 12px; color: var(--muted); font-size: .78rem; }
     .inline-toggle { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; }
     .inline-toggle input { padding: 0; }
     .metric-grid { grid-template-columns: repeat(4, minmax(140px, 1fr)); margin-top: 14px; }
@@ -342,13 +345,6 @@ DASHBOARD_HTML = r"""
         <small><span class="inline-stat" id="avgHr">—</span> 24h avg · <span class="inline-stat" id="hrCompare">—</span></small>
         <small>State <span class="inline-stat" id="latestState">—</span> · Move <span class="inline-stat" id="latestMove">—</span></small>
       </article>
-      <article class="card glance-card crypto-card">
-        <span class="eyebrow">Crypto</span>
-        <strong id="cryptoHeadline">BTC —</strong>
-        <div class="crypto-lines" id="cryptoLines">
-          <small>Loading BTC / ETH / XMR…</small>
-        </div>
-      </article>
       <article class="card glance-card">
         <span class="eyebrow">Sleep</span>
         <strong id="sleepTotal">—</strong>
@@ -357,6 +353,13 @@ DASHBOARD_HTML = r"""
           <span id="lightBar"></span><span id="deepBar"></span><span id="awakeBar"></span>
         </div>
         <small>Light <span class="inline-stat" id="lightSleep">—</span> · Deep <span class="inline-stat" id="deepSleep">—</span> · Awake <span class="inline-stat" id="awakeTime">—</span></small>
+      </article>
+      <article class="card glance-card crypto-card">
+        <span class="eyebrow">Crypto</span>
+        <strong id="cryptoHeadline">BTC —</strong>
+        <div class="crypto-lines" id="cryptoLines">
+          <small>Loading BTC / ETH / XMR…</small>
+        </div>
       </article>
     </section>
 
@@ -369,39 +372,46 @@ DASHBOARD_HTML = r"""
           </div>
           <div class="chart-actions">
             <span class="update-chip" id="updateChip">New data</span>
-            <span class="small" id="coverage">—</span>
+          </div>
+        </div>
+        <div class="chart-toolbar" aria-label="Graph controls">
+          <div class="control-section view-section">
+            <span class="control-section-title">View</span>
+            <label class="control-field" for="window">Range
+              <select id="window">
+                <option value="6">6 hours</option>
+                <option value="12">12 hours</option>
+                <option selected value="24">24 hours</option>
+                <option value="72">3 days</option>
+                <option value="168">7 days</option>
+                <option value="720">30 days</option>
+                <option value="all">All stored data</option>
+              </select>
+            </label>
+            <label class="control-field" for="smoothing">Smoothing
+              <select id="smoothing">
+                <option selected value="raw">Raw points</option>
+                <option value="5">5 min avg</option>
+                <option value="15">15 min avg</option>
+                <option value="30">30 min avg</option>
+                <option value="60">1 hour avg</option>
+                <option value="240">4 hour avg</option>
+              </select>
+            </label>
             <button id="resetZoom" type="button">Reset zoom</button>
             <button id="download" class="icon-button" title="Download CSV" aria-label="Download CSV">CSV</button>
           </div>
-        </div>
-        <div class="chart-control-bar" aria-label="Graph range and smoothing controls">
-          <label for="window">Range
-            <select id="window">
-              <option value="6">6 hours</option>
-              <option value="12">12 hours</option>
-              <option selected value="24">24 hours</option>
-              <option value="72">3 days</option>
-              <option value="168">7 days</option>
-              <option value="720">30 days</option>
-              <option value="all">All stored data</option>
-            </select>
-          </label>
-          <label for="smoothing">Smoothing
-            <select id="smoothing">
-              <option value="raw">Raw points</option>
-              <option value="5">5 min avg</option>
-              <option value="15">15 min avg</option>
-              <option selected value="30">30 min avg</option>
-              <option value="60">1 hour avg</option>
-              <option value="240">4 hour avg</option>
-            </select>
-          </label>
-          <button id="quickAddChallenge" class="challenge-primary-action" type="button">＋ Add O₂ challenge</button>
-          <button id="quickVisibleChallenge" type="button">Use visible window</button>
-        </div>
-        <div class="sleep-overlay-controls" aria-label="Sleep and wake highlighting controls">
-          <label class="inline-toggle"><input id="sleepHighlightToggle" type="checkbox" /> Highlight sleep/wake on main graph</label>
-          <label class="inline-toggle"><input id="sleepBallparkToggle" type="checkbox" disabled /> Ballpark by average window</label>
+          <div class="control-section challenge-section">
+            <span class="control-section-title">O₂ challenge</span>
+            <button id="quickAddChallenge" class="challenge-primary-action" type="button">＋ Add challenge</button>
+            <button id="quickVisibleChallenge" type="button">Use visible window</button>
+            <span class="small" id="coverage">—</span>
+          </div>
+          <div class="control-section sleep-overlay-controls" aria-label="Sleep and wake highlighting controls">
+            <span class="control-section-title">Overlays</span>
+            <label class="inline-toggle"><input id="sleepHighlightToggle" type="checkbox" /> Sleep colors</label>
+            <label class="inline-toggle"><input id="sleepBallparkToggle" type="checkbox" disabled /> Ballpark average window</label>
+          </div>
         </div>
         <div class="chart-frame main"><canvas id="vitalsChart"></canvas></div>
         <div id="stateStripWrap" class="state-strip-wrap" title="Sleep/wake/offline state across the visible vitals window">
@@ -419,10 +429,6 @@ DASHBOARD_HTML = r"""
               </span>
             </span>
           </div>
-        </div>
-        <div class="state-legend">
-          <span style="--dot: rgba(180,83,9,.72)">awake</span>
-          <span style="--dot: rgba(100,116,139,.48)">disconnected/offline</span>
         </div>
         <div class="time-pan-control">
           <span id="panStartLabel">—</span>
@@ -1052,6 +1058,7 @@ DASHBOARD_HTML = r"""
     function renderInsights() {
       const rawLatest = readings[readings.length - 1];
       const latest = rawLatest ? { ...rawLatest, sleep_state_label: isOffline(rawLatest) ? 'offline / sock off' : stateLabel(rawLatest.sleep_state) } : insights.latest;
+      const currentSleep = currentSleepStatus();
       const oxygenCompare = comparisonFor('oxygen_saturation', 0.25);
       const hrCompare = comparisonFor('heart_rate', 1);
       el('latestOxygen').textContent = latest ? fmt(latest.oxygen_saturation, '% O₂') : '—';
@@ -1072,8 +1079,8 @@ DASHBOARD_HTML = r"""
       el('hrCompare').className = `inline-stat ${hrCompare.css}`;
 
       const sleep = insights.sleep;
-      el('sleepTotal').textContent = hours(sleep.sleep_seconds);
-      el('sleepSummary').textContent = `${hours(sleep.awake_seconds)} awake · current state: ${sleep.sleep_state_label}`;
+      el('sleepTotal').textContent = currentSleep.title;
+      el('sleepSummary').textContent = `${hours(sleep.sleep_seconds)} sleep · ${hours(sleep.awake_seconds)} awake · ${currentSleep.detail}`;
       el('lightSleep').textContent = hours(sleep.light_sleep_seconds);
       el('deepSleep').textContent = hours(sleep.deep_sleep_seconds);
       el('awakeTime').textContent = hours(sleep.awake_seconds);
@@ -1081,6 +1088,30 @@ DASHBOARD_HTML = r"""
       el('lightBar').style.width = `${(sleep.light_sleep_seconds / total) * 100}%`;
       el('deepBar').style.width = `${(sleep.deep_sleep_seconds / total) * 100}%`;
       el('awakeBar').style.width = `${(sleep.awake_seconds / total) * 100}%`;
+    }
+
+    function currentSleepStatus() {
+      if (!readings.length) return { title: '—', detail: 'No current state yet' };
+      const range = dataRange();
+      const latest = readings[readings.length - 1];
+      const cls = stateClass(latest);
+      const latestTime = Date.parse(latest.recorded_at);
+      let start = latestTime;
+      for (let index = readings.length - 2; index >= 0; index -= 1) {
+        const row = readings[index];
+        const rowTime = Date.parse(row.recorded_at);
+        const nextTime = Date.parse(readings[index + 1].recorded_at);
+        if (stateClass(row) !== cls || !Number.isFinite(rowTime) || !Number.isFinite(nextTime) || nextTime - rowTime > TREND_MAX_SAMPLE_GAP_MS) break;
+        start = rowTime;
+      }
+      const end = range?.max && range.max >= latestTime ? range.max + 60 * 1000 : latestTime + 60 * 1000;
+      const duration = durationText(Math.max(60, (end - start) / 1000));
+      const names = { light: 'Sleeping', deep: 'Deep sleep', awake: 'Awake', offline: 'Offline', inactive: 'Inactive' };
+      const name = names[cls] || 'Unknown';
+      return {
+        title: `${name} (${duration})`,
+        detail: `current ${name.toLowerCase()}`,
+      };
     }
 
     function renderCrypto() {
@@ -1496,10 +1527,10 @@ DASHBOARD_HTML = r"""
           ]
         },
         options: chartOptions({
-          hr: { type: 'linear', position: 'left', title: { display: true, text: 'BPM' } },
-          spo2: { type: 'linear', position: 'right', suggestedMin: 84, suggestedMax: 100, grid: { drawOnChartArea: false }, title: { display: true, text: 'SpO₂' } },
-          btc: { type: 'linear', position: 'right', display: false, grid: { drawOnChartArea: false } },
-          move: { display: false }
+          hr: { type: 'linear', position: 'left', min: 0, title: { display: true, text: 'BPM' } },
+          spo2: { type: 'linear', position: 'right', min: 0, suggestedMax: 100, grid: { drawOnChartArea: false }, title: { display: true, text: 'SpO₂' } },
+          btc: { type: 'linear', position: 'right', min: 0, display: false, grid: { drawOnChartArea: false } },
+          move: { min: 0, display: false }
         }, { hideXTicks: true, legend: { position: 'top', align: 'end' } })
       });
       attachNotificationHover(vitalsChart);
