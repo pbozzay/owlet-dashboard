@@ -475,7 +475,7 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "sleepHighlightToggle" in response.text
     assert "sleepBallparkToggle" in response.text
     assert "challengeBandsToggle" in response.text
-    assert "Awake-biased windows" in response.text
+    assert "Guess sleep windows" in response.text
     assert "smoothBallparkIntervals" in response.text
     assert "function rollupBucket()" in response.text
     assert "return '30m';" in response.text
@@ -495,6 +495,9 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "selector.value = '6'" in response.text
     assert "drag: { enabled: !mobile" in response.text
     assert "pan: { enabled: true" in response.text
+    assert "visibleWindowSnapshot" in response.text
+    assert "refreshedVisibleRange" in response.text
+    assert "sliderAtEnd" in response.text
     assert "onPanComplete" in response.text
     assert "O₂ challenges" in response.text
     assert "O₂ challenge" in response.text
@@ -509,6 +512,8 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "Use visible chart window" in response.text
     assert "/api/oxygen-challenges" in response.text
     assert "challengeBands" in response.text
+    assert "rgba(4, 120, 87, .78)" in response.text
+    assert "rgba(185, 28, 28, .78)" in response.text
     assert "stateStrip" in response.text
     assert "Challenge data is excluded" in response.text
     assert "challengeEditForm" in response.text

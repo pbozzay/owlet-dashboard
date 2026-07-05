@@ -416,7 +416,7 @@ DASHBOARD_HTML = r"""
             <span class="control-section-title">Overlays</span>
             <label class="inline-toggle"><input id="challengeBandsToggle" type="checkbox" checked /> O₂ windows</label>
             <label class="inline-toggle"><input id="sleepHighlightToggle" type="checkbox" /> Sleep colors</label>
-            <label class="inline-toggle"><input id="sleepBallparkToggle" type="checkbox" disabled /> Awake-biased windows</label>
+            <label class="inline-toggle"><input id="sleepBallparkToggle" type="checkbox" disabled /> Guess sleep windows</label>
             <span class="small coverage-chip" id="coverage">—</span>
           </div>
         </div>
@@ -1002,7 +1002,7 @@ DASHBOARD_HTML = r"""
       updateRefreshButton('Refreshing…');
       const token = ++refreshToken;
       const previousLatest = lastLatestTimestamp;
-      const wasAtLatest = resetZoom || visibleWindowAtLoadedEnd();
+      const previousVisible = visibleWindowSnapshot({ resetZoom });
       if (resetZoom || loadedHours === null || selectedHours() === null) loadedHours = historyHoursForSelection();
       const qs = queryParams();
       const dataQs = queryParams({}, { hoursOverride: loadedHours });
@@ -1021,7 +1021,7 @@ DASHBOARD_HTML = r"""
       notifications = notificationData;
       challenges = challengeData;
       lastLatestTimestamp = readings.length ? readings[readings.length - 1].recorded_at : null;
-      if (resetZoom || wasAtLatest || !zoomWindow) zoomWindow = defaultVisibleRange();
+      zoomWindow = refreshedVisibleRange(previousVisible);
       renderStatus(health);
       applyFilter();
       renderCharts({ deferTrend: true });
@@ -1619,6 +1619,32 @@ DASHBOARD_HTML = r"""
       return Math.abs(zoomWindow.max - full.max) < 5 * 60 * 1000;
     }
 
+    function visibleWindowSnapshot({ resetZoom = false } = {}) {
+      const full = fullDataRange();
+      const visible = visibleRange();
+      if (resetZoom || !full || !visible || visible.max <= visible.min) {
+        return { resetZoom: true, atLatest: true, width: selectedWindowMs() };
+      }
+      const width = visible.max - visible.min;
+      const slider = el('timePan');
+      const sliderAtEnd = slider && !slider.disabled && Number(slider.value) >= 995;
+      const distanceFromEnd = Math.max(0, full.max - visible.max);
+      const atLatest = sliderAtEnd || distanceFromEnd <= Math.max(60 * 1000, width * 0.01);
+      return { min: visible.min, max: visible.max, width, distanceFromEnd, atLatest, resetZoom: false };
+    }
+
+    function refreshedVisibleRange(snapshot) {
+      const full = dataRange();
+      if (!full) return null;
+      if (snapshot?.resetZoom || !snapshot || !snapshot.width) return defaultVisibleRange();
+      const width = Math.min(snapshot.width, full.max - full.min || snapshot.width);
+      if (snapshot.atLatest) {
+        return { min: Math.max(full.min, full.max - width), max: full.max };
+      }
+      const min = Math.max(full.min, Math.min(snapshot.min, full.max - width));
+      return { min, max: Math.min(full.max, min + width) };
+    }
+
     function fullDataRange() {
       return dataRange();
     }
@@ -1937,7 +1963,7 @@ DASHBOARD_HTML = r"""
           datasets: [
             { id: 'o2Trailing30', label: shortLabel, data: shortAvg, borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, spanGaps: false },
             { id: 'o2Baseline4h', label: `Baseline ${Math.round(longMinutes / 60)}h O₂ avg`, data: longAvg, borderColor: '#7c3aed', backgroundColor: '#7c3aed20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, borderDash: [6, 4], spanGaps: false },
-            { id: 'o2TrendSignal', type: 'bar', label: signalLabel, data: signal, yAxisID: 'signal', backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(5, 150, 105, .42)' : 'rgba(220, 38, 38, .42)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#059669' : '#dc2626', borderWidth: 1 }
+            { id: 'o2TrendSignal', type: 'bar', label: signalLabel, data: signal, yAxisID: 'signal', backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(4, 120, 87, .78)' : 'rgba(185, 28, 28, .78)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#065f46' : '#991b1b', borderWidth: 1 }
           ]
         },
         options: chartOptions({
