@@ -136,14 +136,14 @@ async def test_notifications_endpoint_extracts_alerts_and_offline_periods(tmp_pa
     event_types = {item["event_type"] for item in payload["items"]}
     assert "low_oxygen" in event_types
     assert "sock_disconnected" in event_types
-    assert "offline_zero_vitals" in event_types
+    assert "offline_zero_vitals" not in event_types
     assert "alerts_mask" not in event_types
     assert "Owlet REAL_TIME_VITALS alert mask is 16" not in response.text
-    assert payload["total"] == 3
+    assert payload["total"] == 2
 
 
 @pytest.mark.asyncio
-async def test_notifications_endpoint_derives_low_oxygen_episodes_from_readings(tmp_path):
+async def test_notifications_endpoint_does_not_derive_low_oxygen_from_readings(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)
     await store.init()
@@ -161,12 +161,11 @@ async def test_notifications_endpoint_derives_low_oxygen_episodes_from_readings(
 
     assert response.status_code == 200
     payload = response.json()
-    event_types = [item["event_type"] for item in payload["items"]]
-    assert event_types.count("low_oxygen") == 1
-    assert event_types.count("critical_oxygen") == 1
-    assert payload["total"] == 2
-    assert "Measured SpO₂ dropped below 92%" in response.text
-    assert "Measured SpO₂ dropped below 88%" in response.text
+    assert payload["items"] == []
+    assert payload["total"] == 0
+    assert "Low oxygen reading" not in response.text
+    assert "Critical oxygen reading" not in response.text
+    assert "Measured SpO₂ dropped below" not in response.text
 
 
 @pytest.mark.asyncio
@@ -330,7 +329,6 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "notificationGlyphs" in response.text
     assert "oxygen85Threshold" in response.text
     assert "85% O₂" in response.text
-    assert "item.details?.source !== 'derived_oxygen_threshold'" in response.text
     assert "notificationHoverPriority" in response.text
     assert "attachNotificationHover" in response.text
     assert "notificationHit" in response.text

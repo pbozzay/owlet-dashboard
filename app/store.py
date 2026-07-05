@@ -375,12 +375,12 @@ class ReadingStore:
     async def _ensure_notification_backfill(self, db: aiosqlite.Connection) -> None:
         cursor = await db.execute("SELECT value FROM metadata WHERE key = 'notifications_schema_version'")
         row = await cursor.fetchone()
-        if row and row[0] == "4":
+        if row and row[0] == "5":
             return
         await db.execute("DELETE FROM notifications")
         await self._backfill_notifications(db)
         await db.execute(
-            "INSERT OR REPLACE INTO metadata (key, value) VALUES ('notifications_schema_version', '4')"
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES ('notifications_schema_version', '5')"
         )
 
     async def _backfill_notifications(self, db: aiosqlite.Connection) -> None:

@@ -1138,7 +1138,7 @@ DASHBOARD_HTML = r"""
     }
 
     function notificationPoints() {
-      return (notifications.items || []).filter(item => item.details?.source !== 'derived_oxygen_threshold').slice().reverse().map(item => {
+      return (notifications.items || []).slice().reverse().map(item => {
         const timestamp = Date.parse(item.recorded_at);
         const y = item.oxygen_saturation && item.oxygen_saturation > 0 ? item.oxygen_saturation : 89;
         return {

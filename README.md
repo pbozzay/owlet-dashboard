@@ -66,7 +66,7 @@ Dashboard features:
 - synchronized horizontal time scrollbar for panning the visible window across all aligned charts after zooming
 - red offline/sock-off bands when Owlet reports zero-valued vitals
 - offline/zero readings are kept visible in the raw trace/table but excluded from averages, trends, and sleep analysis
-- Owlet alert/notification capture for low oxygen, sock disconnect/off, heart-rate, battery, and base-power alerts, plus derived low/critical SpO₂ reading episodes when Owlet does not emit its own low-O₂ flag; derived reading episodes stay in the alerts list and are not plotted as warning triangles on the main graph
+- Owlet alert/notification capture for low oxygen, sock disconnect/off, heart-rate, battery, and base-power alerts emitted by Owlet/API data; measured SpO₂ dips are shown in stats/challenges/graphs but do not create notification-pane alerts
 - BTC/ETH/XMR price glance powered by CoinGecko, plus an optional hidden-by-default BTC price overlay on the main vitals chart
 - "today at a glance" latest vitals card plus top-bar battery indicator with percent and remaining-time tooltip when available
 - breathing trend card comparing recent vs prior oxygen averages
