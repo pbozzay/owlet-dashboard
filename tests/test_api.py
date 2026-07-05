@@ -380,6 +380,9 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "O₂ trend companion" in response.text
     assert "How to read the O₂ trend companion" in response.text
     assert "MACD-style oxygen view" in response.text
+    assert "O₂ avg (%)" in response.text
+    assert "30m − 4h signal" in response.text
+    assert "Blue line: recent 30m O₂ avg" in response.text
     assert "Recent O₂ is running above baseline" in response.text
     assert "legend: { display: false }" in response.text
     assert "TREND_MAX_SAMPLE_GAP_MS" in response.text
@@ -395,6 +398,8 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "sleepPhaseHover" in response.text
     assert "sleepBands" in response.text
     assert "stateChartHover" in response.text
+    assert "stateTooltip" in response.text
+    assert "sleepStageInfo" in response.text
     assert "sleepHighlightToggle" in response.text
     assert "sleepBallparkToggle" in response.text
     assert "Ballpark by average window" in response.text
@@ -402,6 +407,7 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "attachStateChartHover" in response.text
     assert "id=\"timePan\"" in response.text
     assert "panToSliderValue" in response.text
+    assert response.text.index("sleep-overlay-controls") < response.text.index("id=\"vitalsChart\"")
     assert response.text.index("id=\"vitalsChart\"") < response.text.index("id=\"stateStrip\"") < response.text.index("id=\"oxygenTrendChart\"")
     assert "wheel:" in response.text
     assert "pinch:" in response.text

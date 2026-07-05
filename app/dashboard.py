@@ -88,6 +88,7 @@ DASHBOARD_HTML = r"""
     .chart-frame.secondary { height: 240px; }
     .chart-frame canvas { display: block; width: 100% !important; height: 100% !important; }
     .companion-chart { margin-top: 2px; padding-top: 0; background: transparent; }
+    .trend-line-label { position: absolute; left: 8px; top: 6px; z-index: 2; background: rgba(239, 246, 255, .92); color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 999px; padding: 3px 8px; font-size: .72rem; font-weight: 900; pointer-events: none; }
     .info-popover-wrap { position: relative; display: inline-flex; align-items: center; }
     .companion-info { position: absolute; right: 6px; top: 6px; z-index: 2; }
     .info-button { width: 28px; height: 28px; border-radius: 999px; padding: 0; display: inline-grid; place-items: center; background: #eff6ff; color: #1d4ed8; font-weight: 950; }
@@ -150,7 +151,7 @@ DASHBOARD_HTML = r"""
     .danger-button { background: #fff1f2; color: #991b1b; border-color: #fecdd3; }
     .challenge-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
     .challenge-summary-grid .mini { min-width: 0; }
-    .state-strip-wrap { margin: -2px var(--chart-right-pad, 0px) 0 var(--chart-left-pad, 0px); }
+    .state-strip-wrap { position: relative; margin: -2px var(--chart-right-pad, 0px) 0 var(--chart-left-pad, 0px); }
     .state-strip { height: 18px; border-radius: 0 0 10px 10px; overflow: hidden; background: #e2e8f0; border: 1px solid var(--line); border-top: 0; cursor: crosshair; }
     .state-segment { min-width: 1px; }
     .state-segment:hover { filter: saturate(1.2) brightness(1.03); }
@@ -163,7 +164,10 @@ DASHBOARD_HTML = r"""
     .state-segment.offline { background: rgba(239, 68, 68, .5); }
     .state-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; color: var(--muted); font-size: .74rem; }
     .state-legend span::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; background: var(--dot); }
-    .sleep-overlay-controls { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 8px; color: var(--muted); font-size: .78rem; }
+    .state-tooltip { position: fixed; z-index: 120; max-width: min(300px, calc(100vw - 24px)); background: #0f172a; color: #f8fafc; border: 1px solid rgba(255,255,255,.12); box-shadow: var(--shadow); border-radius: 12px; padding: 8px 10px; font-size: .78rem; line-height: 1.3; pointer-events: none; }
+    .state-tooltip.hidden { display: none; }
+    .state-tooltip b { display: block; color: #fff; margin-bottom: 2px; }
+    .sleep-overlay-controls { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px 12px; margin: -2px 0 8px; color: var(--muted); font-size: .78rem; }
     .inline-toggle { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; }
     .inline-toggle input { padding: 0; }
     .metric-grid { grid-template-columns: repeat(4, minmax(140px, 1fr)); margin-top: 14px; }
@@ -378,13 +382,19 @@ DASHBOARD_HTML = r"""
             <button id="download" class="icon-button" title="Download CSV" aria-label="Download CSV">CSV</button>
           </div>
         </div>
+        <div class="sleep-overlay-controls" aria-label="Sleep and wake highlighting controls">
+          <label class="inline-toggle"><input id="sleepHighlightToggle" type="checkbox" /> Highlight sleep/wake on main graph</label>
+          <label class="inline-toggle"><input id="sleepBallparkToggle" type="checkbox" disabled /> Ballpark by average window</label>
+        </div>
         <div class="chart-frame main"><canvas id="vitalsChart"></canvas></div>
         <div id="stateStripWrap" class="state-strip-wrap" title="Sleep/wake/offline state across the visible vitals window">
           <div id="stateStrip" class="state-strip"></div>
           <div id="stateTimeAxis" class="state-time-axis"></div>
+          <div id="stateTooltip" class="state-tooltip hidden" role="tooltip"></div>
         </div>
         <div class="companion-chart" aria-label="Oxygen trend companion chart">
           <div class="chart-frame companion"><canvas id="oxygenTrendChart"></canvas>
+            <span class="trend-line-label">Blue line: recent 30m O₂ avg</span>
             <span class="info-popover-wrap companion-info">
               <button class="info-button" type="button" aria-label="How to read the O₂ trend companion">i</button>
               <span class="info-popover" role="tooltip">
@@ -398,10 +408,6 @@ DASHBOARD_HTML = r"""
           <span style="--dot: rgba(37,99,235,.72)">deep sleep</span>
           <span style="--dot: rgba(180,83,9,.72)">awake</span>
           <span style="--dot: rgba(239,68,68,.5)">offline</span>
-        </div>
-        <div class="sleep-overlay-controls" aria-label="Sleep and wake highlighting controls">
-          <label class="inline-toggle"><input id="sleepHighlightToggle" type="checkbox" /> Highlight sleep/wake on main graph</label>
-          <label class="inline-toggle"><input id="sleepBallparkToggle" type="checkbox" disabled /> Ballpark by average window</label>
         </div>
         <div class="time-pan-control">
           <span id="panStartLabel">—</span>
@@ -733,6 +739,14 @@ DASHBOARD_HTML = r"""
     const hours = (seconds) => seconds ? `${(seconds / 3600).toFixed(1).replace(/\.0$/, '')}h` : '0h';
     const trendClass = (trend) => `trend-${trend || 'unknown'}`;
     const stateLabel = (value) => ({ '0': 'inactive', '1': 'awake', '8': 'light sleep', '15': 'deep sleep' }[String(value)] || `state ${value ?? 'unknown'}`);
+    function sleepStageInfo(stage) {
+      const key = String(stage || '').toLowerCase().replace(/_/g, ' ');
+      if (key.includes('deep') || key === '15') return { name: 'Deep sleep', description: 'Quiet/deeper sleep estimate from Owlet state data.' };
+      if (key.includes('light') || key === '8') return { name: 'Light sleep', description: 'Lighter sleep estimate from Owlet state data.' };
+      if (key.includes('awake') || key === '1') return { name: 'Awake', description: 'Awake or active period estimate.' };
+      if (key.includes('offline') || key.includes('sock')) return { name: 'Offline / sock off', description: 'No reliable physiological signal during this period.' };
+      return { name: 'Inactive / unknown', description: 'Owlet did not report a clear sleep stage for this period.' };
+    }
     const zeroOrNegative = (value) => value !== null && value !== undefined && Number(value) <= 0;
     const isOffline = (row) => !!(row?.sock_disconnected || row?.sock_off || zeroOrNegative(row?.heart_rate) || zeroOrNegative(row?.oxygen_saturation));
     const durationText = (seconds) => seconds ? `${Math.floor(seconds / 3600)}h ${Math.round((seconds % 3600) / 60)}m`.replace(/^0h /, '') : '0m';
@@ -1158,6 +1172,12 @@ DASHBOARD_HTML = r"""
     function tooltipLabel(context) {
       if (context.dataset.id === 'notifications') return context.raw.tooltipLines;
       if (context.dataset.id === 'btcPrice') return `BTC price: ${money(context.parsed.y)}`;
+      if (context.chart?.canvas?.id === 'stateChart') {
+        const stage = sleepStageInfo(context.dataset.label);
+        const value = context.parsed?.y;
+        const amount = Number.isFinite(Number(value)) ? `${Number(value).toFixed(1).replace(/\.0$/, '')}h` : '—';
+        return [`${stage.name}: ${amount}`, stage.description];
+      }
       if (context.dataset.id === 'o2TrendSignal') {
         const value = context.parsed?.y;
         if (value === null || value === undefined || !Number.isFinite(Number(value))) {
@@ -1215,7 +1235,7 @@ DASHBOARD_HTML = r"""
       const scales = { x: xScaleOptions({ hideTicks: options.hideXTicks }), ...extraScales };
       if (mobile) {
         Object.entries(scales).forEach(([key, scale]) => {
-          if (key !== 'x' && scale.title) scale.title.display = false;
+          if (key !== 'x' && scale.title && !options.keepAxisTitles) scale.title.display = false;
           scale.ticks = { ...(scale.ticks || {}), font: { size: 10 }, padding: 2, maxTicksLimit: 6 };
         });
       }
@@ -1367,9 +1387,9 @@ DASHBOARD_HTML = r"""
         type: 'line',
         data: { datasets: [] },
         options: chartOptions({
-          oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100 },
-          signal: { type: 'linear', position: 'right', grid: { drawOnChartArea: false } }
-        }, { legend: { display: false } })
+          oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100, title: { display: true, text: 'O₂ avg (%)' } },
+          signal: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '30m − 4h signal' } }
+        }, { legend: { display: false }, keepAxisTitles: true })
       });
     }
 
@@ -1490,7 +1510,39 @@ DASHBOARD_HTML = r"""
       if (!Number.isFinite(timestamp)) return null;
       const candidates = stateStripSegments.length ? stateStripSegments : rawStateIntervals(visibleRange());
       const segment = candidates.find(item => timestamp >= item.start && timestamp <= item.end);
-      return segment ? { start: segment.start, end: segment.end, cls: segment.cls } : null;
+      return segment ? { start: segment.start, end: segment.end, cls: segment.cls, label: segment.label } : null;
+    }
+
+    function stateTooltipText(interval, prefix = '') {
+      if (!interval) return null;
+      const stage = sleepStageInfo(interval.cls || interval.label);
+      const duration = durationText(Math.max(0, (interval.end - interval.start) / 1000));
+      return {
+        title: `${prefix}${stage.name}`,
+        body: `${stage.description} ${localTime(new Date(interval.start).toISOString(), true)} → ${localTime(new Date(interval.end).toISOString(), true)} · ${duration}.`
+      };
+    }
+
+    function showStateTooltip(interval, event, prefix = '') {
+      const tooltip = el('stateTooltip');
+      const text = stateTooltipText(interval, prefix);
+      if (!text || !event) {
+        tooltip.classList.add('hidden');
+        return;
+      }
+      const source = event.touches?.[0] || event.changedTouches?.[0] || event;
+      tooltip.innerHTML = `<b>${text.title}</b><span>${text.body}</span>`;
+      tooltip.classList.remove('hidden');
+      const pad = 12;
+      const rect = tooltip.getBoundingClientRect();
+      const left = Math.min(window.innerWidth - rect.width - pad, Math.max(pad, source.clientX + 12));
+      const top = Math.min(window.innerHeight - rect.height - pad, Math.max(pad, source.clientY + 12));
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+    }
+
+    function hideStateTooltip() {
+      el('stateTooltip').classList.add('hidden');
     }
 
     function ballparkClass(row) {
@@ -1537,6 +1589,7 @@ DASHBOARD_HTML = r"""
       const ratio = Math.min(1, Math.max(0, (source.clientX - rect.left) / Math.max(1, rect.width)));
       const timestamp = range.min + ratio * (range.max - range.min);
       hoveredStateInterval = stateIntervalAt(timestamp);
+      showStateTooltip(hoveredStateInterval, event);
       vitalsChart?.update('none');
     }
 
@@ -1547,7 +1600,7 @@ DASHBOARD_HTML = r"""
       strip.addEventListener('click', setStateStripHoverFromEvent);
       strip.addEventListener('touchstart', setStateStripHoverFromEvent, { passive: true });
       strip.addEventListener('touchmove', setStateStripHoverFromEvent, { passive: true });
-      strip.addEventListener('mouseleave', () => { hoveredStateInterval = null; vitalsChart?.update('none'); });
+      strip.addEventListener('mouseleave', () => { hoveredStateInterval = null; hideStateTooltip(); vitalsChart?.update('none'); });
       strip.dataset.hoverAttached = 'true';
     }
 
@@ -1557,6 +1610,7 @@ DASHBOARD_HTML = r"""
       const rect = stateChart.canvas.getBoundingClientRect();
       const timestamp = stateChart.scales.x.getValueForPixel(source.clientX - rect.left);
       hoveredStateInterval = rollupIntervalAt(timestamp) || stateIntervalAt(timestamp);
+      showStateTooltip(hoveredStateInterval, event, rollupIntervalAt(timestamp) ? 'Ballpark ' : '');
       vitalsChart?.update('none');
     }
 
@@ -1566,7 +1620,7 @@ DASHBOARD_HTML = r"""
       chart.canvas.addEventListener('click', setStateChartHoverFromEvent);
       chart.canvas.addEventListener('touchstart', setStateChartHoverFromEvent, { passive: true });
       chart.canvas.addEventListener('touchmove', setStateChartHoverFromEvent, { passive: true });
-      chart.canvas.addEventListener('mouseleave', () => { hoveredStateInterval = null; vitalsChart?.update('none'); });
+      chart.canvas.addEventListener('mouseleave', () => { hoveredStateInterval = null; hideStateTooltip(); vitalsChart?.update('none'); });
       chart.$stateHoverAttached = true;
     }
 
@@ -1609,9 +1663,9 @@ DASHBOARD_HTML = r"""
           ]
         },
         options: chartOptions({
-          oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100 },
-          signal: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, ticks: { callback: value => `${value > 0 ? '+' : ''}${value}` } }
-        }, { legend: { display: false } })
+          oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100, title: { display: true, text: 'O₂ avg (%)' } },
+          signal: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '30m − 4h signal' }, ticks: { callback: value => `${value > 0 ? '+' : ''}${value}` } }
+        }, { legend: { display: false }, keepAxisTitles: true })
       });
     }
 
