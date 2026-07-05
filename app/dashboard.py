@@ -88,7 +88,7 @@ DASHBOARD_HTML = r"""
     .chart-frame.main { height: 370px; }
     .chart-frame.companion { height: 190px; }
     .chart-frame.secondary { height: 240px; }
-    .chart-frame canvas { display: block; width: 100% !important; height: 100% !important; }
+    .chart-frame canvas { display: block; width: 100% !important; height: 100% !important; touch-action: pan-y; }
     .companion-chart { margin-top: 2px; padding-top: 0; background: transparent; }
     .info-popover-wrap { position: relative; display: inline-flex; align-items: center; }
     .companion-info { position: absolute; right: 6px; top: 6px; z-index: 2; }
@@ -1512,8 +1512,90 @@ DASHBOARD_HTML = r"""
       updatePanControl();
     }
 
+    function applyVisibleWindow(range) {
+      if (!range || !Number.isFinite(range.min) || !Number.isFinite(range.max) || range.max <= range.min) return;
+      zoomWindow = range;
+      chartList().forEach(chart => {
+        chart.options.scales.x.min = zoomWindow.min;
+        chart.options.scales.x.max = zoomWindow.max;
+        chart.update('none');
+      });
+      renderStateStrip();
+      updatePanControl();
+    }
+
+    function panVisibleWindowByPixels(chart, startRange, deltaX) {
+      const full = fullDataRange();
+      const area = chart?.chartArea;
+      if (!full || !area || !startRange || startRange.max <= startRange.min) return false;
+      const width = startRange.max - startRange.min;
+      const panSpan = full.max - full.min;
+      const pixelWidth = Math.max(1, area.right - area.left);
+      if (width >= panSpan - 1000) return false;
+      const shiftMs = -(deltaX / pixelWidth) * width;
+      const min = Math.max(full.min, Math.min(startRange.min + shiftMs, full.max - width));
+      applyVisibleWindow({ min, max: min + width });
+      return true;
+    }
+
+    function attachMobileDragPan(chart) {
+      if (!chart?.canvas || chart.$mobileDragPanAttached) return;
+      const state = { tracking: false, active: false, startX: 0, startY: 0, range: null };
+      const start = (x, y) => {
+        if (!isMobileViewport()) return;
+        const range = visibleRange();
+        if (!range) return;
+        state.tracking = true;
+        state.active = false;
+        state.startX = x;
+        state.startY = y;
+        state.range = { ...range };
+      };
+      const move = (x, y, event) => {
+        if (!state.tracking || !isMobileViewport()) return;
+        const dx = x - state.startX;
+        const dy = y - state.startY;
+        if (!state.active) {
+          if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+            state.tracking = false;
+            return;
+          }
+          if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy) * 1.1) return;
+          state.active = true;
+        }
+        if (panVisibleWindowByPixels(chart, state.range, dx)) event?.preventDefault?.();
+      };
+      const stop = () => {
+        state.tracking = false;
+        state.active = false;
+        state.range = null;
+        loadOlderHistoryIfNeeded().catch(console.error);
+      };
+      chart.canvas.addEventListener('touchstart', event => {
+        if (event.touches?.length === 1) start(event.touches[0].clientX, event.touches[0].clientY);
+      }, { passive: true });
+      chart.canvas.addEventListener('touchmove', event => {
+        if (event.touches?.length === 1) move(event.touches[0].clientX, event.touches[0].clientY, event);
+      }, { passive: false });
+      chart.canvas.addEventListener('touchend', stop, { passive: true });
+      chart.canvas.addEventListener('touchcancel', stop, { passive: true });
+      chart.canvas.addEventListener('pointerdown', event => {
+        if (event.pointerType === 'touch') start(event.clientX, event.clientY);
+      });
+      chart.canvas.addEventListener('pointermove', event => {
+        if (event.pointerType === 'touch') move(event.clientX, event.clientY, event);
+      });
+      chart.canvas.addEventListener('pointerup', stop);
+      chart.canvas.addEventListener('pointercancel', stop);
+      chart.$mobileDragPanAttached = true;
+    }
+
     function upsertChart(existing, canvasId, config) {
-      if (!existing) return new Chart(el(canvasId), config);
+      if (!existing) {
+        const chart = new Chart(el(canvasId), config);
+        attachMobileDragPan(chart);
+        return chart;
+      }
       const visibility = new Map();
       existing.data.datasets.forEach((dataset, index) => {
         const key = dataset.id || dataset.label;
@@ -1530,6 +1612,7 @@ DASHBOARD_HTML = r"""
       existing.options.plugins = config.options.plugins;
       existing.options.scales = config.options.scales;
       existing.update();
+      attachMobileDragPan(existing);
       return existing;
     }
 
@@ -1708,14 +1791,7 @@ DASHBOARD_HTML = r"""
       const maxStart = full.max - width;
       if (maxStart <= full.min) return;
       const start = full.min + (Number(value) / 1000) * (maxStart - full.min);
-      zoomWindow = { min: start, max: start + width };
-      chartList().forEach(chart => {
-        chart.options.scales.x.min = zoomWindow.min;
-        chart.options.scales.x.max = zoomWindow.max;
-        chart.update('none');
-      });
-      renderStateStrip();
-      updatePanControl();
+      applyVisibleWindow({ min: start, max: start + width });
     }
 
     function stateClass(row) {

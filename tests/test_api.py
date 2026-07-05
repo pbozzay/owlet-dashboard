@@ -495,6 +495,10 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "selector.value = '6'" in response.text
     assert "drag: { enabled: !mobile" in response.text
     assert "pan: { enabled: true" in response.text
+    assert "touch-action: pan-y" in response.text
+    assert "attachMobileDragPan" in response.text
+    assert "panVisibleWindowByPixels" in response.text
+    assert "pointerType === 'touch'" in response.text
     assert "visibleWindowSnapshot" in response.text
     assert "refreshedVisibleRange" in response.text
     assert "sliderAtEnd" in response.text
