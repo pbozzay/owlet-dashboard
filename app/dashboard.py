@@ -39,6 +39,8 @@ DASHBOARD_HTML = r"""
     }
     .shell { width: min(1500px, calc(100% - 32px)); margin: 0 auto; padding: 24px 0 48px; }
     .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
+    .hero-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+    .baby-name { color: var(--text); font-weight: 950; font-size: clamp(1rem, 2.5vw, 1.35rem); background: rgba(255,255,255,.76); border: 1px solid rgba(226,232,240,.9); border-radius: 999px; padding: .38rem .75rem; box-shadow: 0 8px 24px rgba(15,23,42,.08); }
     h1 { margin: 0; letter-spacing: -.045em; font-size: clamp(2.1rem, 5vw, 4.2rem); line-height: .92; }
     h2 { margin: 0; font-size: 1.03rem; letter-spacing: -.02em; }
     h3 { margin: 0 0 8px; font-size: .84rem; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
@@ -94,6 +96,10 @@ DASHBOARD_HTML = r"""
     .info-button { width: 28px; height: 28px; border-radius: 999px; padding: 0; display: inline-grid; place-items: center; background: #eff6ff; color: #1d4ed8; font-weight: 950; }
     .info-popover { display: none; position: absolute; right: 0; top: calc(100% + 8px); width: min(360px, calc(100vw - 32px)); z-index: 25; background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 14px; padding: 12px; color: var(--text); font-size: .84rem; line-height: 1.35; text-transform: none; letter-spacing: normal; }
     .info-popover-wrap:hover .info-popover, .info-popover-wrap:focus-within .info-popover { display: block; }
+    .chart-control-bar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 8px 0 10px; }
+    .chart-control-bar label { display: inline-flex; align-items: center; gap: 6px; }
+    .chart-control-bar select { min-width: 142px; }
+    .challenge-primary-action { background: #1d4ed8; color: #fff; border-color: #1d4ed8; box-shadow: 0 8px 24px rgba(37,99,235,.22); }
     .time-pan-control { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; margin-top: 8px; color: var(--muted); font-size: .78rem; }
     .time-pan-control input[type="range"] { width: 100%; padding: 0; accent-color: var(--blue); }
     .time-pan-control input[disabled] { opacity: .4; cursor: not-allowed; }
@@ -226,8 +232,9 @@ DASHBOARD_HTML = r"""
       .toolbar, .panel, .card { border-radius: 16px; box-shadow: 0 10px 26px rgba(15, 23, 42, .08); }
       .toolbar { padding: 7px; gap: 7px; margin: 8px 0; backdrop-filter: none; }
       .control-group { gap: 6px; width: 100%; }
-      .filter-cluster { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+        .filter-cluster { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
       .filter-cluster select { width: 100%; }
+      .hero-right { width: 100%; align-items: flex-end; }
       .refresh-cluster { width: 100%; justify-content: space-between; }
       .install-button.show { display: inline-flex; }
       label { font-size: .76rem; }
@@ -275,31 +282,16 @@ DASHBOARD_HTML = r"""
           and raw readings. Retrospective trend viewing only — not a medical monitor or alert replacement.
         </p>
       </div>
-      <div class="status" id="status"><span class="status-dot"></span>Checking collector…</div>
+      <div class="hero-right">
+        <div class="baby-name" id="babyName">Owlet sock</div>
+        <div class="status" id="status"><span class="status-dot"></span>Checking collector…</div>
+      </div>
     </section>
 
     <section class="toolbar" aria-label="Date and data controls">
       <div class="control-group filter-cluster">
-        <label for="window">Range</label>
-        <select id="window">
-          <option value="6">6 hours</option>
-          <option value="12">12 hours</option>
-          <option selected value="24">24 hours</option>
-          <option value="72">3 days</option>
-          <option value="168">7 days</option>
-          <option value="720">30 days</option>
-          <option value="all">All stored data</option>
-        </select>
-        <label for="bucket">Averages</label>
-        <select id="bucket">
-          <option value="5m">5 minutes</option>
-          <option value="15m">15 minutes</option>
-          <option value="30m">30 minutes</option>
-          <option selected value="hour">1 hour</option>
-          <option value="6h">6 hours</option>
-          <option value="12h">12 hours</option>
-          <option value="day">Daily</option>
-        </select>
+        <label for="deviceSelect">Device</label>
+        <select id="deviceSelect"><option value="">Loading devices…</option></select>
       </div>
       <div class="control-group refresh-cluster toolbar-right">
         <button id="challengesToggle" class="challenge-button" type="button" aria-expanded="false">O₂ challenges / add <span id="challengeCount" class="challenge-count">0</span></button>
@@ -382,6 +374,31 @@ DASHBOARD_HTML = r"""
             <button id="download" class="icon-button" title="Download CSV" aria-label="Download CSV">CSV</button>
           </div>
         </div>
+        <div class="chart-control-bar" aria-label="Graph range and smoothing controls">
+          <label for="window">Range
+            <select id="window">
+              <option value="6">6 hours</option>
+              <option value="12">12 hours</option>
+              <option selected value="24">24 hours</option>
+              <option value="72">3 days</option>
+              <option value="168">7 days</option>
+              <option value="720">30 days</option>
+              <option value="all">All stored data</option>
+            </select>
+          </label>
+          <label for="smoothing">Smoothing
+            <select id="smoothing">
+              <option value="raw">Raw points</option>
+              <option value="5">5 min avg</option>
+              <option value="15">15 min avg</option>
+              <option selected value="30">30 min avg</option>
+              <option value="60">1 hour avg</option>
+              <option value="240">4 hour avg</option>
+            </select>
+          </label>
+          <button id="quickAddChallenge" class="challenge-primary-action" type="button">＋ Add O₂ challenge</button>
+          <button id="quickVisibleChallenge" type="button">Use visible window</button>
+        </div>
         <div class="sleep-overlay-controls" aria-label="Sleep and wake highlighting controls">
           <label class="inline-toggle"><input id="sleepHighlightToggle" type="checkbox" /> Highlight sleep/wake on main graph</label>
           <label class="inline-toggle"><input id="sleepBallparkToggle" type="checkbox" disabled /> Ballpark by average window</label>
@@ -394,7 +411,7 @@ DASHBOARD_HTML = r"""
         </div>
         <div class="companion-chart" aria-label="Oxygen trend companion chart">
           <div class="chart-frame companion"><canvas id="oxygenTrendChart"></canvas>
-            <span class="trend-line-label">Blue line: recent 30m O₂ avg</span>
+            <span class="trend-line-label" id="trendLineLabel">Recent O₂ avg</span>
             <span class="info-popover-wrap companion-info">
               <button class="info-button" type="button" aria-label="How to read the O₂ trend companion">i</button>
               <span class="info-popover" role="tooltip">
@@ -404,8 +421,6 @@ DASHBOARD_HTML = r"""
           </div>
         </div>
         <div class="state-legend">
-          <span style="--dot: rgba(124,58,237,.72)">light sleep</span>
-          <span style="--dot: rgba(37,99,235,.72)">deep sleep</span>
           <span style="--dot: rgba(180,83,9,.72)">awake</span>
           <span style="--dot: rgba(100,116,139,.48)">disconnected/offline</span>
         </div>
@@ -414,20 +429,6 @@ DASHBOARD_HTML = r"""
           <input id="timePan" type="range" min="0" max="1000" value="0" disabled aria-label="Scroll visible time window" />
           <span id="panEndLabel">—</span>
         </div>
-      </div>
-      <div class="panel chart-panel secondary-chart">
-        <div class="panel-title">
-          <h2 id="rollupLabel">Hourly averages</h2>
-          <span class="small">Avg O₂, min O₂, and avg heart rate</span>
-        </div>
-        <div class="chart-frame secondary"><canvas id="rollupChart"></canvas></div>
-      </div>
-      <div class="panel chart-panel secondary-chart">
-        <div class="panel-title">
-          <h2>Sleep / wake by period</h2>
-          <span class="small">light sleep, deep sleep, awake estimates</span>
-        </div>
-        <div class="chart-frame secondary"><canvas id="stateChart"></canvas></div>
       </div>
     </section>
 
@@ -500,6 +501,7 @@ DASHBOARD_HTML = r"""
     let filtered = [];
     let summary = null;
     let insights = null;
+    let devices = [];
     let rollups = [];
     let comparisonRows = [];
     let notifications = { items: [], total: 0, limit: 500, offset: 0 };
@@ -510,8 +512,6 @@ DASHBOARD_HTML = r"""
     const TREND_MAX_SAMPLE_GAP_MS = 5 * 60 * 1000;
     let vitalsChart = null;
     let oxygenTrendChart = null;
-    let stateChart = null;
-    let rollupChart = null;
     let challengeDetailChart = null;
     let secondsUntilRefresh = REFRESH_SECONDS;
     let syncInProgress = false;
@@ -529,11 +529,11 @@ DASHBOARD_HTML = r"""
     let refreshToken = 0;
 
     const sleepPhaseColors = {
-      light: 'rgba(124, 58, 237, .13)',
-      deep: 'rgba(37, 99, 235, .13)',
-      awake: 'rgba(180, 83, 9, .13)',
-      inactive: 'rgba(148, 163, 184, .12)',
-      offline: 'rgba(100, 116, 139, .14)'
+      light: 'rgba(124, 58, 237, .21)',
+      deep: 'rgba(37, 99, 235, .21)',
+      awake: 'rgba(180, 83, 9, .20)',
+      inactive: 'rgba(148, 163, 184, .16)',
+      offline: 'rgba(100, 116, 139, .18)'
     };
 
     const stateStripColors = {
@@ -753,7 +753,26 @@ DASHBOARD_HTML = r"""
     const isOffline = (row) => !!(row?.sock_disconnected || row?.sock_off || zeroOrNegative(row?.heart_rate) || zeroOrNegative(row?.oxygen_saturation));
     const durationText = (seconds) => seconds ? `${Math.floor(seconds / 3600)}h ${Math.round((seconds % 3600) / 60)}m`.replace(/^0h /, '') : '0m';
     const signed = (value, suffix = '') => value === null || value === undefined ? '—' : `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(1).replace(/\.0$/, '')}${suffix}`;
-    const chartList = () => [vitalsChart, oxygenTrendChart, rollupChart, stateChart].filter(Boolean);
+    const chartList = () => [vitalsChart, oxygenTrendChart].filter(Boolean);
+
+    function smoothingMinutes() {
+      const value = el('smoothing').value;
+      return value === 'raw' ? 0 : Number(value || 0);
+    }
+
+    function smoothingLabel() {
+      const option = el('smoothing')?.selectedOptions?.[0];
+      return option ? option.textContent.replace(' avg', '') : 'Raw';
+    }
+
+    function rollupBucket() {
+      const minutes = smoothingMinutes();
+      if (minutes <= 5) return '5m';
+      if (minutes <= 15) return '15m';
+      if (minutes <= 30) return '30m';
+      if (minutes <= 60) return 'hour';
+      return '6h';
+    }
 
     function batteryClass(level) {
       const value = Number(level);
@@ -912,7 +931,47 @@ DASHBOARD_HTML = r"""
       const params = new URLSearchParams({ limit: '100000', ...extra });
       const hours = options.hoursOverride ?? (window === 'all' ? null : window);
       if (hours) params.set('hours', hours);
+      const device = selectedDevice();
+      if (device) params.set('device', device);
       return params.toString();
+    }
+
+    function selectedDevice() {
+      return el('deviceSelect')?.value || new URLSearchParams(window.location.search).get('device') || '';
+    }
+
+    function setUrlDevice(device) {
+      const url = new URL(window.location.href);
+      if (device) url.searchParams.set('device', device);
+      else url.searchParams.delete('device');
+      window.history.replaceState({}, '', url);
+    }
+
+    async function loadDevices() {
+      try {
+        const data = await fetchJson(`${API_BASE}/api/devices`);
+        devices = data.devices || [];
+      } catch (error) {
+        console.error(error);
+        devices = [];
+      }
+      const requested = new URLSearchParams(window.location.search).get('device') || '';
+      const selected = devices.some(device => device.serial === requested) ? requested : (devices[0]?.serial || '');
+      el('deviceSelect').innerHTML = devices.length
+        ? devices.map(device => `<option value="${device.serial}" ${device.serial === selected ? 'selected' : ''}>${device.name || device.serial}</option>`).join('')
+        : '<option value="">All devices</option>';
+      if (selected) setUrlDevice(selected);
+      renderBabyName();
+    }
+
+    function currentDevice() {
+      const serial = selectedDevice();
+      return devices.find(device => device.serial === serial) || devices[0] || null;
+    }
+
+    function renderBabyName() {
+      const device = currentDevice();
+      el('babyName').textContent = device?.baby_name || device?.name || 'Owlet sock';
     }
 
     async function fetchJson(url) {
@@ -930,7 +989,7 @@ DASHBOARD_HTML = r"""
       if (resetZoom || loadedHours === null || selectedHours() === null) loadedHours = historyHoursForSelection();
       const qs = queryParams();
       const dataQs = queryParams({}, { hoursOverride: loadedHours });
-      const rollupQs = queryParams({ bucket: el('bucket').value }, { hoursOverride: loadedHours });
+      const rollupQs = queryParams({ bucket: rollupBucket() }, { hoursOverride: loadedHours });
       const notificationQs = queryParams({ limit: '500', offset: '0' }, { hoursOverride: loadedHours });
       const challengeQs = queryParams({ limit: '100', offset: '0' }, { hoursOverride: loadedHours });
       const cryptoHours = selectedHours() || 720;
@@ -1053,7 +1112,7 @@ DASHBOARD_HTML = r"""
           <div class="metric-value ${trendClass(trend)}">${value}</div>
           <div class="sub">${foot}</div>
         </article>`).join('');
-      el('coverage').textContent = `${summary.window} · ${summary.count} stats readings · ${summary.challenge_count || 0} in challenges`;
+      el('coverage').textContent = `${summary.window} · ${summary.challenge_count || 0} in challenges`;
     }
 
     function downsample(rows, maxPoints = 1200) {
@@ -1091,9 +1150,37 @@ DASHBOARD_HTML = r"""
     }
 
     function readingSeries(key) {
+      const minutes = smoothingMinutes();
+      if (minutes > 0) return rollingAverageForKey(key, minutes);
       const sampled = downsample(readings).map(row => ({ x: Date.parse(row.recorded_at), y: row[key] }));
       const source = readings.map(row => ({ x: Date.parse(row.recorded_at), y: row[key] }));
       return extendPointsToVisibleEdges(sampled, visibleRange(), source);
+    }
+
+    function rollingAverageForKey(key, minutes) {
+      const windowMs = minutes * 60 * 1000;
+      const queue = [];
+      let sum = 0;
+      const points = [];
+      let previousValidTime = null;
+      const reset = () => { queue.length = 0; sum = 0; };
+      readings.forEach(row => {
+        const time = Date.parse(row.recorded_at);
+        const value = Number(row[key]);
+        if (isOffline(row) || !Number.isFinite(value)) {
+          reset();
+          points.push({ x: time, y: null, reason: 'gap' });
+          previousValidTime = null;
+          return;
+        }
+        if (previousValidTime && time - previousValidTime > TREND_MAX_SAMPLE_GAP_MS) reset();
+        previousValidTime = time;
+        queue.push({ time, value });
+        sum += value;
+        while (queue.length && queue[0].time < time - windowMs) sum -= queue.shift().value;
+        points.push({ x: time, y: sum / queue.length });
+      });
+      return downsamplePoints(points);
     }
 
     function rollingOxygenAverage(minutes, challengeWindows = challengeIntervals()) {
@@ -1227,15 +1314,16 @@ DASHBOARD_HTML = r"""
         if (value === null || value === undefined || !Number.isFinite(Number(value))) {
           return 'Trend gap — offline, missing data, or O₂ challenge.';
         }
-        if (value > 0.25) return 'Recent O₂ is running above baseline.';
-        if (value < -0.25) return 'Recent O₂ is running below baseline.';
-        return 'Recent O₂ is near baseline.';
+        const valueText = `${value > 0 ? '+' : ''}${Number(value).toFixed(1)} pts`;
+        if (value > 0.25) return `Trend signal ${valueText}: recent O₂ is running above baseline.`;
+        if (value < -0.25) return `Trend signal ${valueText}: recent O₂ is running below baseline.`;
+        return `Trend signal ${valueText}: recent O₂ is near baseline.`;
       }
       if (context.dataset.id === 'o2Trailing30') {
-        return null;
+        return `${context.dataset.label}: ${Number(context.parsed.y).toFixed(1)}%`;
       }
       if (context.dataset.id === 'o2Baseline4h') {
-        return null;
+        return `${context.dataset.label}: ${Number(context.parsed.y).toFixed(1)}%`;
       }
       const value = context.parsed?.y;
       return `${context.dataset.label}: ${value === null || value === undefined ? '—' : value}`;
@@ -1562,7 +1650,7 @@ DASHBOARD_HTML = r"""
       return 'inactive';
     }
 
-    function bucketDurationMs(bucket = el('bucket').value) {
+    function bucketDurationMs(bucket = rollupBucket()) {
       return ({ '5m': 5, '15m': 15, '30m': 30, hour: 60, '6h': 360, '12h': 720, day: 1440 }[bucket] || 60) * 60 * 1000;
     }
 
@@ -1762,61 +1850,29 @@ DASHBOARD_HTML = r"""
 
     function renderOxygenTrendChart() {
       const challengeWindows = challengeIntervals();
-      const shortAvg = rollingOxygenAverage(30, challengeWindows);
-      const longAvg = rollingOxygenAverage(240, challengeWindows);
+      const shortMinutes = smoothingMinutes() || 30;
+      const longMinutes = Math.max(240, shortMinutes * 8);
+      const shortAvg = rollingOxygenAverage(shortMinutes, challengeWindows);
+      const longAvg = rollingOxygenAverage(longMinutes, challengeWindows);
       const signal = oxygenTrendSignal(shortAvg, longAvg);
+      el('trendLineLabel').textContent = `${smoothingLabel()} O₂ avg`;
       oxygenTrendChart = upsertChart(oxygenTrendChart, 'oxygenTrendChart', {
         type: 'line',
         data: {
           datasets: [
-            { id: 'o2Trailing30', label: 'Recent 30m O₂ avg', data: shortAvg, borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, spanGaps: false },
-            { id: 'o2Baseline4h', label: 'Baseline 4h O₂ avg', data: longAvg, borderColor: '#7c3aed', backgroundColor: '#7c3aed20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, borderDash: [6, 4], spanGaps: false },
-            { id: 'o2TrendSignal', type: 'bar', label: '30m − 4h signal', data: signal, yAxisID: 'signal', backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(5, 150, 105, .42)' : 'rgba(220, 38, 38, .42)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#059669' : '#dc2626', borderWidth: 1 }
+            { id: 'o2Trailing30', label: `${smoothingLabel()} O₂ avg`, data: shortAvg, borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, spanGaps: false },
+            { id: 'o2Baseline4h', label: `Baseline ${Math.round(longMinutes / 60)}h O₂ avg`, data: longAvg, borderColor: '#7c3aed', backgroundColor: '#7c3aed20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, borderDash: [6, 4], spanGaps: false },
+            { id: 'o2TrendSignal', type: 'bar', label: `${smoothingLabel()} − ${Math.round(longMinutes / 60)}h signal`, data: signal, yAxisID: 'signal', backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(5, 150, 105, .42)' : 'rgba(220, 38, 38, .42)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#059669' : '#dc2626', borderWidth: 1 }
           ]
         },
         options: chartOptions({
           oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100, title: { display: true, text: 'O₂ avg (%)' } },
-          signal: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '30m − 4h signal' }, ticks: { callback: value => `${value > 0 ? '+' : ''}${value}` } }
+          signal: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: `${smoothingLabel()} signal` }, ticks: { callback: value => `${value > 0 ? '+' : ''}${value}` } }
         }, { legend: { display: false }, keepAxisTitles: true })
       });
     }
 
     function renderRollups() {
-      el('rollupLabel').textContent = `${el('bucket').selectedOptions[0].textContent} averages`;
-      const labels = rollups.map(rollupLabel);
-      const rollupPoint = (row, key) => ({ x: Date.parse(row.bucket_start), y: row[key] });
-      rollupChart = upsertChart(rollupChart, 'rollupChart', {
-        type: 'line',
-        data: {
-          datasets: [
-            { label: 'Avg O₂', data: rollups.map(r => rollupPoint(r, 'avg_oxygen_saturation')), borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25, pointRadius: 2 },
-            { label: 'Min O₂', data: rollups.map(r => rollupPoint(r, 'min_oxygen_saturation')), borderColor: '#7c3aed', backgroundColor: '#7c3aed20', yAxisID: 'oxygen', tension: .25, pointRadius: 2 },
-            { label: 'Avg HR', data: rollups.map(r => rollupPoint(r, 'avg_heart_rate')), borderColor: '#dc2626', backgroundColor: '#dc262620', yAxisID: 'hr', tension: .25, pointRadius: 2 }
-          ]
-        },
-        options: chartOptions({
-          oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100, title: { display: true, text: 'O₂' } },
-          hr: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'BPM' } }
-        })
-      });
-
-      stateChart = upsertChart(stateChart, 'stateChart', {
-        type: 'bar',
-        data: {
-          datasets: [
-            { label: 'Light sleep', data: rollups.map(r => ({ x: Date.parse(r.bucket_start), y: r.light_sleep_seconds / 3600 })), backgroundColor: '#7c3aed80', stack: 'sleep' },
-            { label: 'Deep sleep', data: rollups.map(r => ({ x: Date.parse(r.bucket_start), y: r.deep_sleep_seconds / 3600 })), backgroundColor: '#2563eb80', stack: 'sleep' },
-            { label: 'Awake', data: rollups.map(r => ({ x: Date.parse(r.bucket_start), y: r.awake_seconds / 3600 })), backgroundColor: '#b4530980', stack: 'sleep' }
-          ]
-        },
-        options: chartOptions({
-          y: { stacked: true, title: { display: true, text: 'Hours' } }
-        })
-      });
-      stateChart.options.scales.x.stacked = true;
-      stateChart.update('none');
-      attachStateChartHover(stateChart);
-
       const rows = rollups.slice().reverse().map((row, index) => `<tr class="${index === 0 ? 'newest-rollup' : ''}"><td>${rollupLabel(row)}</td><td>${row.samples}/${row.total_samples ?? row.samples}</td><td>${fmt(row.avg_oxygen_saturation, '%')}</td><td>${fmt(row.min_oxygen_saturation, '%')}</td><td>${fmt(row.avg_heart_rate, ' bpm')}</td><td>${hours(row.sleep_seconds)}</td><td>${hours(row.awake_seconds)}</td><td>${row.offline_samples || 0}</td></tr>`).join('');
       el('rollupTable').innerHTML = `<thead><tr><th>Window</th><th>Valid/total</th><th>Avg O₂</th><th>Min O₂</th><th>Avg HR</th><th>Sleep</th><th>Awake</th><th>Offline</th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="empty">No readings yet.</td></tr>'}</tbody>`;
     }
@@ -2122,8 +2178,15 @@ DASHBOARD_HTML = r"""
     });
     el('batteryStatus').addEventListener('click', () => alert(el('batteryStatus').dataset.detail || 'Battery unavailable'));
 
+    el('deviceSelect').addEventListener('change', event => {
+      setUrlDevice(event.target.value);
+      renderBabyName();
+      notificationPageOffset = 0;
+      loadedHours = null;
+      safeRefresh({ resetZoom: true });
+    });
     el('window').addEventListener('change', () => { notificationPageOffset = 0; safeRefresh({ resetZoom: true }); });
-    el('bucket').addEventListener('change', () => safeRefresh({ resetZoom: true }));
+    el('smoothing').addEventListener('change', () => { renderCharts({ deferTrend: true }); safeRefresh({ resetZoom: false }); });
     el('refresh').addEventListener('click', () => safeRefresh());
     el('download').addEventListener('click', downloadCsv);
     el('resetZoom').addEventListener('click', resetZoom);
@@ -2138,6 +2201,8 @@ DASHBOARD_HTML = r"""
     el('endChallenge').addEventListener('click', endActiveChallenge);
     el('addChallenge').addEventListener('click', () => openNewChallengeModal());
     el('markVisibleChallenge').addEventListener('click', markVisibleChallenge);
+    el('quickAddChallenge').addEventListener('click', () => openNewChallengeModal());
+    el('quickVisibleChallenge').addEventListener('click', markVisibleChallenge);
     el('closeChallengesPanel').addEventListener('click', () => { el('challengesPanel').classList.add('hidden'); el('challengesToggle').setAttribute('aria-expanded', 'false'); });
     el('closeNotificationsPanel').addEventListener('click', () => { el('notificationsPanel').classList.add('hidden'); el('notificationsToggle').setAttribute('aria-expanded', 'false'); });
     el('closeChallengeModal').addEventListener('click', () => { currentChallengeDetail = null; el('challengeModal').classList.add('hidden'); });
@@ -2163,15 +2228,15 @@ DASHBOARD_HTML = r"""
     });
     el('notificationsPrev').addEventListener('click', () => { notificationPageOffset = Math.max(0, notificationPageOffset - NOTIFICATION_PAGE_SIZE); renderNotifications(); });
     el('notificationsNext').addEventListener('click', () => { notificationPageOffset += NOTIFICATION_PAGE_SIZE; renderNotifications(); });
-    ['vitalsChart', 'oxygenTrendChart', 'rollupChart', 'stateChart'].forEach(id => {
-      el(id).addEventListener('dblclick', resetZoom);
+    ['vitalsChart', 'oxygenTrendChart'].forEach(id => {
+      el(id)?.addEventListener('dblclick', resetZoom);
     });
     window.addEventListener('resize', () => { renderCharts({ deferTrend: true }); renderRollups(); updatePanControl(); });
     if ('serviceWorker' in navigator && !SHARE_MODE) {
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').then(updateInstallButton).catch(updateInstallButton));
     }
     updateInstallButton();
-    safeRefresh({ resetZoom: true });
+    loadDevices().then(() => safeRefresh({ resetZoom: true }));
     setInterval(tickCountdown, 1000);
   </script>
 </body>

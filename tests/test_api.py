@@ -12,7 +12,15 @@ def _test_settings(**kwargs):
     return Settings(_env_file=None, **kwargs)  # type: ignore[call-arg]
 
 
-async def _seed_reading(store: ReadingStore, timestamp: str, *, hr=120, spo2=96, sleep_state=1):
+async def _seed_reading(
+    store: ReadingStore,
+    timestamp: str,
+    *,
+    hr=120,
+    spo2=96,
+    sleep_state=1,
+    device_serial="AC123",
+):
     await store.insert_reading(
         normalize_reading(
             {
@@ -22,7 +30,7 @@ async def _seed_reading(store: ReadingStore, timestamp: str, *, hr=120, spo2=96,
                 "last_updated": timestamp,
                 "battery": 100,
             },
-            "AC123",
+            device_serial,
         )
     )
 
@@ -298,6 +306,27 @@ async def test_api_returns_readings_and_summary(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_api_lists_and_filters_devices(tmp_path):
+    db_path = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db_path)
+    await store.init()
+    await _seed_reading(store, "2026-07-02T01:00:00Z", hr=120, spo2=98, device_serial="AC123")
+    await _seed_reading(store, "2026-07-02T02:00:00Z", hr=130, spo2=96, device_serial="AC999")
+
+    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+
+    with TestClient(app) as client:
+        devices = client.get("/api/devices").json()["devices"]
+        readings = client.get("/api/readings?device=AC999").json()
+        summary = client.get("/api/summary?device=AC999").json()
+
+    assert {device["serial"] for device in devices} == {"AC123", "AC999"}
+    assert readings[0]["device_serial"] == "AC999"
+    assert summary["device_serial"] == "AC999"
+    assert summary["count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_api_defaults_to_all_data_and_still_supports_hours_filter(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)
@@ -365,7 +394,13 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert '<option value="72">3 days</option>' in response.text
     assert '<option value="168">7 days</option>' in response.text
     assert '<option value="all">All stored data</option>' in response.text
-    assert '<option value="5m">5 minutes</option>' in response.text
+    assert 'id="deviceSelect"' in response.text
+    assert "/api/devices" in response.text
+    assert 'id="smoothing"' in response.text
+    assert '<option value="5">5 min avg</option>' in response.text
+    assert 'id="quickAddChallenge"' in response.text
+    assert 'id="quickVisibleChallenge"' in response.text
+    assert 'id="babyName"' in response.text
     assert '<button id="download" class="icon-button"' in response.text
     assert "chartjs-plugin-zoom" in response.text
     assert "mobile-web-app-capable" in response.text
@@ -392,8 +427,9 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "MACD-style oxygen view" in response.text
     assert "O₂ avg (%)" in response.text
     assert "30m − 4h signal" in response.text
-    assert "Blue line: recent 30m O₂ avg" in response.text
-    assert "Recent O₂ is running above baseline" in response.text
+    assert "Blue line:" not in response.text
+    assert "trendLineLabel" in response.text
+    assert "Trend signal" in response.text
     assert "legend: { display: false }" in response.text
     assert "TREND_MAX_SAMPLE_GAP_MS" in response.text
     assert "y: null" in response.text
@@ -435,6 +471,7 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "onPanComplete" in response.text
     assert "O₂ challenges" in response.text
     assert "O₂ challenges / add" in response.text
+    assert "＋ Add O₂ challenge" in response.text
     assert "Add new O₂ challenge" in response.text
     assert "Add one from this popup" in response.text
     assert "data-add-challenge-empty" in response.text
@@ -472,7 +509,8 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "Crypto" in response.text
     assert 'id="installApp"' in response.text
     assert response.text.index("aria-label=\"At a glance\"") < response.text.index("id=\"vitalsChart\"")
-    assert response.text.index("id=\"rollupChart\"") < response.text.index("id=\"stateChart\"")
+    assert 'id="rollupChart"' not in response.text
+    assert 'id="stateChart"' not in response.text
     assert response.text.index("Readings table") < response.text.index("Selected reading")
     assert "O₂ now + today" in response.text
     assert "Heart rate" in response.text

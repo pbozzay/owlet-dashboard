@@ -58,6 +58,8 @@ Dashboard features:
 - installable PWA shell with manifest, icons, service worker, and an in-app install button
 - live auto-refresh every 15 seconds with the countdown folded into the Refresh button
 - primary full-width vitals trace with synchronized drag/pan/zoom, plus a dotted red 85% SpO₂ reference line for spotting deeper drops
+- top-bar device selector with `device=<serial>` URL filtering and a compact selected baby/device name in the header
+- range and smoothing controls inside the main graph card; smoothing can average the main traces and O₂ trend companion without showing a separate averages chart
 - oxygen challenge tracking for marked off-oxygen windows, shown as blue chart bands and excluded from normal averages/stats
 - mobile-safe oxygen challenge modal with an explicit Add new O₂ challenge form, editable start/end times, notes, delete action, per-challenge duration, avg/min O₂, avg HR, low/critical O₂ samples, sleep/awake time, and same-length prior-window comparison
 - compact sleep/wake accessory strip directly under the main vitals trace with aligned time labels, time-based hover mapping, and hover-highlighted sleep-phase bands on the main chart

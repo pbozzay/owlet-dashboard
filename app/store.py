@@ -124,23 +124,38 @@ class ReadingStore:
             await self._insert_notification_rows(db, reading)
             await db.commit()
 
-    async def _latest_timestamp(self) -> str | None:
+    async def _latest_timestamp(self, device_serial: str | None = None) -> str | None:
         await self.init()
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute("SELECT MAX(recorded_at) FROM readings")
+            if device_serial:
+                cursor = await db.execute(
+                    "SELECT MAX(recorded_at) FROM readings WHERE device_serial = ?",
+                    (device_serial,),
+                )
+            else:
+                cursor = await db.execute("SELECT MAX(recorded_at) FROM readings")
             row = await cursor.fetchone()
             return row[0] if row and row[0] else None
 
-    async def get_readings(self, hours: int | None = 24, limit: int = 5000) -> list[OwletReading]:
+    async def get_readings(
+        self,
+        hours: int | None = 24,
+        limit: int = 5000,
+        device_serial: str | None = None,
+    ) -> list[OwletReading]:
         await self.init()
-        latest = await self._latest_timestamp()
-        where = ""
+        latest = await self._latest_timestamp(device_serial=device_serial)
+        where_parts: list[str] = []
         params: list[Any] = []
+        if device_serial:
+            where_parts.append("device_serial = ?")
+            params.append(device_serial)
         if latest and hours is not None:
             latest_dt = datetime.fromisoformat(latest)
             cutoff = latest_dt - timedelta(hours=int(hours))
-            where = "WHERE recorded_at >= ?"
+            where_parts.append("recorded_at >= ?")
             params.append(cutoff.isoformat())
+        where = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         params.append(limit)
 
         async with aiosqlite.connect(self.db_path) as db:
@@ -159,8 +174,8 @@ class ReadingStore:
 
         return [self._row_to_reading(row) for row in rows]
 
-    async def get_summary(self, hours: int | None = 24) -> dict[str, Any]:
-        readings = await self.get_readings(hours=hours)
+    async def get_summary(self, hours: int | None = 24, device_serial: str | None = None) -> dict[str, Any]:
+        readings = await self.get_readings(hours=hours, device_serial=device_serial)
         analysis_readings = await self.exclude_challenge_readings(readings)
         valid_readings = [reading for reading in analysis_readings if not is_offline_reading(reading)]
         first_recorded_at = readings[0].recorded_at.isoformat() if readings else None
@@ -168,6 +183,7 @@ class ReadingStore:
         return {
             "hours": hours,
             "window": "all" if hours is None else f"{hours}h",
+            "device_serial": device_serial,
             "count": len(analysis_readings),
             "total_count": len(readings),
             "valid_count": len(valid_readings),
@@ -180,6 +196,30 @@ class ReadingStore:
             "battery": _metric_summary([r.battery for r in readings]),
             "movement": _metric_summary([r.movement for r in valid_readings]),
         }
+
+    async def list_devices(self) -> list[dict[str, Any]]:
+        await self.init()
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT device_serial, COUNT(*) AS reading_count, MIN(recorded_at), MAX(recorded_at)
+                FROM readings
+                GROUP BY device_serial
+                ORDER BY MAX(recorded_at) DESC
+                """
+            )
+            rows = await cursor.fetchall()
+        return [
+            {
+                "serial": row[0],
+                "name": _device_display_name(row[0]),
+                "baby_name": _device_baby_name(row[0]),
+                "reading_count": int(row[1] or 0),
+                "first_recorded_at": row[2],
+                "last_recorded_at": row[3],
+            }
+            for row in rows
+        ]
 
     async def create_oxygen_challenge(
         self,
@@ -341,16 +381,21 @@ class ReadingStore:
         hours: int | None = 24,
         limit: int = 50,
         offset: int = 0,
+        device_serial: str | None = None,
     ) -> dict[str, Any]:
         await self.init()
-        latest = await self._latest_timestamp()
-        where = ""
+        latest = await self._latest_timestamp(device_serial=device_serial)
+        where_parts: list[str] = []
         params: list[Any] = []
+        if device_serial:
+            where_parts.append("device_serial = ?")
+            params.append(device_serial)
         if latest and hours is not None:
             latest_dt = datetime.fromisoformat(latest)
             cutoff = latest_dt - timedelta(hours=int(hours))
-            where = "WHERE recorded_at >= ?"
+            where_parts.append("recorded_at >= ?")
             params.append(cutoff.isoformat())
+        where = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
 
         async with aiosqlite.connect(self.db_path) as db:
             count_cursor = await db.execute(f"SELECT COUNT(*) FROM notifications {where}", params)
@@ -540,6 +585,18 @@ def _metric_summary(values: list[float | None]) -> dict[str, float | str | None]
         "latest": clean[-1],
         "trend": trend,
     }
+
+
+def _device_display_name(serial: str | None) -> str:
+    if not serial:
+        return "Owlet sock"
+    return f"Owlet sock {str(serial)[-4:]}"
+
+
+def _device_baby_name(serial: str | None) -> str:
+    # Owlet's raw history rows in this dataset do not carry the child profile name.
+    # Keep a short stable label in the UI until a real device/baby name is available.
+    return _device_display_name(serial)
 
 
 def _raw_metric(raw: dict[str, Any], *keys: str) -> float | None:

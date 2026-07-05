@@ -175,13 +175,18 @@ def create_app(
             "database_path": "shared read-only view",
         }
 
+    @app.get("/api/devices")
+    async def devices():
+        return {"devices": await store.list_devices()}
+
     @app.get("/api/readings")
     async def readings(
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         limit: int = Query(default=5000, ge=1, le=100_000),
         include_raw: bool = Query(default=False),
+        device: str | None = Query(default=None),
     ):
-        rows = await store.get_readings(hours=hours, limit=limit)
+        rows = await store.get_readings(hours=hours, limit=limit, device_serial=device)
         return [_reading_response(row, include_raw=include_raw) for row in rows]
 
     @app.get("/share/{token}/api/readings")
@@ -195,8 +200,11 @@ def create_app(
         return [_reading_response(row) for row in rows]
 
     @app.get("/api/summary")
-    async def summary(hours: int | None = Query(default=None, ge=1, le=24 * 365)):
-        return await store.get_summary(hours=hours)
+    async def summary(
+        hours: int | None = Query(default=None, ge=1, le=24 * 365),
+        device: str | None = Query(default=None),
+    ):
+        return await store.get_summary(hours=hours, device_serial=device)
 
     @app.get("/share/{token}/api/summary")
     async def shared_summary(
@@ -207,8 +215,11 @@ def create_app(
         return await store.get_summary(hours=hours)
 
     @app.get("/api/insights")
-    async def insights(hours: int | None = Query(default=None, ge=1, le=24 * 365)):
-        rows = await store.get_readings(hours=hours, limit=100_000)
+    async def insights(
+        hours: int | None = Query(default=None, ge=1, le=24 * 365),
+        device: str | None = Query(default=None),
+    ):
+        rows = await store.get_readings(hours=hours, limit=100_000, device_serial=device)
         rows = await store.exclude_challenge_readings(rows)
         return build_insights(rows)
 
@@ -226,8 +237,9 @@ def create_app(
     async def rollups(
         bucket: Literal["5m", "15m", "30m", "hour", "6h", "12h", "day"] = Query(default="hour"),
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
+        device: str | None = Query(default=None),
     ):
-        rows = await store.get_readings(hours=hours, limit=100_000)
+        rows = await store.get_readings(hours=hours, limit=100_000, device_serial=device)
         rows = await store.exclude_challenge_readings(rows)
         return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
 
@@ -259,8 +271,9 @@ def create_app(
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         limit: int = Query(default=50, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
+        device: str | None = Query(default=None),
     ):
-        return await store.get_notifications(hours=hours, limit=limit, offset=offset)
+        return await store.get_notifications(hours=hours, limit=limit, offset=offset, device_serial=device)
 
     @app.get("/share/{token}/api/notifications")
     async def shared_notifications(
@@ -349,8 +362,11 @@ def create_app(
         return {"ok": True}
 
     @app.get("/api/widget")
-    async def widget(hours: int = Query(default=24, ge=1, le=24 * 30)):
-        return await _widget_payload(store, hours=hours)
+    async def widget(
+        hours: int = Query(default=24, ge=1, le=24 * 30),
+        device: str | None = Query(default=None),
+    ):
+        return await _widget_payload(store, hours=hours, device=device)
 
     @app.get("/share/{token}/api/widget")
     async def shared_widget(
@@ -363,11 +379,11 @@ def create_app(
     return app
 
 
-async def _widget_payload(store: ReadingStore, hours: int = 24) -> dict[str, object]:
-    readings = await store.get_readings(hours=hours, limit=100_000)
-    summary = await store.get_summary(hours=hours)
+async def _widget_payload(store: ReadingStore, hours: int = 24, device: str | None = None) -> dict[str, object]:
+    readings = await store.get_readings(hours=hours, limit=100_000, device_serial=device)
+    summary = await store.get_summary(hours=hours, device_serial=device)
     insights = build_insights(await store.exclude_challenge_readings(readings))
-    notifications = await store.get_notifications(hours=hours, limit=1, offset=0)
+    notifications = await store.get_notifications(hours=hours, limit=1, offset=0, device_serial=device)
     latest_reading = readings[-1].model_dump(mode="json", exclude={"raw"}) if readings else {}
     latest = latest_reading or insights.get("latest") or {}
     breathing = insights.get("breathing") or {}
