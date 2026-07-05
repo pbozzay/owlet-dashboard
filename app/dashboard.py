@@ -96,15 +96,19 @@ DASHBOARD_HTML = r"""
     .info-button { width: 28px; height: 28px; border-radius: 999px; padding: 0; display: inline-grid; place-items: center; background: #eff6ff; color: #1d4ed8; font-weight: 950; }
     .info-popover { display: none; position: absolute; right: 0; top: calc(100% + 8px); width: min(360px, calc(100vw - 32px)); z-index: 25; background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 14px; padding: 12px; color: var(--text); font-size: .84rem; line-height: 1.35; text-transform: none; letter-spacing: normal; }
     .info-popover-wrap:hover .info-popover, .info-popover-wrap:focus-within .info-popover { display: block; }
-    .chart-toolbar { display: grid; gap: 8px; margin: 10px 0 10px; }
-    .control-section { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; border: 1px solid rgba(226,232,240,.9); background: rgba(248,250,252,.78); border-radius: 14px; }
+    .chart-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 10px; padding: 8px; border: 1px solid rgba(226,232,240,.9); background: rgba(248,250,252,.78); border-radius: 14px; }
+    .control-section { display: contents; }
     .control-section-title { color: var(--muted); font-size: .72rem; font-weight: 950; text-transform: uppercase; letter-spacing: .08em; margin-right: 2px; }
     .control-field { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .78rem; font-weight: 850; }
-    .control-field select { min-width: 132px; }
+    .control-field select { min-width: 124px; }
     .chart-toolbar .inline-toggle { border: 1px solid rgba(203,213,225,.9); border-radius: 999px; padding: 6px 9px; background: #fff; color: var(--text); }
-    .challenge-section { background: rgba(239,246,255,.8); border-color: rgba(191,219,254,.95); }
-    .challenge-section .small { margin-left: auto; }
-    .challenge-primary-action { background: #1d4ed8; color: #fff; border-color: #1d4ed8; box-shadow: 0 8px 24px rgba(37,99,235,.22); }
+    .coverage-chip { margin-left: auto; white-space: nowrap; }
+    .o2-menu-wrap { position: relative; }
+    .o2-add-button { background: #1d4ed8; color: #fff; border-color: #1d4ed8; min-width: 54px; box-shadow: 0 8px 24px rgba(37,99,235,.22); }
+    .o2-add-menu { position: absolute; right: 0; top: calc(100% + 8px); display: grid; gap: 8px; width: min(240px, calc(100vw - 32px)); padding: 10px; border: 1px solid #bfdbfe; border-radius: 14px; background: #fff; box-shadow: var(--shadow); z-index: 28; }
+    .o2-add-menu.hidden { display: none; }
+    .o2-add-menu button { justify-content: flex-start; text-align: left; }
+    .share-only-hidden { display: none !important; }
     .time-pan-control { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; margin-top: 8px; color: var(--muted); font-size: .78rem; }
     .time-pan-control input[type="range"] { width: 100%; padding: 0; accent-color: var(--blue); }
     .time-pan-control input[disabled] { opacity: .4; cursor: not-allowed; }
@@ -297,7 +301,7 @@ DASHBOARD_HTML = r"""
         <select id="deviceSelect"><option value="">Loading devices…</option></select>
       </div>
       <div class="control-group refresh-cluster toolbar-right">
-        <button id="challengesToggle" class="challenge-button" type="button" aria-expanded="false">O₂ challenges / add <span id="challengeCount" class="challenge-count">0</span></button>
+        <button id="challengesToggle" class="challenge-button" type="button" aria-expanded="false">O₂ challenges <span id="challengeCount" class="challenge-count">0</span></button>
         <button id="notificationsToggle" class="notification-button" type="button" aria-expanded="false">Notifications <span id="notificationCount" class="notification-count">0</span></button>
         <button id="batteryStatus" class="battery-pill unknown" type="button" title="Battery details">
           <span class="battery-shell" aria-hidden="true"><span id="batteryFill" class="battery-fill" style="width: 0%;"></span></span>
@@ -372,6 +376,13 @@ DASHBOARD_HTML = r"""
           </div>
           <div class="chart-actions">
             <span class="update-chip" id="updateChip">New data</span>
+            <span class="o2-menu-wrap" id="o2AddWrap">
+              <button id="o2AddMenuToggle" class="o2-add-button" type="button" aria-expanded="false" title="Add O₂ challenge event">O₂+</button>
+              <span id="o2AddMenu" class="o2-add-menu hidden" role="menu" aria-label="Add O₂ challenge">
+                <button id="menuVisibleChallenge" type="button" role="menuitem">Use current graph window</button>
+                <button id="menuNewChallenge" type="button" role="menuitem">Enter new times…</button>
+              </span>
+            </span>
           </div>
         </div>
         <div class="chart-toolbar" aria-label="Graph controls">
@@ -400,17 +411,11 @@ DASHBOARD_HTML = r"""
             </label>
             <button id="resetZoom" type="button">Reset zoom</button>
             <button id="download" class="icon-button" title="Download CSV" aria-label="Download CSV">CSV</button>
-          </div>
-          <div class="control-section challenge-section">
-            <span class="control-section-title">O₂ challenge</span>
-            <button id="quickAddChallenge" class="challenge-primary-action" type="button">＋ Add challenge</button>
-            <button id="quickVisibleChallenge" type="button">Use visible window</button>
-            <span class="small" id="coverage">—</span>
-          </div>
-          <div class="control-section sleep-overlay-controls" aria-label="Sleep and wake highlighting controls">
             <span class="control-section-title">Overlays</span>
+            <label class="inline-toggle"><input id="challengeBandsToggle" type="checkbox" checked /> O₂ windows</label>
             <label class="inline-toggle"><input id="sleepHighlightToggle" type="checkbox" /> Sleep colors</label>
-            <label class="inline-toggle"><input id="sleepBallparkToggle" type="checkbox" disabled /> Ballpark average window</label>
+            <label class="inline-toggle"><input id="sleepBallparkToggle" type="checkbox" disabled /> Awake-biased windows</label>
+            <span class="small coverage-chip" id="coverage">—</span>
           </div>
         </div>
         <div class="chart-frame main"><canvas id="vitalsChart"></canvas></div>
@@ -530,6 +535,7 @@ DASHBOARD_HTML = r"""
     let hoveredStateInterval = null;
     let sleepHighlightEnabled = false;
     let sleepBallparkEnabled = false;
+    let challengeBandsEnabled = true;
     let stateStripSegments = [];
     let trendRenderToken = 0;
     let refreshToken = 0;
@@ -772,12 +778,7 @@ DASHBOARD_HTML = r"""
     }
 
     function rollupBucket() {
-      const minutes = smoothingMinutes();
-      if (minutes <= 5) return '5m';
-      if (minutes <= 15) return '15m';
-      if (minutes <= 30) return '30m';
-      if (minutes <= 60) return 'hour';
-      return '6h';
+      return '30m';
     }
 
     function batteryClass(level) {
@@ -1200,7 +1201,7 @@ DASHBOARD_HTML = r"""
         const value = Number(row[key]);
         if (isOffline(row) || !Number.isFinite(value)) {
           reset();
-          points.push({ x: time, y: null, reason: 'gap' });
+          points.push({ x: time, y: 0, reason: 'offline-zero' });
           previousValidTime = null;
           return;
         }
@@ -1409,9 +1410,17 @@ DASHBOARD_HTML = r"""
         maintainAspectRatio: false,
         animation: { duration: 450 },
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: legendOptions(options.legend || {}), tooltip: { callbacks: { label: tooltipLabel } }, zoom: zoomOptions(), challengeBands: { intervals: challengeIntervals() }, offlineBands: { intervals: offlineIntervals() } },
+        plugins: { legend: legendOptions(options.legend || {}), tooltip: { callbacks: { label: tooltipLabel } }, zoom: zoomOptions(), challengeBands: { intervals: challengeBandsEnabled ? challengeIntervals() : [] }, offlineBands: { intervals: offlineIntervals() } },
         scales
       };
+    }
+
+    function updateChallengeBandOptions() {
+      const intervals = challengeBandsEnabled ? challengeIntervals() : [];
+      chartList().forEach(chart => {
+        chart.options.plugins.challengeBands = { ...(chart.options.plugins.challengeBands || {}), intervals };
+        chart.update('none');
+      });
     }
 
     function notificationHit(chart, event) {
@@ -1763,11 +1772,32 @@ DASHBOARD_HTML = r"""
       const total = row.duration_seconds || sleepSeconds + awakeSeconds;
       if (total <= 0) return null;
       const awakeLikeSeconds = Math.min(total, awakeSeconds + movementSeconds);
-      const movementBurst = movementSeconds >= Math.max(120, total * 0.18);
-      if (awakeLikeSeconds >= total * 0.35 || (movementBurst && (row.max_movement || 0) >= (row.movement_awake_threshold || 10))) return 'awake';
-      if (awakeSeconds >= total * 0.55) return 'awake';
-      if (sleepSeconds >= total * 0.55) return (row.deep_sleep_seconds || 0) > (row.light_sleep_seconds || 0) ? 'deep' : 'light';
-      return sleepSeconds >= awakeSeconds ? 'light' : 'awake';
+      const movementBurst = movementSeconds >= Math.max(90, total * 0.14);
+      if (awakeLikeSeconds >= total * 0.28 || (movementBurst && (row.max_movement || 0) >= (row.movement_awake_threshold || 10))) return 'awake';
+      if (awakeSeconds >= total * 0.45) return 'awake';
+      if (sleepSeconds >= total * 0.66) return (row.deep_sleep_seconds || 0) > (row.light_sleep_seconds || 0) ? 'deep' : 'light';
+      return 'awake';
+    }
+
+    function smoothBallparkIntervals(items, bucketMs = bucketDurationMs()) {
+      const sorted = items.filter(Boolean).sort((a, b) => a.start - b.start).map(item => ({ ...item }));
+      sorted.forEach((item, index) => {
+        if (item.cls === 'awake') return;
+        const duration = item.end - item.start;
+        const prev = sorted[index - 1];
+        const next = sorted[index + 1];
+        const bridgedByWake = prev?.cls === 'awake' && next?.cls === 'awake' && item.start - prev.end <= bucketMs && next.start - item.end <= bucketMs;
+        if (bridgedByWake && duration <= Math.max(bucketMs * 1.75, 45 * 60 * 1000)) item.cls = 'awake';
+      });
+      return sorted.reduce((merged, item) => {
+        const last = merged[merged.length - 1];
+        if (last && last.cls === item.cls && item.start - last.end <= Math.max(1000, bucketMs * 0.25)) {
+          last.end = Math.max(last.end, item.end);
+          return merged;
+        }
+        merged.push(item);
+        return merged;
+      }, []);
     }
 
     function subtractIntervals(interval, blockers) {
@@ -1788,15 +1818,17 @@ DASHBOARD_HTML = r"""
       if (!range || !rollups.length) return [];
       const bucketMs = bucketDurationMs();
       const blockers = offlineIntervals();
-      return rollups.flatMap((row, index) => {
+      const classified = rollups.map((row, index) => {
         const start = Date.parse(row.bucket_start);
         const nextStart = rollups[index + 1] ? Date.parse(rollups[index + 1].bucket_start) : start + bucketMs;
         const end = Number.isFinite(nextStart) && nextStart > start ? nextStart : start + bucketMs;
         const cls = ballparkClass(row);
-        if (!Number.isFinite(start) || !Number.isFinite(end) || !cls) return [];
-        const clipped = { start: Math.max(start, range.min), end: Math.min(end, range.max), cls };
-        return subtractIntervals(clipped, blockers);
+        if (!Number.isFinite(start) || !Number.isFinite(end) || !cls) return null;
+        return { start: Math.max(start, range.min), end: Math.min(end, range.max), cls };
       }).filter(item => item && item.end > item.start);
+      return smoothBallparkIntervals(classified, bucketMs)
+        .flatMap(item => subtractIntervals(item, blockers))
+        .filter(item => item && item.end > item.start);
     }
 
     function rollupIntervalAt(timestamp) {
@@ -2186,6 +2218,19 @@ DASHBOARD_HTML = r"""
       button.textContent = deferredInstallPrompt ? 'Install app' : 'Install help';
     }
 
+    function closeO2AddMenu() {
+      el('o2AddMenu')?.classList.add('hidden');
+      el('o2AddMenuToggle')?.setAttribute('aria-expanded', 'false');
+    }
+
+    function toggleO2AddMenu() {
+      const menu = el('o2AddMenu');
+      const hidden = menu.classList.toggle('hidden');
+      el('o2AddMenuToggle').setAttribute('aria-expanded', String(!hidden));
+    }
+
+    if (SHARE_MODE) el('o2AddWrap').style.display = 'none';
+
     window.addEventListener('beforeinstallprompt', event => {
       event.preventDefault();
       deferredInstallPrompt = event;
@@ -2232,8 +2277,12 @@ DASHBOARD_HTML = r"""
     el('endChallenge').addEventListener('click', endActiveChallenge);
     el('addChallenge').addEventListener('click', () => openNewChallengeModal());
     el('markVisibleChallenge').addEventListener('click', markVisibleChallenge);
-    el('quickAddChallenge').addEventListener('click', () => openNewChallengeModal());
-    el('quickVisibleChallenge').addEventListener('click', markVisibleChallenge);
+    el('o2AddMenuToggle').addEventListener('click', event => {
+      event.stopPropagation();
+      if (!SHARE_MODE) toggleO2AddMenu();
+    });
+    el('menuNewChallenge').addEventListener('click', () => { closeO2AddMenu(); openNewChallengeModal(); });
+    el('menuVisibleChallenge').addEventListener('click', () => { closeO2AddMenu(); markVisibleChallenge(); });
     el('closeChallengesPanel').addEventListener('click', () => { el('challengesPanel').classList.add('hidden'); el('challengesToggle').setAttribute('aria-expanded', 'false'); });
     el('closeNotificationsPanel').addEventListener('click', () => { el('notificationsPanel').classList.add('hidden'); el('notificationsToggle').setAttribute('aria-expanded', 'false'); });
     el('closeChallengeModal').addEventListener('click', () => { currentChallengeDetail = null; el('challengeModal').classList.add('hidden'); });
@@ -2241,6 +2290,10 @@ DASHBOARD_HTML = r"""
     el('deleteChallenge').addEventListener('click', deleteCurrentChallenge);
     el('timePan').addEventListener('input', event => panToSliderValue(event.target.value));
     el('timePan').addEventListener('change', () => loadOlderHistoryIfNeeded().catch(console.error));
+    el('challengeBandsToggle').addEventListener('change', event => {
+      challengeBandsEnabled = event.target.checked;
+      updateChallengeBandOptions();
+    });
     el('sleepHighlightToggle').addEventListener('change', event => {
       sleepHighlightEnabled = event.target.checked;
       el('sleepBallparkToggle').disabled = !sleepHighlightEnabled;
@@ -2259,6 +2312,9 @@ DASHBOARD_HTML = r"""
     });
     el('notificationsPrev').addEventListener('click', () => { notificationPageOffset = Math.max(0, notificationPageOffset - NOTIFICATION_PAGE_SIZE); renderNotifications(); });
     el('notificationsNext').addEventListener('click', () => { notificationPageOffset += NOTIFICATION_PAGE_SIZE; renderNotifications(); });
+    document.addEventListener('click', event => {
+      if (!el('o2AddWrap').contains(event.target)) closeO2AddMenu();
+    });
     ['vitalsChart', 'oxygenTrendChart'].forEach(id => {
       el(id)?.addEventListener('dblclick', resetZoom);
     });

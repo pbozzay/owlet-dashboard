@@ -59,7 +59,8 @@ Dashboard features:
 - live auto-refresh every 15 seconds with the countdown folded into the Refresh button
 - primary full-width vitals trace with synchronized drag/pan/zoom, plus a dotted red 85% SpO₂ reference line for spotting deeper drops
 - top-bar device selector with `device=<serial>` URL filtering and a compact selected baby/device name in the header
-- range and smoothing controls inside a grouped main graph toolbar; raw points are the default, and smoothed lines ignore offline/zero no-signal samples
+- range, smoothing, overlay toggles, and export inside a single grouped main graph toolbar; raw points are the default, and smoothed lines keep offline/no-signal points at zero without letting them contribute to averages
+- compact `O₂+` menu in the main graph header for creating oxygen challenges from the current graph window or manually entered times
 - at-a-glance sleep card shows the current sleep/wake state with duration, while retaining 24h light/deep/awake totals underneath
 - oxygen challenge tracking for marked off-oxygen windows, shown as blue chart bands and excluded from normal averages/stats
 - mobile-safe oxygen challenge modal with an explicit Add new O₂ challenge form, editable start/end times, notes, delete action, per-challenge duration, avg/min O₂, avg HR, low/critical O₂ samples, sleep/awake time, and same-length prior-window comparison
