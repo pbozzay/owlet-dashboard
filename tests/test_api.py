@@ -527,6 +527,10 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "closeChallengesPanel" in response.text
     assert "safeRefresh" in response.text
     assert "Refresh (15s)" in response.text
+    assert "initialLoading" in response.text
+    assert "Loading Owlet data" in response.text
+    assert "setInitialLoading('Loading readings and notifications" in response.text
+    assert "hideInitialLoading" in response.text
     assert "titleStatusDot" in response.text
     assert "device-label" in response.text
     assert "mobile-label" in response.text
@@ -534,6 +538,9 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "compactDeviceName" in response.text
     assert "Sock ${digits}" in response.text
     assert "↻ ${secondsUntilRefresh}" in response.text
+    assert "barThickness: isMobileViewport() ? 3 : 4" in response.text
+    assert "minBarLength: 2" in response.text
+    assert '<span class="control-section-title">View</span>' not in response.text
     assert "refreshNote" not in response.text
     assert "batteryStatus" in response.text
     assert "battery_minutes" in response.text

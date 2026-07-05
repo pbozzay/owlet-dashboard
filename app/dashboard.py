@@ -119,6 +119,14 @@ DASHBOARD_HTML = r"""
     .update-chip.show { opacity: 1; transform: translateY(0); }
     .pulse-new { animation: pulseNew .9s ease; }
     @keyframes pulseNew { 0% { background: #dcfce7; } 100% { background: transparent; } }
+    .initial-loading { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 20px; background: rgba(248, 250, 252, .86); backdrop-filter: blur(9px); transition: opacity .22s ease, visibility .22s ease; }
+    .initial-loading.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+    .loading-card { width: min(360px, 100%); border: 1px solid rgba(191, 219, 254, .9); border-radius: 22px; background: rgba(255,255,255,.94); box-shadow: var(--shadow); padding: 18px; display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; }
+    .loading-spinner { width: 32px; height: 32px; border-radius: 999px; border: 4px solid #dbeafe; border-top-color: var(--blue); animation: loadingSpin .8s linear infinite; }
+    .loading-title { font-weight: 950; letter-spacing: -.02em; }
+    .loading-message { color: var(--muted); font-size: .9rem; margin-top: 2px; }
+    .initial-loading.error .loading-spinner { animation: none; border-color: #fecdd3; border-top-color: var(--red); }
+    @keyframes loadingSpin { to { transform: rotate(360deg); } }
     .glance-strip { display: grid; grid-template-columns: 1.05fr 1.05fr 1.2fr .9fr; gap: 10px; margin: 10px 0 14px; }
     .glance-card { min-height: 92px; padding: 12px 13px; }
     .glance-card strong { display: block; font-size: clamp(1.45rem, 3vw, 2.25rem); line-height: 1; letter-spacing: -.045em; margin: 4px 0; }
@@ -300,6 +308,15 @@ DASHBOARD_HTML = r"""
   </style>
 </head>
 <body>
+  <div id="initialLoading" class="initial-loading" role="status" aria-live="polite">
+    <div class="loading-card">
+      <span class="loading-spinner" aria-hidden="true"></span>
+      <span>
+        <span class="loading-title">Loading Owlet data…</span>
+        <span id="initialLoadingMessage" class="loading-message">Connecting to local dashboard.</span>
+      </span>
+    </div>
+  </div>
   <main class="shell">
     <section class="hero">
       <div>
@@ -407,7 +424,6 @@ DASHBOARD_HTML = r"""
         </div>
         <div class="chart-toolbar" aria-label="Graph controls">
           <div class="control-section view-section">
-            <span class="control-section-title">View</span>
             <label class="control-field" for="window">Range
               <select id="window">
                 <option value="6">6 hours</option>
@@ -558,6 +574,7 @@ DASHBOARD_HTML = r"""
     let stateStripSegments = [];
     let trendRenderToken = 0;
     let refreshToken = 0;
+    let firstLoadComplete = false;
 
     const sleepPhaseColors = {
       light: 'rgba(124, 58, 237, .21)',
@@ -855,6 +872,19 @@ DASHBOARD_HTML = r"""
       button.setAttribute('aria-label', button.title);
     }
 
+    function setInitialLoading(message, kind = '') {
+      if (firstLoadComplete) return;
+      const loading = el('initialLoading');
+      loading.classList.remove('hidden', 'error');
+      if (kind) loading.classList.add(kind);
+      el('initialLoadingMessage').textContent = message;
+    }
+
+    function hideInitialLoading() {
+      firstLoadComplete = true;
+      el('initialLoading').classList.add('hidden');
+    }
+
     function challengeIntervals() {
       return (challenges.items || []).map(challenge => ({
         start: Date.parse(challenge.start_time),
@@ -1041,6 +1071,7 @@ DASHBOARD_HTML = r"""
 
     async function refresh({ resetZoom = false } = {}) {
       secondsUntilRefresh = REFRESH_SECONDS;
+      setInitialLoading('Loading readings and notifications…');
       updateRefreshButton('Refreshing…');
       const token = ++refreshToken;
       const previousLatest = lastLatestTimestamp;
@@ -1064,12 +1095,14 @@ DASHBOARD_HTML = r"""
       challenges = challengeData;
       lastLatestTimestamp = readings.length ? readings[readings.length - 1].recorded_at : null;
       zoomWindow = refreshedVisibleRange(previousVisible);
+      setInitialLoading('Drawing charts and controls…');
       renderStatus(health);
       applyFilter();
       renderCharts({ deferTrend: true });
       renderNotifications();
       renderChallenges();
       updateRefreshButton();
+      hideInitialLoading();
       if (previousLatest && lastLatestTimestamp && lastLatestTimestamp !== previousLatest) showNewDataPulse();
       hydrateSecondaryData({ qs, dataQs, rollupQs, cryptoHours, token }).catch(error => {
         console.error(error);
@@ -2083,7 +2116,7 @@ DASHBOARD_HTML = r"""
           datasets: [
             { id: 'o2Trailing30', label: shortLabel, data: shortAvg, borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, spanGaps: false },
             { id: 'o2Baseline4h', label: `Baseline ${Math.round(longMinutes / 60)}h O₂ avg`, data: longAvg, borderColor: '#7c3aed', backgroundColor: '#7c3aed20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, borderDash: [6, 4], spanGaps: false },
-            { id: 'o2TrendSignal', type: 'bar', label: signalLabel, data: signal, yAxisID: 'signal', backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(4, 120, 87, .78)' : 'rgba(185, 28, 28, .78)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#065f46' : '#991b1b', borderWidth: 1 }
+            { id: 'o2TrendSignal', type: 'bar', label: signalLabel, data: signal, yAxisID: 'signal', backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(4, 120, 87, .78)' : 'rgba(185, 28, 28, .78)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#065f46' : '#991b1b', borderWidth: 1, barThickness: isMobileViewport() ? 3 : 4, maxBarThickness: 8, minBarLength: 2 }
           ]
         },
         options: chartOptions({
@@ -2354,6 +2387,7 @@ DASHBOARD_HTML = r"""
         await refresh(options);
       } catch (error) {
         console.error(error);
+        if (!firstLoadComplete) setInitialLoading('Could not load dashboard data. Retrying soon…', 'error');
         updateRefreshButton('Refresh failed');
         el('status').innerHTML = '<span class="status-dot offline"></span>Refresh failed · keeping last loaded data';
         setTimeout(() => updateRefreshButton(), 1500);
