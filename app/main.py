@@ -179,6 +179,11 @@ def create_app(
     async def devices():
         return {"devices": await store.list_devices()}
 
+    @app.get("/share/{token}/api/devices")
+    async def shared_devices(token: str = Path(min_length=20)):
+        _require_share_token(token, settings)
+        return {"devices": await store.list_devices()}
+
     @app.get("/api/readings")
     async def readings(
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
@@ -194,9 +199,10 @@ def create_app(
         token: str = Path(min_length=20),
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         limit: int = Query(default=5000, ge=1, le=100_000),
+        device: str | None = Query(default=None),
     ):
         _require_share_token(token, settings)
-        rows = await store.get_readings(hours=hours, limit=limit)
+        rows = await store.get_readings(hours=hours, limit=limit, device_serial=device)
         return [_reading_response(row) for row in rows]
 
     @app.get("/api/summary")
@@ -210,9 +216,10 @@ def create_app(
     async def shared_summary(
         token: str = Path(min_length=20),
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
+        device: str | None = Query(default=None),
     ):
         _require_share_token(token, settings)
-        return await store.get_summary(hours=hours)
+        return await store.get_summary(hours=hours, device_serial=device)
 
     @app.get("/api/insights")
     async def insights(
@@ -227,9 +234,10 @@ def create_app(
     async def shared_insights(
         token: str = Path(min_length=20),
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
+        device: str | None = Query(default=None),
     ):
         _require_share_token(token, settings)
-        rows = await store.get_readings(hours=hours, limit=100_000)
+        rows = await store.get_readings(hours=hours, limit=100_000, device_serial=device)
         rows = await store.exclude_challenge_readings(rows)
         return build_insights(rows)
 
@@ -248,9 +256,10 @@ def create_app(
         token: str = Path(min_length=20),
         bucket: Literal["5m", "15m", "30m", "hour", "6h", "12h", "day"] = Query(default="hour"),
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
+        device: str | None = Query(default=None),
     ):
         _require_share_token(token, settings)
-        rows = await store.get_readings(hours=hours, limit=100_000)
+        rows = await store.get_readings(hours=hours, limit=100_000, device_serial=device)
         rows = await store.exclude_challenge_readings(rows)
         return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
 
@@ -281,9 +290,10 @@ def create_app(
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         limit: int = Query(default=50, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
+        device: str | None = Query(default=None),
     ):
         _require_share_token(token, settings)
-        return await store.get_notifications(hours=hours, limit=limit, offset=offset)
+        return await store.get_notifications(hours=hours, limit=limit, offset=offset, device_serial=device)
 
     @app.get("/api/oxygen-challenges")
     async def oxygen_challenges(
@@ -372,9 +382,10 @@ def create_app(
     async def shared_widget(
         token: str = Path(min_length=20),
         hours: int = Query(default=24, ge=1, le=24 * 30),
+        device: str | None = Query(default=None),
     ):
         _require_share_token(token, settings)
-        return await _widget_payload(store, hours=hours)
+        return await _widget_payload(store, hours=hours, device=device)
 
     return app
 

@@ -313,17 +313,27 @@ async def test_api_lists_and_filters_devices(tmp_path):
     await _seed_reading(store, "2026-07-02T01:00:00Z", hr=120, spo2=98, device_serial="AC123")
     await _seed_reading(store, "2026-07-02T02:00:00Z", hr=130, spo2=96, device_serial="AC999")
 
-    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+    token = "test-share-token-123456"
+    app = create_app(store=store, settings=_test_settings(owlet_share_token=token), start_poller=False)
 
     with TestClient(app) as client:
         devices = client.get("/api/devices").json()["devices"]
         readings = client.get("/api/readings?device=AC999").json()
         summary = client.get("/api/summary?device=AC999").json()
+        shared_devices_response = client.get(f"/share/{token}/api/devices")
+        shared_readings = client.get(f"/share/{token}/api/readings?device=AC999").json()
+        shared_summary = client.get(f"/share/{token}/api/summary?device=AC999").json()
+        shared_widget = client.get(f"/share/{token}/api/widget?device=AC999").json()
 
     assert {device["serial"] for device in devices} == {"AC123", "AC999"}
     assert readings[0]["device_serial"] == "AC999"
     assert summary["device_serial"] == "AC999"
     assert summary["count"] == 1
+    assert shared_devices_response.status_code == 200
+    assert {device["serial"] for device in shared_devices_response.json()["devices"]} == {"AC123", "AC999"}
+    assert shared_readings[0]["device_serial"] == "AC999"
+    assert shared_summary["device_serial"] == "AC999"
+    assert shared_widget["heart_rate"] == 130
 
 
 @pytest.mark.asyncio
