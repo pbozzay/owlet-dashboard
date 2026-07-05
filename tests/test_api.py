@@ -74,11 +74,19 @@ async def test_sock_disconnected_nonzero_vitals_are_treated_as_offline(tmp_path)
 
     with TestClient(app) as client:
         readings = client.get("/api/readings?hours=24").json()
+        raw_readings = client.get("/api/readings?hours=24&include_raw=true").json()
         summary = client.get("/api/summary?hours=24").json()
         rollups = client.get("/api/rollups?bucket=hour&hours=24").json()
 
     assert readings[1]["sock_disconnected"] is True
     assert readings[1]["sock_off"] is False
+    assert readings[1]["heart_rate"] == 0
+    assert readings[1]["oxygen_saturation"] == 0
+    assert readings[1]["movement"] == 0
+    assert raw_readings[1]["heart_rate"] == 0
+    assert raw_readings[1]["oxygen_saturation"] == 0
+    assert raw_readings[1]["raw"]["heart_rate"] == 120
+    assert raw_readings[1]["raw"]["oxygen_saturation"] == 98
     assert summary["count"] == 3
     assert summary["valid_count"] == 2
     assert summary["offline_count"] == 1
@@ -364,6 +372,8 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert 'rel="manifest"' in response.text
     assert "serviceWorker" in response.text
     assert "offlineBands" in response.text
+    assert "rgba(100, 116, 139, 0.14)" in response.text
+    assert "disconnected/offline" in response.text
     assert "row?.sock_disconnected" in response.text
     assert "row?.sock_off" in response.text
     assert "notificationGlyphs" in response.text

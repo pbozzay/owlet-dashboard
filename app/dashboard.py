@@ -161,7 +161,7 @@ DASHBOARD_HTML = r"""
     .state-segment.deep { background: rgba(37, 99, 235, .72); }
     .state-segment.awake { background: rgba(180, 83, 9, .72); }
     .state-segment.inactive { background: rgba(148, 163, 184, .72); }
-    .state-segment.offline { background: rgba(239, 68, 68, .5); }
+    .state-segment.offline { background: rgba(100, 116, 139, .48); }
     .state-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 5px; color: var(--muted); font-size: .74rem; }
     .state-legend span::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; background: var(--dot); }
     .state-tooltip { position: fixed; z-index: 120; max-width: min(300px, calc(100vw - 24px)); background: #0f172a; color: #f8fafc; border: 1px solid rgba(255,255,255,.12); box-shadow: var(--shadow); border-radius: 12px; padding: 8px 10px; font-size: .78rem; line-height: 1.3; pointer-events: none; }
@@ -196,8 +196,8 @@ DASHBOARD_HTML = r"""
     th, td { padding: 10px 9px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
     th { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; background: #f8fafc; position: sticky; top: 0; z-index: 1; }
     tr:hover td { background: #f8fafc; }
-    tr.offline-row td { background: #fff1f2; color: #991b1b; }
-    tr.offline-row:hover td { background: #ffe4e6; }
+    tr.offline-row td { background: #f1f5f9; color: #475569; }
+    tr.offline-row:hover td { background: #e2e8f0; }
     tr.challenge-row td { background: #eff6ff; color: #1e3a8a; }
     tr.selected-row td { background: #ecfeff !important; box-shadow: inset 0 0 0 999px rgba(14, 165, 233, .08); }
     .table-wrap { overflow: auto; max-width: 100%; max-height: 460px; border: 1px solid var(--line); border-radius: 16px; }
@@ -407,7 +407,7 @@ DASHBOARD_HTML = r"""
           <span style="--dot: rgba(124,58,237,.72)">light sleep</span>
           <span style="--dot: rgba(37,99,235,.72)">deep sleep</span>
           <span style="--dot: rgba(180,83,9,.72)">awake</span>
-          <span style="--dot: rgba(239,68,68,.5)">offline</span>
+          <span style="--dot: rgba(100,116,139,.48)">disconnected/offline</span>
         </div>
         <div class="time-pan-control">
           <span id="panStartLabel">—</span>
@@ -531,7 +531,7 @@ DASHBOARD_HTML = r"""
       deep: 'rgba(37, 99, 235, .13)',
       awake: 'rgba(180, 83, 9, .13)',
       inactive: 'rgba(148, 163, 184, .12)',
-      offline: 'rgba(239, 68, 68, .14)'
+      offline: 'rgba(100, 116, 139, .14)'
     };
 
     const stateStripColors = {
@@ -539,7 +539,7 @@ DASHBOARD_HTML = r"""
       deep: 'rgba(37, 99, 235, .72)',
       awake: 'rgba(180, 83, 9, .72)',
       inactive: 'rgba(148, 163, 184, .72)',
-      offline: 'rgba(239, 68, 68, .5)'
+      offline: 'rgba(100, 116, 139, .48)'
     };
 
     const offlineBandsPlugin = {
@@ -549,8 +549,8 @@ DASHBOARD_HTML = r"""
         if (!intervals.length || !chart.scales?.x) return;
         const { ctx, chartArea, scales } = chart;
         ctx.save();
-        ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
-        ctx.strokeStyle = 'rgba(239, 68, 68, 0.28)';
+        ctx.fillStyle = 'rgba(100, 116, 139, 0.14)';
+        ctx.strokeStyle = 'rgba(100, 116, 139, 0.32)';
         intervals.forEach(({ start, end }) => {
           const left = Math.max(chartArea.left, scales.x.getPixelForValue(start));
           const right = Math.min(chartArea.right, scales.x.getPixelForValue(end));

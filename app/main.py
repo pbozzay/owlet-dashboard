@@ -17,12 +17,29 @@ from app.crypto import get_crypto_prices
 from app.dashboard import render_dashboard
 from app.poller import Poller, create_owlet_poller
 from app.pwa import MANIFEST, SERVICE_WORKER_JS
+from app.quality import is_offline_reading
 from app.store import ReadingStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 STATIC_DIR = FilePath(__file__).parent / "static"
 JSON_BODY = Body(default_factory=dict)
+
+
+def _reading_response(row, *, include_raw: bool = False) -> dict[str, object]:
+    """Serialize a reading for dashboard use, zeroing stale no-signal vitals.
+
+    Owlet can hold the last HR/O₂ values while explicitly reporting sock disconnect/off.
+    Keep the raw payload unchanged for debugging, but make graph/table points read as zero
+    so the no-signal segment does not look like valid physiological data.
+    """
+
+    payload = row.model_dump(mode="json", exclude=None if include_raw else {"raw"})
+    if is_offline_reading(row):
+        payload["heart_rate"] = 0
+        payload["oxygen_saturation"] = 0
+        payload["movement"] = 0
+    return payload
 
 
 def create_app(
@@ -165,8 +182,7 @@ def create_app(
         include_raw: bool = Query(default=False),
     ):
         rows = await store.get_readings(hours=hours, limit=limit)
-        exclude = None if include_raw else {"raw"}
-        return [row.model_dump(mode="json", exclude=exclude) for row in rows]
+        return [_reading_response(row, include_raw=include_raw) for row in rows]
 
     @app.get("/share/{token}/api/readings")
     async def shared_readings(
@@ -176,7 +192,7 @@ def create_app(
     ):
         _require_share_token(token, settings)
         rows = await store.get_readings(hours=hours, limit=limit)
-        return [row.model_dump(mode="json", exclude={"raw"}) for row in rows]
+        return [_reading_response(row) for row in rows]
 
     @app.get("/api/summary")
     async def summary(hours: int | None = Query(default=None, ge=1, le=24 * 365)):
