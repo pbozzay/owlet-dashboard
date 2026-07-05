@@ -42,6 +42,7 @@ DASHBOARD_HTML = r"""
     .hero-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
     .baby-name { color: var(--text); font-weight: 950; font-size: clamp(1rem, 2.5vw, 1.35rem); background: rgba(255,255,255,.76); border: 1px solid rgba(226,232,240,.9); border-radius: 999px; padding: .38rem .75rem; box-shadow: 0 8px 24px rgba(15,23,42,.08); }
     h1 { margin: 0; letter-spacing: -.045em; font-size: clamp(2.1rem, 5vw, 4.2rem); line-height: .92; }
+    .title-status-dot { display: none; }
     h2 { margin: 0; font-size: 1.03rem; letter-spacing: -.02em; }
     h3 { margin: 0 0 8px; font-size: .84rem; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
     .subtitle { color: var(--muted); max-width: 760px; margin: 10px 0 0; font-size: 1rem; }
@@ -72,6 +73,7 @@ DASHBOARD_HTML = r"""
     .battery-pill.low { color: var(--red); background: #fff1f2; border-color: #fecdd3; }
     .battery-pill.unknown { color: var(--muted); background: #f8fafc; }
     .refresh-cluster #refresh { min-width: 112px; }
+    .mobile-label { display: none; }
     label { color: var(--muted); font-size: .86rem; font-weight: 800; }
     select, input, button {
       border: 1px solid var(--line); background: #fff; color: var(--text); border-radius: 12px;
@@ -232,20 +234,36 @@ DASHBOARD_HTML = r"""
     }
     @media (max-width: 640px) {
       .shell { width: min(100% - 14px, 1500px); padding: 10px 0 24px; }
-      .hero { gap: 8px; margin-bottom: 8px; }
-      h1 { font-size: clamp(1.75rem, 12vw, 2.7rem); }
+      .hero { gap: 8px; margin-bottom: 6px; align-items: center; flex-direction: row; }
+      .hero > div:first-child { min-width: 0; }
+      h1 { display: flex; align-items: center; gap: 8px; font-size: clamp(1.55rem, 10vw, 2.3rem); }
+      .title-status-dot { display: inline-block; flex: 0 0 auto; width: 11px; height: 11px; box-shadow: 0 0 0 5px rgba(34,197,94,.13); }
+      .title-status-dot.good { animation: livePulse 1.8s ease-in-out infinite; }
+      @keyframes livePulse { 0%, 100% { box-shadow: 0 0 0 4px rgba(34,197,94,.14); } 50% { box-shadow: 0 0 0 8px rgba(34,197,94,.05); } }
       .subtitle { display: none; }
       .toolbar, .panel, .card { border-radius: 16px; box-shadow: 0 10px 26px rgba(15, 23, 42, .08); }
-      .toolbar { padding: 7px; gap: 7px; margin: 8px 0; backdrop-filter: none; }
-      .control-group { gap: 6px; width: 100%; }
-        .filter-cluster { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
-      .filter-cluster select { width: 100%; }
-      .hero-right { width: 100%; align-items: flex-end; }
-      .refresh-cluster { width: 100%; justify-content: space-between; }
-      .install-button.show { display: inline-flex; }
+      .toolbar { flex-wrap: nowrap; justify-content: flex-start; align-items: center; padding: 6px; gap: 4px; margin: 6px 0 8px; backdrop-filter: none; overflow: visible; }
+      .control-group { gap: 4px; width: auto; flex-wrap: nowrap; }
+      .filter-cluster { flex: 1 1 auto; min-width: 74px; }
+      .device-label { display: none; }
+      .filter-cluster select { width: 100%; min-width: 0; max-width: 104px; }
+      .hero-right, .baby-name, .status { display: none; }
+      .refresh-cluster { flex: 0 0 auto; justify-content: flex-end; margin-left: auto; }
+      .desktop-label { display: none; }
+      .mobile-label { display: inline; }
+      .install-button.show { display: none; }
       label { font-size: .76rem; }
-      select, button { padding: .45rem .55rem; border-radius: 10px; font-size: .86rem; }
+      select, button { padding: .38rem .42rem; border-radius: 10px; font-size: .78rem; min-height: 32px; }
       button.icon-button { width: 34px; height: 34px; }
+      .challenge-button { white-space: nowrap; }
+      .notification-button { width: 36px; height: 32px; padding: 0; display: inline-grid; place-items: center; font-size: .94rem; }
+      .notification-count { position: absolute; right: -5px; top: -6px; min-width: 17px; height: 17px; padding: 0 4px; margin: 0; font-size: .64rem; }
+      .challenge-count { min-width: 17px; height: 17px; padding: 0 4px; margin-left: 2px; font-size: .64rem; }
+      .battery-pill { gap: 4px; min-height: 32px; padding-inline: .42rem; }
+      .battery-shell { width: 22px; height: 13px; border-width: 1.5px; padding: 2px; }
+      .battery-shell::after { right: -4px; top: 4px; width: 2px; height: 4px; }
+      #batteryLabel { font-size: .72rem; }
+      .refresh-cluster #refresh { min-width: 34px; width: 40px; padding-inline: 0; }
       .chart-stack, .grid { gap: 8px; }
       .glance-strip { gap: 7px; margin: 8px 0; }
       .glance-card { min-height: 66px; padding: 8px 9px; }
@@ -285,7 +303,7 @@ DASHBOARD_HTML = r"""
   <main class="shell">
     <section class="hero">
       <div>
-        <h1>Owlet Dashboard</h1>
+        <h1><span>Owlet Dashboard</span><span id="titleStatusDot" class="status-dot title-status-dot" aria-hidden="true"></span></h1>
         <p class="subtitle">
           Live-updated pulse plus historical drill-downs for breathing, sleep, wake time,
           and raw readings. Retrospective trend viewing only — not a medical monitor or alert replacement.
@@ -299,12 +317,12 @@ DASHBOARD_HTML = r"""
 
     <section class="toolbar" aria-label="Date and data controls">
       <div class="control-group filter-cluster">
-        <label for="deviceSelect">Device</label>
+        <label class="device-label" for="deviceSelect">Device</label>
         <select id="deviceSelect"><option value="">Loading devices…</option></select>
       </div>
       <div class="control-group refresh-cluster toolbar-right">
-        <button id="challengesToggle" class="challenge-button" type="button" aria-expanded="false">O₂ challenges <span id="challengeCount" class="challenge-count">0</span></button>
-        <button id="notificationsToggle" class="notification-button" type="button" aria-expanded="false">Notifications <span id="notificationCount" class="notification-count">0</span></button>
+        <button id="challengesToggle" class="challenge-button" type="button" aria-expanded="false" aria-label="O₂ challenges"><span class="desktop-label">O₂ challenges</span><span class="mobile-label" aria-hidden="true">O₂ Ch.</span> <span id="challengeCount" class="challenge-count">0</span></button>
+        <button id="notificationsToggle" class="notification-button" type="button" aria-expanded="false" aria-label="Notifications"><span class="desktop-label">Notifications</span><span class="mobile-label" aria-hidden="true">🔔</span> <span id="notificationCount" class="notification-count">0</span></button>
         <button id="batteryStatus" class="battery-pill unknown" type="button" title="Battery details">
           <span class="battery-shell" aria-hidden="true"><span id="batteryFill" class="battery-fill" style="width: 0%;"></span></span>
           <span id="batteryLabel">—</span>
@@ -824,7 +842,17 @@ DASHBOARD_HTML = r"""
     }
 
     function updateRefreshButton(text = null) {
-      el('refresh').textContent = text || `Refresh (${secondsUntilRefresh}s)`;
+      const button = el('refresh');
+      const mobile = isMobileViewport();
+      if (text) {
+        button.textContent = mobile ? (text.startsWith('Refreshing') ? '↻' : '!') : text;
+        button.title = text;
+        button.setAttribute('aria-label', text);
+        return;
+      }
+      button.textContent = mobile ? `↻ ${secondsUntilRefresh}` : `Refresh (${secondsUntilRefresh}s)`;
+      button.title = `Refresh (${secondsUntilRefresh}s)`;
+      button.setAttribute('aria-label', button.title);
     }
 
     function challengeIntervals() {
@@ -974,11 +1002,25 @@ DASHBOARD_HTML = r"""
       }
       const requested = new URLSearchParams(window.location.search).get('device') || '';
       const selected = devices.some(device => device.serial === requested) ? requested : (devices[0]?.serial || '');
-      el('deviceSelect').innerHTML = devices.length
-        ? devices.map(device => `<option value="${device.serial}" ${device.serial === selected ? 'selected' : ''}>${device.name || device.serial}</option>`).join('')
-        : '<option value="">All devices</option>';
+      renderDeviceOptions(selected);
       if (selected) setUrlDevice(selected);
       renderBabyName();
+    }
+
+    function compactDeviceName(device) {
+      const name = device?.name || device?.serial || 'Device';
+      const digits = name.match(/(\d{3,})\s*$/)?.[1] || device?.serial?.slice(-4);
+      if (device?.baby_name && device.baby_name !== name) return device.baby_name;
+      return digits ? `Sock ${digits}` : name;
+    }
+
+    function renderDeviceOptions(selected = selectedDevice()) {
+      el('deviceSelect').innerHTML = devices.length
+        ? devices.map(device => {
+          const label = isMobileViewport() ? compactDeviceName(device) : (device.name || device.serial);
+          return `<option value="${device.serial}" ${device.serial === selected ? 'selected' : ''}>${label}</option>`;
+        }).join('')
+        : '<option value="">All devices</option>';
     }
 
     function currentDevice() {
@@ -1063,6 +1105,8 @@ DASHBOARD_HTML = r"""
       const label = offlineNow ? 'Device offline / sock off' : (health.collecting ? 'Collecting live' : 'Stored data only');
       const dotClass = offlineNow ? 'offline' : (health.collecting ? 'good' : '');
       el('status').innerHTML = `<span class="status-dot ${dotClass}"></span>${label} · ${mode}`;
+      el('titleStatusDot').className = `status-dot title-status-dot ${dotClass}`;
+      el('titleStatusDot').title = label;
       renderBatteryStatus(latest);
     }
 
@@ -2435,7 +2479,7 @@ DASHBOARD_HTML = r"""
     ['vitalsChart', 'oxygenTrendChart'].forEach(id => {
       el(id)?.addEventListener('dblclick', resetZoom);
     });
-    window.addEventListener('resize', () => { renderCharts({ deferTrend: true }); renderRollups(); updatePanControl(); });
+    window.addEventListener('resize', () => { renderDeviceOptions(); updateRefreshButton(); renderCharts({ deferTrend: true }); renderRollups(); updatePanControl(); });
     if ('serviceWorker' in navigator && !SHARE_MODE) {
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').then(updateInstallButton).catch(updateInstallButton));
     }

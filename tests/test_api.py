@@ -527,6 +527,13 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "closeChallengesPanel" in response.text
     assert "safeRefresh" in response.text
     assert "Refresh (15s)" in response.text
+    assert "titleStatusDot" in response.text
+    assert "device-label" in response.text
+    assert "mobile-label" in response.text
+    assert "O₂ Ch." in response.text
+    assert "compactDeviceName" in response.text
+    assert "Sock ${digits}" in response.text
+    assert "↻ ${secondsUntilRefresh}" in response.text
     assert "refreshNote" not in response.text
     assert "batteryStatus" in response.text
     assert "battery_minutes" in response.text
