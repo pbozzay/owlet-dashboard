@@ -57,7 +57,7 @@ Dashboard features:
 
 - installable PWA shell with manifest, icons, service worker, and an in-app install button
 - live auto-refresh every 15 seconds with the countdown folded into the Refresh button
-- primary full-width vitals trace with synchronized drag/pan/zoom
+- primary full-width vitals trace with synchronized drag/pan/zoom, plus a dotted red 85% SpO₂ reference line for spotting deeper drops
 - oxygen challenge tracking for marked off-oxygen windows, shown as blue chart bands and excluded from normal averages/stats
 - mobile-safe oxygen challenge modal with an explicit Add new O₂ challenge form, editable start/end times, notes, delete action, per-challenge duration, avg/min O₂, avg HR, low/critical O₂ samples, sleep/awake time, and same-length prior-window comparison
 - compact sleep/wake accessory strip directly under the main vitals trace with aligned time labels, time-based hover mapping, and hover-highlighted sleep-phase bands on the main chart
@@ -66,7 +66,7 @@ Dashboard features:
 - synchronized horizontal time scrollbar for panning the visible window across all aligned charts after zooming
 - red offline/sock-off bands when Owlet reports zero-valued vitals
 - offline/zero readings are kept visible in the raw trace/table but excluded from averages, trends, and sleep analysis
-- Owlet alert/notification capture for low oxygen, sock disconnect/off, heart-rate, battery, and base-power alerts, plus derived low/critical SpO₂ reading episodes when Owlet does not emit its own low-O₂ flag
+- Owlet alert/notification capture for low oxygen, sock disconnect/off, heart-rate, battery, and base-power alerts, plus derived low/critical SpO₂ reading episodes when Owlet does not emit its own low-O₂ flag; derived reading episodes stay in the alerts list and are not plotted as warning triangles on the main graph
 - BTC/ETH/XMR price glance powered by CoinGecko, plus an optional hidden-by-default BTC price overlay on the main vitals chart
 - "today at a glance" latest vitals card plus top-bar battery indicator with percent and remaining-time tooltip when available
 - breathing trend card comparing recent vs prior oxygen averages

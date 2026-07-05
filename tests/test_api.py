@@ -328,6 +328,9 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "serviceWorker" in response.text
     assert "offlineBands" in response.text
     assert "notificationGlyphs" in response.text
+    assert "oxygen85Threshold" in response.text
+    assert "85% O₂" in response.text
+    assert "item.details?.source !== 'derived_oxygen_threshold'" in response.text
     assert "notificationHoverPriority" in response.text
     assert "attachNotificationHover" in response.text
     assert "notificationHit" in response.text
@@ -394,6 +397,7 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "function oxygenValueClass" in response.text
     assert "if (value >= 92) return 'good'" in response.text
     assert "if (value >= 86) return 'caution'" in response.text
+    assert "return 'danger'" in response.text
     assert "const visibility = new Map" in response.text
     assert "readings-grid" in response.text
     assert "reading-detail-panel" in response.text

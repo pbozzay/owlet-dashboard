@@ -645,6 +645,32 @@ DASHBOARD_HTML = r"""
         }
       }
     };
+    const oxygen85ThresholdPlugin = {
+      id: 'oxygen85Threshold',
+      afterDraw(chart) {
+        if (chart.canvas.id !== 'vitalsChart') return;
+        const scale = chart.scales?.spo2;
+        const { chartArea, ctx } = chart;
+        if (!scale || !chartArea) return;
+        const y = scale.getPixelForValue(85);
+        if (!Number.isFinite(y) || y < chartArea.top || y > chartArea.bottom) return;
+        ctx.save();
+        ctx.setLineDash([6, 5]);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(220, 38, 38, .85)';
+        ctx.beginPath();
+        ctx.moveTo(chartArea.left, y);
+        ctx.lineTo(chartArea.right, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(220, 38, 38, .92)';
+        ctx.font = '700 11px ui-sans-serif, system-ui, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('85% O₂', chartArea.right - 4, y - 4);
+        ctx.restore();
+      }
+    };
     const sleepBandsPlugin = {
       id: 'sleepBands',
       beforeDatasetsDraw(chart) {
@@ -696,7 +722,7 @@ DASHBOARD_HTML = r"""
         ctx.restore();
       }
     };
-    Chart.register(sleepBandsPlugin, challengeBandsPlugin, offlineBandsPlugin, sleepPhaseHoverPlugin, stateChartHoverPlugin, notificationGlyphsPlugin, notificationHoverPlugin);
+    Chart.register(sleepBandsPlugin, challengeBandsPlugin, offlineBandsPlugin, sleepPhaseHoverPlugin, stateChartHoverPlugin, notificationGlyphsPlugin, notificationHoverPlugin, oxygen85ThresholdPlugin);
 
     const el = (id) => document.getElementById(id);
     const fmt = (value, suffix = '') => value === null || value === undefined ? '—' : `${value}${suffix}`;
@@ -1112,7 +1138,7 @@ DASHBOARD_HTML = r"""
     }
 
     function notificationPoints() {
-      return (notifications.items || []).slice().reverse().map(item => {
+      return (notifications.items || []).filter(item => item.details?.source !== 'derived_oxygen_threshold').slice().reverse().map(item => {
         const timestamp = Date.parse(item.recorded_at);
         const y = item.oxygen_saturation && item.oxygen_saturation > 0 ? item.oxygen_saturation : 89;
         return {
@@ -1319,7 +1345,7 @@ DASHBOARD_HTML = r"""
         },
         options: chartOptions({
           hr: { type: 'linear', position: 'left', title: { display: true, text: 'BPM' } },
-          spo2: { type: 'linear', position: 'right', suggestedMin: 88, suggestedMax: 100, grid: { drawOnChartArea: false }, title: { display: true, text: 'SpO₂' } },
+          spo2: { type: 'linear', position: 'right', suggestedMin: 84, suggestedMax: 100, grid: { drawOnChartArea: false }, title: { display: true, text: 'SpO₂' } },
           btc: { type: 'linear', position: 'right', display: false, grid: { drawOnChartArea: false } },
           move: { display: false }
         }, { hideXTicks: true, legend: { position: 'top', align: 'end' } })
