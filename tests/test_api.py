@@ -162,6 +162,33 @@ async def test_oxygen_challenges_are_stored_and_excluded_from_normal_stats(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_oxygen_challenge_list_summaries_honor_device_filter(tmp_path):
+    db_path = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db_path)
+    await store.init()
+    await _seed_reading(store, "2026-07-02T01:00:00Z", hr=120, spo2=90, device_serial="AC123")
+    await _seed_reading(store, "2026-07-02T01:30:00Z", hr=122, spo2=92, device_serial="AC123")
+    await _seed_reading(store, "2026-07-02T01:00:00Z", hr=150, spo2=70, device_serial="AC999")
+    await _seed_reading(store, "2026-07-02T01:30:00Z", hr=152, spo2=72, device_serial="AC999")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/oxygen-challenges",
+            json={
+                "start_time": "2026-07-02T01:00:00+00:00",
+                "end_time": "2026-07-02T01:30:00+00:00",
+                "label": "Device-specific challenge",
+            },
+        )
+        ac123 = client.get("/api/oxygen-challenges?hours=24&device=AC123").json()
+        ac999 = client.get("/api/oxygen-challenges?hours=24&device=AC999").json()
+
+    assert ac123["items"][0]["summary"]["avg_oxygen_saturation"] == 91
+    assert ac999["items"][0]["summary"]["avg_oxygen_saturation"] == 71
+
+
+@pytest.mark.asyncio
 async def test_notifications_endpoint_extracts_alerts_and_offline_periods(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)
@@ -464,6 +491,13 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "hr: { type: 'linear', position: 'left', min: 0" in response.text
     assert "spo2: { type: 'linear', position: 'right', min: 0" in response.text
     assert "dataQs" in response.text
+    assert response.text.count("fetchJson(`${API_BASE}/api/readings?${dataQs}`)") == 1
+    assert "refreshInFlight" in response.text
+    assert "if (refreshInFlight && !force) return refreshInFlight" in response.text
+    assert "attachReadingsTableSelection" in response.text
+    assert "selectionAttached" in response.text
+    assert "filtered.map((row, index)" in response.text
+    assert "table.addEventListener('click'" in response.text
     assert "loadOlderHistoryIfNeeded" in response.text
     assert "release near the left edge to load more" in response.text
     assert "oxygenTrendSignal(shortAvg, longAvg)" in response.text

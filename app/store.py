@@ -174,8 +174,52 @@ class ReadingStore:
 
         return [self._row_to_reading(row) for row in rows]
 
+    async def get_analysis_readings(
+        self,
+        hours: int | None = 24,
+        limit: int = 100_000,
+        device_serial: str | None = None,
+    ) -> list[OwletReading]:
+        """Return readings for summaries without materializing large raw payloads."""
+
+        await self.init()
+        latest = await self._latest_timestamp(device_serial=device_serial)
+        where_parts: list[str] = []
+        params: list[Any] = []
+        if device_serial:
+            where_parts.append("device_serial = ?")
+            params.append(device_serial)
+        if latest and hours is not None:
+            latest_dt = datetime.fromisoformat(latest)
+            cutoff = latest_dt - timedelta(hours=int(hours))
+            where_parts.append("recorded_at >= ?")
+            params.append(cutoff.isoformat())
+        where = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        params.append(limit)
+
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                f"""
+                SELECT device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
+                       movement, sleep_state, skin_temperature,
+                       json_extract(raw_json, '$.sock_disconnected'),
+                       json_extract(raw_json, '$.SOCK_DISCON_ALRT.value'),
+                       json_extract(raw_json, '$.sock_off'),
+                       json_extract(raw_json, '$.SOCK_OFF.value'),
+                       json_extract(raw_json, '$.alerts_mask')
+                FROM readings
+                {where}
+                ORDER BY recorded_at ASC
+                LIMIT ?
+                """,
+                params,
+            )
+            rows = await cursor.fetchall()
+
+        return [self._row_to_analysis_reading(row) for row in rows]
+
     async def get_summary(self, hours: int | None = 24, device_serial: str | None = None) -> dict[str, Any]:
-        readings = await self.get_readings(hours=hours, device_serial=device_serial)
+        readings = await self.get_analysis_readings(hours=hours, device_serial=device_serial)
         analysis_readings = await self.exclude_challenge_readings(readings)
         valid_readings = [reading for reading in analysis_readings if not is_offline_reading(reading)]
         first_recorded_at = readings[0].recorded_at.isoformat() if readings else None
@@ -288,10 +332,12 @@ class ReadingStore:
         hours: int | None = 24,
         limit: int = 100,
         offset: int = 0,
+        device_serial: str | None = None,
     ) -> dict[str, Any]:
         await self.init()
         rows, total = await self._oxygen_challenge_rows(hours=hours, limit=limit, offset=offset)
-        readings = await self.get_readings(hours=None, limit=100_000)
+        analysis_hours = None if hours is None else min(24 * 365, max(int(hours) * 2, int(hours) + 24))
+        readings = await self.get_analysis_readings(hours=analysis_hours, limit=100_000, device_serial=device_serial)
         latest = readings[-1].recorded_at if readings else None
         items = [challenge_analysis(self._row_to_challenge(row), readings, latest) for row in rows]
         return {"items": items, "total": total, "limit": limit, "offset": offset}
@@ -534,6 +580,22 @@ class ReadingStore:
             raw=raw,
         )
 
+    def _row_to_analysis_reading(self, row: tuple[Any, ...]) -> OwletReading:
+        alerts_mask = _sqlite_float(row[12])
+        return OwletReading(
+            device_serial=row[0],
+            recorded_at=row[1],
+            heart_rate=row[2],
+            oxygen_saturation=row[3],
+            battery=row[4],
+            movement=row[5],
+            sleep_state=row[6],
+            sock_disconnected=_sqlite_bool(row[8]) or _sqlite_bool(row[9]) or _mask_has(alerts_mask, 16),
+            sock_off=_sqlite_bool(row[10]) or _sqlite_bool(row[11]) or _mask_has(alerts_mask, 64),
+            skin_temperature=row[7],
+            raw={},
+        )
+
     def _row_to_notification(self, row: tuple[Any, ...]) -> NotificationEvent:
         return NotificationEvent(
             device_serial=row[0],
@@ -559,6 +621,29 @@ class ReadingStore:
             "created_at": row[5],
             "updated_at": row[6],
         }
+
+
+def _sqlite_bool(value: Any) -> bool:
+    if value in (None, ""):
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float):
+        return value != 0
+    return str(value).strip().lower() not in {"", "0", "false", "none", "null", "off"}
+
+
+def _sqlite_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _mask_has(mask: float | None, bit: int) -> bool:
+    return mask is not None and bool(int(mask) & bit)
 
 
 def _metric_summary(values: list[float | None]) -> dict[str, float | str | None]:

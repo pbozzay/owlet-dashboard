@@ -191,7 +191,11 @@ def create_app(
         include_raw: bool = Query(default=False),
         device: str | None = Query(default=None),
     ):
-        rows = await store.get_readings(hours=hours, limit=limit, device_serial=device)
+        rows = (
+            await store.get_readings(hours=hours, limit=limit, device_serial=device)
+            if include_raw
+            else await store.get_analysis_readings(hours=hours, limit=limit, device_serial=device)
+        )
         return [_reading_response(row, include_raw=include_raw) for row in rows]
 
     @app.get("/share/{token}/api/readings")
@@ -202,7 +206,7 @@ def create_app(
         device: str | None = Query(default=None),
     ):
         _require_share_token(token, settings)
-        rows = await store.get_readings(hours=hours, limit=limit, device_serial=device)
+        rows = await store.get_analysis_readings(hours=hours, limit=limit, device_serial=device)
         return [_reading_response(row) for row in rows]
 
     @app.get("/api/summary")
@@ -226,7 +230,7 @@ def create_app(
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         device: str | None = Query(default=None),
     ):
-        rows = await store.get_readings(hours=hours, limit=100_000, device_serial=device)
+        rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device)
         rows = await store.exclude_challenge_readings(rows)
         return build_insights(rows)
 
@@ -237,7 +241,7 @@ def create_app(
         device: str | None = Query(default=None),
     ):
         _require_share_token(token, settings)
-        rows = await store.get_readings(hours=hours, limit=100_000, device_serial=device)
+        rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device)
         rows = await store.exclude_challenge_readings(rows)
         return build_insights(rows)
 
@@ -247,7 +251,7 @@ def create_app(
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         device: str | None = Query(default=None),
     ):
-        rows = await store.get_readings(hours=hours, limit=100_000, device_serial=device)
+        rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device)
         rows = await store.exclude_challenge_readings(rows)
         return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
 
@@ -259,7 +263,7 @@ def create_app(
         device: str | None = Query(default=None),
     ):
         _require_share_token(token, settings)
-        rows = await store.get_readings(hours=hours, limit=100_000, device_serial=device)
+        rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device)
         rows = await store.exclude_challenge_readings(rows)
         return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
 
@@ -300,8 +304,9 @@ def create_app(
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
+        device: str | None = Query(default=None),
     ):
-        return await store.get_oxygen_challenges(hours=hours, limit=limit, offset=offset)
+        return await store.get_oxygen_challenges(hours=hours, limit=limit, offset=offset, device_serial=device)
 
     @app.get("/share/{token}/api/oxygen-challenges")
     async def shared_oxygen_challenges(
@@ -309,9 +314,10 @@ def create_app(
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
+        device: str | None = Query(default=None),
     ):
         _require_share_token(token, settings)
-        return await store.get_oxygen_challenges(hours=hours, limit=limit, offset=offset)
+        return await store.get_oxygen_challenges(hours=hours, limit=limit, offset=offset, device_serial=device)
 
     @app.post("/api/oxygen-challenges")
     async def create_oxygen_challenge(payload: dict[str, object] = JSON_BODY):

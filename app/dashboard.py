@@ -575,6 +575,8 @@ DASHBOARD_HTML = r"""
     let trendRenderToken = 0;
     let refreshToken = 0;
     let firstLoadComplete = false;
+    let refreshInFlight = null;
+    let readingsTableSignature = '';
 
     const sleepPhaseColors = {
       light: 'rgba(124, 58, 237, .21)',
@@ -1105,22 +1107,21 @@ DASHBOARD_HTML = r"""
       updateRefreshButton();
       hideInitialLoading();
       if (previousLatest && lastLatestTimestamp && lastLatestTimestamp !== previousLatest) showNewDataPulse();
-      hydrateSecondaryData({ qs, dataQs, rollupQs, cryptoHours, token }).catch(error => {
+      hydrateSecondaryData({ qs, rollupQs, cryptoHours, token, compareRows: rows }).catch(error => {
         console.error(error);
         el('refresh').title = 'Some details failed; core readings are still shown.';
       });
     }
 
-    async function hydrateSecondaryData({ qs, dataQs, rollupQs, cryptoHours, token }) {
-      const [compareRows, stats, insightData, rollupData, cryptoData] = await Promise.all([
-        fetchJson(`${API_BASE}/api/readings?${dataQs}`),
+    async function hydrateSecondaryData({ qs, rollupQs, cryptoHours, token, compareRows }) {
+      const [stats, insightData, rollupData, cryptoData] = await Promise.all([
         fetchJson(`${API_BASE}/api/summary?${qs}`),
         fetchJson(`${API_BASE}/api/insights?${qs}`),
         fetchJson(`${API_BASE}/api/rollups?${rollupQs}`),
         fetchJson(`${API_BASE}/api/crypto?hours=${cryptoHours}`)
       ]);
       if (token !== refreshToken) return;
-      comparisonRows = compareRows;
+      comparisonRows = compareRows || readings;
       summary = stats;
       insights = insightData;
       rollups = rollupData.rollups || [];
@@ -2138,8 +2139,16 @@ DASHBOARD_HTML = r"""
     }
 
     function renderReadingsTable() {
-      const rows = filtered.slice().reverse().map((row, index) => `
-        <tr data-index="${readings.indexOf(row)}" class="${index === 0 ? 'latest-row' : ''} ${isOffline(row) ? 'offline-row' : ''} ${isInChallenge(row) ? 'challenge-row' : ''}">
+      const first = filtered[0]?.recorded_at || '';
+      const last = filtered[filtered.length - 1]?.recorded_at || '';
+      const challengeSignature = (challenges.items || []).map(item => `${item.id}:${item.start_time}:${item.effective_end_time || item.end_time || ''}`).join('|');
+      const nextSignature = `${filtered.length}:${first}:${last}:${challengeSignature}`;
+      el('tableCount').textContent = `${filtered.length} loaded`;
+      if (nextSignature === readingsTableSignature) return;
+      readingsTableSignature = nextSignature;
+      const indexedRows = filtered.map((row, index) => ({ row, index: filtered === readings ? index : readings.indexOf(row) })).reverse();
+      const rows = indexedRows.map(({ row, index }, displayIndex) => `
+        <tr data-index="${index}" class="${displayIndex === 0 ? 'latest-row' : ''} ${isOffline(row) ? 'offline-row' : ''} ${isInChallenge(row) ? 'challenge-row' : ''}">
           <td>${localTime(row.recorded_at)}</td>
           <td>${fmt(row.device_serial)}</td>
           <td>${num(row.heart_rate)}</td>
@@ -2149,16 +2158,21 @@ DASHBOARD_HTML = r"""
           <td>${fmt(row.battery, '%')}</td>
           <td>${num(row.skin_temperature)}</td>
         </tr>`).join('');
-      el('tableCount').textContent = `${filtered.length} loaded`;
       el('readingsTable').innerHTML = `<thead><tr><th>Time</th><th>Serial</th><th>HR</th><th>O₂</th><th>Move</th><th>State</th><th>Battery</th><th>Temp</th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="empty">No readings yet.</td></tr>'}</tbody>`;
-      [...el('readingsTable').querySelectorAll('tbody tr[data-index]')].forEach(tr => {
-        tr.addEventListener('click', () => {
-          el('readingsTable').querySelectorAll('tr.selected-row').forEach(row => row.classList.remove('selected-row'));
-          tr.classList.add('selected-row');
-          const row = readings[Number(tr.dataset.index)];
-          el('raw').textContent = JSON.stringify(row, null, 2);
-        });
+    }
+
+    function attachReadingsTableSelection() {
+      const table = el('readingsTable');
+      if (table.dataset.selectionAttached === 'true') return;
+      table.addEventListener('click', event => {
+        const tr = event.target.closest('tbody tr[data-index]');
+        if (!tr || !table.contains(tr)) return;
+        table.querySelectorAll('tr.selected-row').forEach(row => row.classList.remove('selected-row'));
+        tr.classList.add('selected-row');
+        const row = readings[Number(tr.dataset.index)];
+        el('raw').textContent = JSON.stringify(row, null, 2);
       });
+      table.dataset.selectionAttached = 'true';
     }
 
     function renderNotifications() {
@@ -2384,15 +2398,25 @@ DASHBOARD_HTML = r"""
     }
 
     async function safeRefresh(options = {}) {
-      try {
-        await refresh(options);
-      } catch (error) {
-        console.error(error);
-        if (!firstLoadComplete) setInitialLoading('Could not load dashboard data. Retrying soon…', 'error');
-        updateRefreshButton('Refresh failed');
-        el('status').innerHTML = '<span class="status-dot offline"></span>Refresh failed · keeping last loaded data';
-        setTimeout(() => updateRefreshButton(), 1500);
-      }
+      const { force = false, ...refreshOptions } = options;
+      if (refreshInFlight && !force) return refreshInFlight;
+      const run = (async () => {
+        try {
+          await refresh(refreshOptions);
+        } catch (error) {
+          console.error(error);
+          if (!firstLoadComplete) setInitialLoading('Could not load dashboard data. Retrying soon…', 'error');
+          updateRefreshButton('Refresh failed');
+          el('status').innerHTML = '<span class="status-dot offline"></span>Refresh failed · keeping last loaded data';
+          setTimeout(() => updateRefreshButton(), 1500);
+        }
+      })();
+      let tracked;
+      tracked = run.finally(() => {
+        if (refreshInFlight === tracked) refreshInFlight = null;
+      });
+      refreshInFlight = tracked;
+      return tracked;
     }
 
     function tickCountdown() {
@@ -2455,9 +2479,10 @@ DASHBOARD_HTML = r"""
       renderBabyName();
       notificationPageOffset = 0;
       loadedHours = null;
-      safeRefresh({ resetZoom: true });
+      readingsTableSignature = '';
+      safeRefresh({ resetZoom: true, force: true });
     });
-    el('window').addEventListener('change', () => { notificationPageOffset = 0; safeRefresh({ resetZoom: true }); });
+    el('window').addEventListener('change', () => { notificationPageOffset = 0; readingsTableSignature = ''; safeRefresh({ resetZoom: true, force: true }); });
     el('smoothing').addEventListener('change', () => { renderCharts({ deferTrend: true }); safeRefresh({ resetZoom: false }); });
     el('refresh').addEventListener('click', () => safeRefresh());
     el('download').addEventListener('click', downloadCsv);
@@ -2520,6 +2545,7 @@ DASHBOARD_HTML = r"""
     }
     updateInstallButton();
     applyResponsiveDefaultWindow();
+    attachReadingsTableSelection();
     loadDevices().then(() => safeRefresh({ resetZoom: true }));
     setInterval(tickCountdown, 1000);
   </script>
