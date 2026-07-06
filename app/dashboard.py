@@ -543,6 +543,8 @@ DASHBOARD_HTML = r"""
     const API_BASE = "__API_BASE__";
     const SHARE_MODE = __SHARE_MODE__;
     const REFRESH_SECONDS = 15;
+    const TABLE_ROW_LIMIT = 500;
+    const CHART_MAX_POINTS = 1000;
     let readings = [];
     let filtered = [];
     let summary = null;
@@ -1236,18 +1238,19 @@ DASHBOARD_HTML = r"""
       el('coverage').textContent = `${summary.window} · ${summary.challenge_count || 0} in challenges`;
     }
 
-    function downsample(rows, maxPoints = 1200) {
+    function downsample(rows, maxPoints = CHART_MAX_POINTS) {
       if (rows.length <= maxPoints) return rows;
       const range = visibleRange();
       const step = Math.ceil(rows.length / maxPoints);
       return rows.filter((row, index) => {
         const time = Date.parse(row.recorded_at);
         const visibleEdge = range && (time === range.min || time === range.max);
-        return visibleEdge || index % step === 0 || index === rows.length - 1 || isOffline(row);
+        const offlineTransition = isOffline(row) && (!isOffline(rows[index - 1]) || !isOffline(rows[index + 1]));
+        return visibleEdge || offlineTransition || index % step === 0 || index === rows.length - 1;
       });
     }
 
-    function downsamplePoints(points, maxPoints = 1200) {
+    function downsamplePoints(points, maxPoints = CHART_MAX_POINTS) {
       const range = visibleRange();
       if (points.length <= maxPoints) return extendPointsToVisibleEdges(points, range);
       const step = Math.ceil(points.length / maxPoints);
@@ -2142,11 +2145,13 @@ DASHBOARD_HTML = r"""
       const first = filtered[0]?.recorded_at || '';
       const last = filtered[filtered.length - 1]?.recorded_at || '';
       const challengeSignature = (challenges.items || []).map(item => `${item.id}:${item.start_time}:${item.effective_end_time || item.end_time || ''}`).join('|');
-      const nextSignature = `${filtered.length}:${first}:${last}:${challengeSignature}`;
-      el('tableCount').textContent = `${filtered.length} loaded`;
+      const tableStart = Math.max(0, filtered.length - TABLE_ROW_LIMIT);
+      const tableRows = filtered.slice(tableStart);
+      const nextSignature = `${filtered.length}:${first}:${last}:${tableStart}:${challengeSignature}`;
+      el('tableCount').textContent = filtered.length > tableRows.length ? `newest ${tableRows.length} of ${filtered.length} loaded` : `${filtered.length} loaded`;
       if (nextSignature === readingsTableSignature) return;
       readingsTableSignature = nextSignature;
-      const indexedRows = filtered.map((row, index) => ({ row, index: filtered === readings ? index : readings.indexOf(row) })).reverse();
+      const indexedRows = tableRows.map((row, index) => ({ row, index: filtered === readings ? tableStart + index : readings.indexOf(row) })).reverse();
       const rows = indexedRows.map(({ row, index }, displayIndex) => `
         <tr data-index="${index}" class="${displayIndex === 0 ? 'latest-row' : ''} ${isOffline(row) ? 'offline-row' : ''} ${isInChallenge(row) ? 'challenge-row' : ''}">
           <td>${localTime(row.recorded_at)}</td>

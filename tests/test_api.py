@@ -496,7 +496,13 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "if (refreshInFlight && !force) return refreshInFlight" in response.text
     assert "attachReadingsTableSelection" in response.text
     assert "selectionAttached" in response.text
-    assert "filtered.map((row, index)" in response.text
+    assert "filtered.map((row, index)" not in response.text
+    assert "TABLE_ROW_LIMIT = 500" in response.text
+    assert "newest ${tableRows.length} of ${filtered.length} loaded" in response.text
+    assert "tableRows.map((row, index)" in response.text
+    assert "CHART_MAX_POINTS = 1000" in response.text
+    assert "offlineTransition" in response.text
+    assert "!isOffline(rows[index - 1]) || !isOffline(rows[index + 1])" in response.text
     assert "table.addEventListener('click'" in response.text
     assert "loadOlderHistoryIfNeeded" in response.text
     assert "release near the left edge to load more" in response.text
