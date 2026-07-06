@@ -158,6 +158,12 @@ DASHBOARD_HTML = r"""
     .challenge-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: #dbeafe; color: #1d4ed8; font-size: .72rem; font-weight: 900; }
     .challenge-popover { position: absolute; right: 0; top: calc(100% + 8px); width: min(520px, calc(100vw - 28px)); max-height: min(74vh, 620px); overflow: auto; background: #fff; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 12px; z-index: 32; }
     .challenge-popover.hidden, .challenge-modal.hidden { display: none; }
+    .daily-insights-button { background: #f0f9ff; color: #0369a1; border-color: #bae6fd; }
+    .daily-insights-summary { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 12px; }
+    .daily-insights-summary span { background: #f8fafc; border: 1px solid var(--line); border-radius: 999px; padding: 7px 10px; font-size: .83rem; color: var(--muted); }
+    .daily-insights-table th, .daily-insights-table td { text-align: right; }
+    .daily-insights-table th:first-child, .daily-insights-table td:first-child { text-align: left; position: sticky; left: 0; background: inherit; }
+    .daily-insights-table tbody tr:hover td { background: #f8fafc; }
     .challenge-list { display: grid; gap: 8px; max-height: 390px; overflow: auto; }
     .challenge-item { border: 1px solid #bfdbfe; border-left: 5px solid var(--blue); border-radius: 13px; padding: 9px 10px; background: #eff6ff; }
     .challenge-item.active { border-left-color: var(--green); background: #ecfdf5; }
@@ -338,6 +344,7 @@ DASHBOARD_HTML = r"""
         <select id="deviceSelect"><option value="">Loading devices…</option></select>
       </div>
       <div class="control-group refresh-cluster toolbar-right">
+        <button id="dailyInsightsToggle" class="daily-insights-button" type="button" aria-label="Daily insights"><span class="desktop-label">Daily insights</span><span class="mobile-label" aria-hidden="true">📊</span></button>
         <button id="challengesToggle" class="challenge-button" type="button" aria-expanded="false" aria-label="O₂ challenges"><span class="desktop-label">O₂ challenges</span><span class="mobile-label" aria-hidden="true">O₂ Ch.</span> <span id="challengeCount" class="challenge-count">0</span></button>
         <button id="notificationsToggle" class="notification-button" type="button" aria-expanded="false" aria-label="Notifications"><span class="desktop-label">Notifications</span><span class="mobile-label" aria-hidden="true">🔔</span> <span id="notificationCount" class="notification-count">0</span></button>
         <button id="batteryStatus" class="battery-pill unknown" type="button" title="Battery details">
@@ -536,6 +543,21 @@ DASHBOARD_HTML = r"""
       </form>
       <div id="challengeDetailChartFrame" class="chart-frame secondary"><canvas id="challengeDetailChart"></canvas></div>
       <p class="small" id="challengeNotes"></p>
+    </div>
+  </div>
+
+  <div id="dailyInsightsModal" class="challenge-modal hidden" role="dialog" aria-label="Daily insights">
+    <div class="challenge-modal-card">
+      <div class="panel-title">
+        <div>
+          <h2>Daily insights</h2>
+          <span class="small" id="dailyInsightsMeta">Last 7 rolling 24-hour periods. Offline/sock-off and O₂ challenge samples excluded.</span>
+        </div>
+        <button id="closeDailyInsights" type="button">Close</button>
+      </div>
+      <div id="dailyInsightsSummary" class="daily-insights-summary"></div>
+      <div class="table-wrap"><table id="dailyInsightsTable" class="daily-insights-table"></table></div>
+      <p class="small">Sleeping = Owlet light/deep sleep states. Waking = Owlet awake state. Inactive/unknown samples count only in overall averages.</p>
     </div>
   </div>
 
@@ -978,6 +1000,140 @@ DASHBOARD_HTML = r"""
       if (result.delta === null || result.prior === null) return 'need 48h';
       const sign = result.delta >= 0 ? '+' : '';
       return `${result.word} ${sign}${result.delta.toFixed(digits).replace(/\.0$/, '')}${unit}`;
+    }
+
+    function validMetricValues(rows, key) {
+      return rows.map(row => Number(row[key])).filter(value => Number.isFinite(value));
+    }
+
+    function summarizeMetric(rows, key) {
+      const values = validMetricValues(rows, key);
+      if (!values.length) return { avg: null, min: null, max: null };
+      return {
+        avg: values.reduce((sum, value) => sum + value, 0) / values.length,
+        min: Math.min(...values),
+        max: Math.max(...values)
+      };
+    }
+
+    function sleepBucket(row) {
+      const state = String(row?.sleep_state ?? '');
+      if (state === '8' || state === '15') return 'sleeping';
+      if (state === '1') return 'waking';
+      return 'unknown';
+    }
+
+    function metricCell(summary, key, field) {
+      const value = summary?.[key]?.[field];
+      if (value === null || value === undefined) return '—';
+      const digits = key === 'oxygen_saturation' ? 1 : 0;
+      const suffix = key === 'oxygen_saturation' ? '%' : '';
+      return `${Number(value).toFixed(digits).replace(/\.0$/, '')}${suffix}`;
+    }
+
+    function dailyInsightPeriods(sourceRows, sourceChallenges, days = 7) {
+      if (!sourceRows.length) return [];
+      const challengeWindows = (sourceChallenges || []).map(challenge => ({
+        start: Date.parse(challenge.start_time),
+        end: Date.parse(challenge.effective_end_time || challenge.end_time || new Date().toISOString())
+      })).filter(interval => Number.isFinite(interval.start) && Number.isFinite(interval.end));
+      const latest = Date.parse(sourceRows[sourceRows.length - 1].recorded_at);
+      const dayMs = 24 * 60 * 60 * 1000;
+      return Array.from({ length: days }, (_, index) => {
+        const end = latest - index * dayMs;
+        const start = end - dayMs;
+        const rows = sourceRows.filter(row => {
+          const time = Date.parse(row.recorded_at);
+          return Number.isFinite(time) && time > start && time <= end && !isOffline(row) && !timeInIntervals(time, challengeWindows);
+        });
+        const sleeping = rows.filter(row => sleepBucket(row) === 'sleeping');
+        const waking = rows.filter(row => sleepBucket(row) === 'waking');
+        const summarizeRows = periodRows => ({
+          oxygen_saturation: summarizeMetric(periodRows, 'oxygen_saturation'),
+          heart_rate: summarizeMetric(periodRows, 'heart_rate')
+        });
+        return {
+          index,
+          start,
+          end,
+          rows,
+          sleeping,
+          waking,
+          overall: summarizeRows(rows),
+          sleepingStats: summarizeRows(sleeping),
+          wakingStats: summarizeRows(waking)
+        };
+      });
+    }
+
+    function dailyInsightLabel(period) {
+      if (period.index === 0) return 'Last 24h';
+      return `${period.index * 24}–${(period.index + 1) * 24}h ago`;
+    }
+
+    function renderDailyInsights(periods) {
+      const allRows = periods.flatMap(period => period.rows);
+      const sleepingRows = periods.flatMap(period => period.sleeping);
+      const wakingRows = periods.flatMap(period => period.waking);
+      const overall = {
+        oxygen_saturation: summarizeMetric(allRows, 'oxygen_saturation'),
+        heart_rate: summarizeMetric(allRows, 'heart_rate')
+      };
+      const sleepingStats = {
+        oxygen_saturation: summarizeMetric(sleepingRows, 'oxygen_saturation'),
+        heart_rate: summarizeMetric(sleepingRows, 'heart_rate')
+      };
+      const wakingStats = {
+        oxygen_saturation: summarizeMetric(wakingRows, 'oxygen_saturation'),
+        heart_rate: summarizeMetric(wakingRows, 'heart_rate')
+      };
+      el('dailyInsightsSummary').innerHTML = `
+        <span>Overall O₂ <b>${metricCell(overall, 'oxygen_saturation', 'avg')}</b></span>
+        <span>Sleep O₂ <b>${metricCell(sleepingStats, 'oxygen_saturation', 'avg')}</b></span>
+        <span>Wake O₂ <b>${metricCell(wakingStats, 'oxygen_saturation', 'avg')}</b></span>
+        <span>Overall HR <b>${metricCell(overall, 'heart_rate', 'avg')}</b></span>
+        <span>Sleep HR <b>${metricCell(sleepingStats, 'heart_rate', 'avg')}</b></span>
+        <span>Wake HR <b>${metricCell(wakingStats, 'heart_rate', 'avg')}</b></span>`;
+      const rows = periods.map(period => `
+        <tr>
+          <td><b>${dailyInsightLabel(period)}</b><br><span class="small">${localTime(new Date(period.start).toISOString(), true)} → ${localTime(new Date(period.end).toISOString(), true)} · ${period.rows.length} valid</span></td>
+          <td>${metricCell(period.overall, 'oxygen_saturation', 'avg')}</td>
+          <td>${metricCell(period.sleepingStats, 'oxygen_saturation', 'avg')}</td>
+          <td>${metricCell(period.wakingStats, 'oxygen_saturation', 'avg')}</td>
+          <td>${metricCell(period.overall, 'oxygen_saturation', 'min')}</td>
+          <td>${metricCell(period.overall, 'oxygen_saturation', 'max')}</td>
+          <td>${metricCell(period.overall, 'heart_rate', 'avg')}</td>
+          <td>${metricCell(period.sleepingStats, 'heart_rate', 'avg')}</td>
+          <td>${metricCell(period.wakingStats, 'heart_rate', 'avg')}</td>
+          <td>${metricCell(period.overall, 'heart_rate', 'min')}</td>
+          <td>${metricCell(period.overall, 'heart_rate', 'max')}</td>
+        </tr>`).join('');
+      el('dailyInsightsTable').innerHTML = `<thead><tr><th>24h period</th><th>O₂ avg</th><th>O₂ sleep</th><th>O₂ wake</th><th>O₂ low</th><th>O₂ high</th><th>HR avg</th><th>HR sleep</th><th>HR wake</th><th>HR low</th><th>HR high</th></tr></thead><tbody>${rows || '<tr><td colspan="11" class="empty">No valid readings in the last 7 days.</td></tr>'}</tbody>`;
+      const totalSamples = periods.reduce((sum, period) => sum + period.rows.length, 0);
+      el('dailyInsightsMeta').textContent = `${periods.length} rolling 24-hour periods · ${totalSamples} valid samples · offline/sock-off and O₂ challenge samples excluded`;
+    }
+
+    async function openDailyInsightsModal() {
+      el('challengesPanel').classList.add('hidden');
+      el('notificationsPanel').classList.add('hidden');
+      el('challengesToggle').setAttribute('aria-expanded', 'false');
+      el('notificationsToggle').setAttribute('aria-expanded', 'false');
+      el('dailyInsightsModal').classList.remove('hidden');
+      el('dailyInsightsSummary').innerHTML = '<span>Loading daily insights…</span>';
+      el('dailyInsightsTable').innerHTML = '<tbody><tr><td class="empty">Loading last 7 days…</td></tr></tbody>';
+      try {
+        const qs = queryParams({}, { hoursOverride: 168 });
+        const challengeQs = queryParams({ limit: '500', offset: '0' }, { hoursOverride: 168 });
+        const [readingData, challengeData] = await Promise.all([
+          fetchJson(`${API_BASE}/api/readings?${qs}`),
+          fetchJson(`${API_BASE}/api/oxygen-challenges?${challengeQs}`)
+        ]);
+        renderDailyInsights(dailyInsightPeriods(readingData || [], challengeData.items || []));
+      } catch (error) {
+        console.error(error);
+        el('dailyInsightsSummary').innerHTML = '<span>Could not load daily insights.</span>';
+        el('dailyInsightsTable').innerHTML = '<tbody><tr><td class="empty">Daily insights failed to load. Try refresh and open again.</td></tr></tbody>';
+      }
     }
 
     function todayAverageOxygen() {
@@ -2490,6 +2646,8 @@ DASHBOARD_HTML = r"""
     el('window').addEventListener('change', () => { notificationPageOffset = 0; readingsTableSignature = ''; safeRefresh({ resetZoom: true, force: true }); });
     el('smoothing').addEventListener('change', () => { renderCharts({ deferTrend: true }); safeRefresh({ resetZoom: false }); });
     el('refresh').addEventListener('click', () => safeRefresh());
+    el('dailyInsightsToggle').addEventListener('click', openDailyInsightsModal);
+    el('closeDailyInsights').addEventListener('click', () => el('dailyInsightsModal').classList.add('hidden'));
     el('download').addEventListener('click', downloadCsv);
     el('resetZoom').addEventListener('click', resetZoom);
     el('challengesToggle').addEventListener('click', () => {

@@ -459,6 +459,16 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "hitRadius: 24" in response.text
     assert "/api/notifications" in response.text
     assert "Notifications" in response.text
+    assert 'id="dailyInsightsToggle"' in response.text
+    assert 'id="dailyInsightsModal"' in response.text
+    assert "Daily insights" in response.text
+    assert "Last 7 rolling 24-hour periods" in response.text
+    assert "dailyInsightPeriods" in response.text
+    assert "sleepBucket(row) === 'sleeping'" in response.text
+    assert "sleepBucket(row) === 'waking'" in response.text
+    assert "O₂ sleep" in response.text
+    assert "HR wake" in response.text
+    assert "offline/sock-off and O₂ challenge samples excluded" in response.text
     assert "/api/crypto" in response.text
     assert "BTC price" in response.text
     assert "O₂ trend companion" in response.text
