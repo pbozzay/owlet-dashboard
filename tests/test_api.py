@@ -461,6 +461,13 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "Notifications" in response.text
     assert 'id="dailyInsightsToggle"' in response.text
     assert 'id="dailyInsightsModal"' in response.text
+    assert 'id="dailyInsightsChart"' in response.text
+    assert "dailyInsightsChart = new Chart" in response.text
+    assert "dailyOxygenAvg" in response.text
+    assert "dailyOxygenSleep" in response.text
+    assert "dailyOxygenWake" in response.text
+    assert "dailyHeartRateAvg" in response.text
+    assert "renderDailyInsightsChart(periods)" in response.text
     assert "Daily insights" in response.text
     assert "Last 7 rolling 24-hour periods" in response.text
     assert "dailyInsightPeriods" in response.text
@@ -474,6 +481,8 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "O₂ trend companion" in response.text
     assert "How to read the O₂ trend companion" in response.text
     assert "MACD-style oxygen view" in response.text
+    assert "oxygen challenges stay visible as real readings" in response.text
+    assert "Offline gaps and oxygen challenges are not bridged" not in response.text
     assert "O₂ avg (%)" in response.text
     assert "30m − 4h signal" in response.text
     assert "Blue line:" not in response.text

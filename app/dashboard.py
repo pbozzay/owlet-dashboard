@@ -161,6 +161,7 @@ DASHBOARD_HTML = r"""
     .daily-insights-button { background: #f0f9ff; color: #0369a1; border-color: #bae6fd; }
     .daily-insights-summary { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 12px; }
     .daily-insights-summary span { background: #f8fafc; border: 1px solid var(--line); border-radius: 999px; padding: 7px 10px; font-size: .83rem; color: var(--muted); }
+    .daily-insights-chart { height: 260px; margin: 8px 0 12px; padding: 10px; border: 1px solid var(--line); border-radius: 16px; background: #f8fafc; }
     .daily-insights-table th, .daily-insights-table td { text-align: right; }
     .daily-insights-table th:first-child, .daily-insights-table td:first-child { text-align: left; position: sticky; left: 0; background: inherit; }
     .daily-insights-table tbody tr:hover td { background: #f8fafc; }
@@ -472,7 +473,7 @@ DASHBOARD_HTML = r"""
             <span class="info-popover-wrap companion-info">
               <button class="info-button" type="button" aria-label="How to read the O₂ trend companion">i</button>
               <span class="info-popover" role="tooltip">
-                O₂ trend companion: a MACD-style oxygen view. It compares recent 30-minute O₂ against the 4-hour baseline. Green means recent O₂ is above baseline; red means below. Offline gaps and oxygen challenges are not bridged.
+                O₂ trend companion: a MACD-style oxygen view. It compares recent 30-minute O₂ against the 4-hour baseline. Green means recent O₂ is above baseline; red means below. Offline gaps are not bridged; oxygen challenges stay visible as real readings behind the blue challenge band.
               </span>
             </span>
           </div>
@@ -556,6 +557,7 @@ DASHBOARD_HTML = r"""
         <button id="closeDailyInsights" type="button">Close</button>
       </div>
       <div id="dailyInsightsSummary" class="daily-insights-summary"></div>
+      <div class="daily-insights-chart" aria-label="Daily O₂ and heart-rate comparison chart"><canvas id="dailyInsightsChart"></canvas></div>
       <div class="table-wrap"><table id="dailyInsightsTable" class="daily-insights-table"></table></div>
       <p class="small">Sleeping = Owlet light/deep sleep states. Waking = Owlet awake state. Inactive/unknown samples count only in overall averages.</p>
     </div>
@@ -583,6 +585,7 @@ DASHBOARD_HTML = r"""
     let vitalsChart = null;
     let oxygenTrendChart = null;
     let challengeDetailChart = null;
+    let dailyInsightsChart = null;
     let secondsUntilRefresh = REFRESH_SECONDS;
     let syncInProgress = false;
     let zoomWindow = null;
@@ -1071,6 +1074,46 @@ DASHBOARD_HTML = r"""
       return `${period.index * 24}–${(period.index + 1) * 24}h ago`;
     }
 
+    function dailyInsightChartValue(period, group, key) {
+      const value = period?.[group]?.[key]?.avg;
+      return value === null || value === undefined ? null : Number(value.toFixed(1));
+    }
+
+    function renderDailyInsightsChart(periods) {
+      const chartPeriods = periods.slice().reverse();
+      const labels = chartPeriods.map(period => period.index === 0 ? 'Last 24h' : `${period.index}d ago`);
+      const datasets = [
+        { id: 'dailyOxygenAvg', label: 'O₂ avg', data: chartPeriods.map(period => dailyInsightChartValue(period, 'overall', 'oxygen_saturation')), yAxisID: 'oxygen', borderColor: '#2563eb', backgroundColor: '#2563eb20', pointBackgroundColor: '#2563eb', pointRadius: 4, tension: .28, spanGaps: false },
+        { id: 'dailyOxygenSleep', label: 'Sleep O₂', data: chartPeriods.map(period => dailyInsightChartValue(period, 'sleepingStats', 'oxygen_saturation')), yAxisID: 'oxygen', borderColor: '#7c3aed', backgroundColor: '#7c3aed20', pointBackgroundColor: '#7c3aed', borderDash: [5, 4], pointRadius: 3, tension: .28, spanGaps: false },
+        { id: 'dailyOxygenWake', label: 'Wake O₂', data: chartPeriods.map(period => dailyInsightChartValue(period, 'wakingStats', 'oxygen_saturation')), yAxisID: 'oxygen', borderColor: '#f59e0b', backgroundColor: '#f59e0b20', pointBackgroundColor: '#f59e0b', borderDash: [3, 3], pointRadius: 3, tension: .28, spanGaps: false },
+        { id: 'dailyHeartRateAvg', label: 'HR avg', data: chartPeriods.map(period => dailyInsightChartValue(period, 'overall', 'heart_rate')), yAxisID: 'heart', borderColor: '#dc2626', backgroundColor: '#dc262620', pointBackgroundColor: '#dc2626', pointRadius: 4, tension: .25, spanGaps: false }
+      ];
+      if (dailyInsightsChart) dailyInsightsChart.destroy();
+      dailyInsightsChart = new Chart(el('dailyInsightsChart'), {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 250 },
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true } },
+            tooltip: { callbacks: { label: context => {
+              const suffix = context.dataset.yAxisID === 'oxygen' ? '%' : ' bpm';
+              const value = context.parsed?.y;
+              return `${context.dataset.label}: ${value === null || value === undefined ? '—' : `${Number(value).toFixed(context.dataset.yAxisID === 'oxygen' ? 1 : 0).replace(/\\.0$/, '')}${suffix}`}`;
+            } } }
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: false } },
+            oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100, title: { display: true, text: 'O₂ %' } },
+            heart: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'HR bpm' } }
+          }
+        }
+      });
+    }
+
     function renderDailyInsights(periods) {
       const allRows = periods.flatMap(period => period.rows);
       const sleepingRows = periods.flatMap(period => period.sleeping);
@@ -1094,6 +1137,7 @@ DASHBOARD_HTML = r"""
         <span>Overall HR <b>${metricCell(overall, 'heart_rate', 'avg')}</b></span>
         <span>Sleep HR <b>${metricCell(sleepingStats, 'heart_rate', 'avg')}</b></span>
         <span>Wake HR <b>${metricCell(wakingStats, 'heart_rate', 'avg')}</b></span>`;
+      renderDailyInsightsChart(periods);
       const rows = periods.map(period => `
         <tr>
           <td><b>${dailyInsightLabel(period)}</b><br><span class="small">${localTime(new Date(period.start).toISOString(), true)} → ${localTime(new Date(period.end).toISOString(), true)} · ${period.rows.length} valid</span></td>
@@ -1119,6 +1163,10 @@ DASHBOARD_HTML = r"""
       el('challengesToggle').setAttribute('aria-expanded', 'false');
       el('notificationsToggle').setAttribute('aria-expanded', 'false');
       el('dailyInsightsModal').classList.remove('hidden');
+      if (dailyInsightsChart) {
+        dailyInsightsChart.destroy();
+        dailyInsightsChart = null;
+      }
       el('dailyInsightsSummary').innerHTML = '<span>Loading daily insights…</span>';
       el('dailyInsightsTable').innerHTML = '<tbody><tr><td class="empty">Loading last 7 days…</td></tr></tbody>';
       try {
@@ -2262,13 +2310,12 @@ DASHBOARD_HTML = r"""
     }
 
     function renderOxygenTrendChart() {
-      const challengeWindows = challengeIntervals();
       const shortMinutes = smoothingMinutes() || 30;
       const longMinutes = Math.max(240, shortMinutes * 8);
       const shortLabel = `${shortMinutes}m O₂ avg`;
       const signalLabel = `${shortMinutes}m − ${Math.round(longMinutes / 60)}h signal`;
-      const shortAvg = rollingOxygenAverage(shortMinutes, challengeWindows);
-      const longAvg = rollingOxygenAverage(longMinutes, challengeWindows);
+      const shortAvg = rollingOxygenAverage(shortMinutes);
+      const longAvg = rollingOxygenAverage(longMinutes);
       const signal = oxygenTrendSignal(shortAvg, longAvg);
       oxygenTrendChart = upsertChart(oxygenTrendChart, 'oxygenTrendChart', {
         type: 'line',
