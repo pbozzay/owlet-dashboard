@@ -516,8 +516,12 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "Use visible chart window" in response.text
     assert "/api/oxygen-challenges" in response.text
     assert "challengeBands" in response.text
-    assert "rgba(4, 120, 87, .78)" in response.text
-    assert "rgba(185, 28, 28, .78)" in response.text
+    assert "beforeDraw(chart, _args, options)" in response.text
+    assert "const isTrendCompanion = chart.canvas.id === 'oxygenTrendChart'" in response.text
+    assert "rgba(37, 99, 235, 0.045)" in response.text
+    assert "if (!isTrendCompanion) ctx.strokeRect" in response.text
+    assert "rgba(4, 120, 87, .96)" in response.text
+    assert "rgba(185, 28, 28, .96)" in response.text
     assert "stateStrip" in response.text
     assert "Challenge data is excluded" in response.text
     assert "challengeEditForm" in response.text

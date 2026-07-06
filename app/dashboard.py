@@ -614,20 +614,21 @@ DASHBOARD_HTML = r"""
     };
     const challengeBandsPlugin = {
       id: 'challengeBands',
-      beforeDatasetsDraw(chart, _args, options) {
+      beforeDraw(chart, _args, options) {
         const intervals = options?.intervals || [];
         if (!intervals.length || !chart.scales?.x) return;
         const { ctx, chartArea, scales } = chart;
+        const isTrendCompanion = chart.canvas.id === 'oxygenTrendChart';
         ctx.save();
-        ctx.fillStyle = 'rgba(37, 99, 235, 0.10)';
-        ctx.strokeStyle = 'rgba(37, 99, 235, 0.26)';
+        ctx.fillStyle = isTrendCompanion ? 'rgba(37, 99, 235, 0.045)' : 'rgba(37, 99, 235, 0.10)';
+        ctx.strokeStyle = 'rgba(37, 99, 235, 0.22)';
         intervals.forEach(({ start, end }) => {
           const left = Math.max(chartArea.left, scales.x.getPixelForValue(start));
           const right = Math.min(chartArea.right, scales.x.getPixelForValue(end));
           if (!Number.isFinite(left) || !Number.isFinite(right) || right <= chartArea.left || left >= chartArea.right) return;
           const width = Math.max(2, right - left);
           ctx.fillRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
-          ctx.strokeRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+          if (!isTrendCompanion) ctx.strokeRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
         });
         ctx.restore();
       }
@@ -2116,7 +2117,7 @@ DASHBOARD_HTML = r"""
           datasets: [
             { id: 'o2Trailing30', label: shortLabel, data: shortAvg, borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, spanGaps: false },
             { id: 'o2Baseline4h', label: `Baseline ${Math.round(longMinutes / 60)}h O₂ avg`, data: longAvg, borderColor: '#7c3aed', backgroundColor: '#7c3aed20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, borderDash: [6, 4], spanGaps: false },
-            { id: 'o2TrendSignal', type: 'bar', label: signalLabel, data: signal, yAxisID: 'signal', backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(4, 120, 87, .78)' : 'rgba(185, 28, 28, .78)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#065f46' : '#991b1b', borderWidth: 1, barThickness: isMobileViewport() ? 3 : 4, maxBarThickness: 8, minBarLength: 2 }
+            { id: 'o2TrendSignal', type: 'bar', label: signalLabel, data: signal, yAxisID: 'signal', backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(4, 120, 87, .96)' : 'rgba(185, 28, 28, .96)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#065f46' : '#991b1b', borderWidth: 1, barThickness: isMobileViewport() ? 3 : 4, maxBarThickness: 8, minBarLength: 2 }
           ]
         },
         options: chartOptions({
