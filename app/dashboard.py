@@ -1463,13 +1463,13 @@ DASHBOARD_HTML = r"""
       return downsamplePoints(points);
     }
 
-    function rollingOxygenAverage(minutes, challengeWindows = challengeIntervals()) {
+    function rollingOxygenAverage(minutes) {
       const windowMs = minutes * 60 * 1000;
       const queue = [];
       let sum = 0;
       const points = [];
       let previousValidTime = null;
-      let inExcludedGap = false;
+      let inOfflineGap = false;
       const resetWindow = () => {
         queue.length = 0;
         sum = 0;
@@ -1482,18 +1482,17 @@ DASHBOARD_HTML = r"""
       readings.forEach(row => {
         const time = Date.parse(row.recorded_at);
         const value = Number(row.oxygen_saturation);
-        const inChallenge = timeInIntervals(time, challengeWindows);
-        const excluded = isOffline(row) || inChallenge || !Number.isFinite(value);
+        const offline = isOffline(row) || !Number.isFinite(value);
         if (!Number.isFinite(time)) return;
-        if (excluded) {
-          if (!inExcludedGap) addGapMarker(time, inChallenge ? 'challenge' : 'offline');
-          inExcludedGap = true;
+        if (offline) {
+          if (!inOfflineGap) addGapMarker(time, 'offline');
+          inOfflineGap = true;
           resetWindow();
           previousValidTime = null;
           return;
         }
-        if (inExcludedGap) {
-          inExcludedGap = false;
+        if (inOfflineGap) {
+          inOfflineGap = false;
           resetWindow();
         }
         if (previousValidTime !== null && time - previousValidTime > TREND_MAX_SAMPLE_GAP_MS) {
@@ -1592,7 +1591,7 @@ DASHBOARD_HTML = r"""
       if (context.dataset.id === 'o2TrendSignal') {
         const value = context.parsed?.y;
         if (value === null || value === undefined || !Number.isFinite(Number(value))) {
-          return 'Trend gap — offline, missing data, or O₂ challenge.';
+          return 'Trend gap — offline or missing data.';
         }
         const valueText = `${value > 0 ? '+' : ''}${Number(value).toFixed(1)} pts`;
         if (value > 0.25) return `Trend signal ${valueText}: recent O₂ is running above baseline.`;

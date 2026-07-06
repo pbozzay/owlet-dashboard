@@ -484,7 +484,12 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "TREND_MAX_SAMPLE_GAP_MS" in response.text
     assert "y: null" in response.text
     assert "spanGaps: false" in response.text
-    assert "Trend gap — offline, missing data, or O₂ challenge." in response.text
+    assert "Trend gap — offline or missing data." in response.text
+    assert "Trend gap — offline, missing data, or O₂ challenge." not in response.text
+    assert "function rollingOxygenAverage(minutes)" in response.text
+    assert "const offline = isOffline(row) || !Number.isFinite(value)" in response.text
+    assert "addGapMarker(time, inChallenge ? 'challenge' : 'offline')" not in response.text
+    assert "const inChallenge = timeInIntervals(time, challengeWindows)" not in response.text
     assert "companion-info" in response.text
     assert "companion-header" not in response.text
     assert "requestIdleCallback" in response.text
