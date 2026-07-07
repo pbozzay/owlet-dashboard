@@ -62,11 +62,15 @@ async def test_account_api_is_public_metadata_only_and_scopes_data(tmp_path):
         first_readings = client.get(f"/api/readings?account={first['id']}&hours=24").json()
         second_readings = client.get(f"/api/readings?account={second['id']}&hours=24").json()
         second_devices = client.get(f"/api/devices?account={second['id']}").json()["devices"]
+        updated = client.patch(f"/api/accounts/{second['id']}", json={"show_crypto": True, "display_name": "Second profile"}).json()["account"]
 
     assert len(accounts) == 2
     second_payload = next(account for account in accounts if account["id"] == second["id"])
     assert second_payload["display_name"] == "Second baby"
     assert second_payload["has_refresh_token"] is True
+    assert second_payload["show_crypto"] is False
+    assert updated["display_name"] == "Second profile"
+    assert updated["show_crypto"] is True
     assert "refresh_token" not in second_payload
     assert "api_token" not in second_payload
     assert first_readings[0]["heart_rate"] == 120
@@ -475,10 +479,20 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert '<option value="72">3 days</option>' in response.text
     assert '<option value="168">7 days</option>' in response.text
     assert '<option value="all">All stored data</option>' in response.text
+    assert 'id="profileMenuToggle"' in response.text
+    assert 'id="profileAvatar"' in response.text
+    assert 'id="profileMenu"' in response.text
+    assert 'id="showCryptoSetting"' in response.text
+    assert "Crypto widget" in response.text
     assert 'id="deviceSelect"' in response.text
     assert 'id="accountSelect"' in response.text
     assert 'id="addAccount"' in response.text
     assert "Link Owlet" in response.text
+    assert "renderProfileMenu" in response.text
+    assert "showCryptoEnabled" in response.text
+    assert "updateCurrentAccountPreference" in response.text
+    assert "show_crypto" in response.text
+    assert "el('profileMenuWrap')?.classList.toggle('share-only-hidden', SHARE_MODE);" in response.text
     assert "cluster.classList.toggle('hidden', SHARE_MODE);" in response.text
     assert "/api/accounts" in response.text
     assert "has_refresh_token" not in response.text
@@ -489,7 +503,7 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert 'id="o2AddMenuToggle"' in response.text
     assert 'id="menuVisibleChallenge"' in response.text
     assert 'id="menuNewChallenge"' in response.text
-    assert 'id="babyName"' in response.text
+    assert 'id="profileDeviceName"' in response.text
     assert '<button id="download" class="icon-button"' in response.text
     assert "chartjs-plugin-zoom" in response.text
     assert "mobile-web-app-capable" in response.text
@@ -534,6 +548,9 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "HR wake" in response.text
     assert "offline/sock-off and O₂ challenge samples excluded" in response.text
     assert "/api/crypto" in response.text
+    assert 'id="cryptoCard" class="card glance-card crypto-card hidden"' in response.text
+    assert 'id="glanceStrip" class="glance-strip crypto-hidden"' in response.text
+    assert "showCryptoEnabled()\n        ? fetchJson(`${API_BASE}/api/crypto?hours=${cryptoHours}`)" in response.text
     assert "BTC price" in response.text
     assert "O₂ trend companion" in response.text
     assert "How to read the O₂ trend companion" in response.text
@@ -699,8 +716,8 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert response.text.index("Readings table") < response.text.index("Selected reading")
     assert "O₂ now + today" in response.text
     assert "Heart rate" in response.text
-    assert response.text.index("Heart rate") < response.text.index("Sleep") < response.text.index("Crypto")
-    assert "currentSleepStatus" in response.text
+    assert response.text.index('id="latestOxygen"') < response.text.index('id="sleepTotal"') < response.text.index('id="cryptoCard"')
+    assert "sleepTotal" in response.text
     assert "Crypto" in response.text
     assert "state-legend" not in response.text
 

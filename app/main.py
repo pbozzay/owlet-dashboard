@@ -207,6 +207,20 @@ def create_app(
     async def accounts():
         return {"accounts": [_public_account(account) for account in await store.list_accounts()]}
 
+    @app.patch("/api/accounts/{account_id}")
+    async def update_account(account_id: int = Path(ge=1), payload: dict[str, object] = JSON_BODY):
+        display_name = payload.get("display_name")
+        show_crypto = payload.get("show_crypto")
+        try:
+            account = await store.update_account_preferences(
+                account_id,
+                display_name=str(display_name).strip() if isinstance(display_name, str) else None,
+                show_crypto=bool(show_crypto) if isinstance(show_crypto, bool) else None,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Account not found") from exc
+        return {"account": _public_account(account)}
+
     @app.post("/api/accounts")
     async def create_account(payload: dict[str, object] = JSON_BODY):
         email = str(payload.get("email") or "").strip()
@@ -521,6 +535,7 @@ def _public_account(account: dict[str, object]) -> dict[str, object]:
         "region": account.get("region"),
         "display_name": account.get("display_name"),
         "status": account.get("status"),
+        "show_crypto": bool(account.get("show_crypto")),
         "last_validated_at": account.get("last_validated_at"),
         "created_at": account.get("created_at"),
         "updated_at": account.get("updated_at"),

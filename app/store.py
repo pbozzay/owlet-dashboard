@@ -31,6 +31,7 @@ class ReadingStore:
                     api_token_expiry REAL,
                     refresh_token TEXT,
                     status TEXT NOT NULL DEFAULT 'active',
+                    show_crypto INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     last_validated_at TEXT
@@ -112,6 +113,7 @@ class ReadingStore:
 
     async def _ensure_account_schema(self, db: aiosqlite.Connection) -> None:
         default_account_id = await self._ensure_default_account(db)
+        await self._ensure_account_preference_schema(db)
         await self._ensure_readings_account_schema(db, default_account_id)
         await self._ensure_notifications_account_schema(db, default_account_id)
         await self._ensure_challenges_account_schema(db, default_account_id)
@@ -148,6 +150,11 @@ class ReadingStore:
             """
         )
         return int(cursor.lastrowid)
+
+    async def _ensure_account_preference_schema(self, db: aiosqlite.Connection) -> None:
+        columns = await self._table_columns(db, "accounts")
+        if "show_crypto" not in columns:
+            await db.execute("ALTER TABLE accounts ADD COLUMN show_crypto INTEGER NOT NULL DEFAULT 0")
 
     async def _table_columns(self, db: aiosqlite.Connection, table: str) -> list[str]:
         cursor = await db.execute(f"PRAGMA table_info({table})")
@@ -257,7 +264,7 @@ class ReadingStore:
             cursor = await db.execute(
                 """
                 SELECT id, email, region, display_name, api_token, api_token_expiry,
-                       refresh_token, status, created_at, updated_at, last_validated_at
+                       refresh_token, status, show_crypto, created_at, updated_at, last_validated_at
                 FROM accounts
                 ORDER BY id ASC
                 """
@@ -305,7 +312,7 @@ class ReadingStore:
             cursor = await db.execute(
                 """
                 SELECT id, email, region, display_name, api_token, api_token_expiry,
-                       refresh_token, status, created_at, updated_at, last_validated_at
+                       refresh_token, status, show_crypto, created_at, updated_at, last_validated_at
                 FROM accounts
                 WHERE id = ?
                 """,
@@ -340,6 +347,39 @@ class ReadingStore:
                 (email, region or "world", display_name or email or "Owlet account", account_id),
             )
             await db.commit()
+
+    async def update_account_preferences(
+        self,
+        account_id: int,
+        *,
+        display_name: str | None = None,
+        show_crypto: bool | None = None,
+    ) -> dict[str, Any]:
+        await self.init()
+        assignments: list[str] = []
+        values: list[Any] = []
+        if display_name is not None:
+            cleaned = display_name.strip()
+            if cleaned:
+                assignments.append("display_name = ?")
+                values.append(cleaned)
+        if show_crypto is not None:
+            assignments.append("show_crypto = ?")
+            values.append(1 if show_crypto else 0)
+        if not assignments:
+            return await self.get_account(account_id)
+        assignments.append("updated_at = CURRENT_TIMESTAMP")
+        values.append(account_id)
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("SELECT id FROM accounts WHERE id = ?", (account_id,))
+            if not await cursor.fetchone():
+                raise KeyError(account_id)
+            await db.execute(
+                f"UPDATE accounts SET {', '.join(assignments)} WHERE id = ?",
+                values,
+            )
+            await db.commit()
+        return await self.get_account(account_id)
 
     async def update_account_tokens(
         self,
@@ -936,9 +976,10 @@ class ReadingStore:
             "api_token_expiry": row[5],
             "refresh_token": row[6],
             "status": row[7],
-            "created_at": row[8],
-            "updated_at": row[9],
-            "last_validated_at": row[10],
+            "show_crypto": _sqlite_bool(row[8]),
+            "created_at": row[9],
+            "updated_at": row[10],
+            "last_validated_at": row[11],
         }
 
     def _row_to_reading(self, row: tuple[Any, ...]) -> OwletReading:

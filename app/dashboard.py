@@ -38,8 +38,24 @@ DASHBOARD_HTML = r"""
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     .shell { width: min(1500px, calc(100% - 32px)); margin: 0 auto; padding: 24px 0 48px; }
-    .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
-    .hero-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+    .hero { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
+    .hero-right { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+    .profile-button { display: inline-flex; align-items: center; gap: 10px; border-radius: 999px; padding: .32rem .44rem .32rem .36rem; background: rgba(255,255,255,.82); box-shadow: 0 8px 24px rgba(15,23,42,.08); }
+    .profile-avatar { width: 36px; height: 36px; border-radius: 999px; display: inline-grid; place-items: center; background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff; font-weight: 950; letter-spacing: -.04em; }
+    .profile-label { display: grid; gap: 1px; text-align: left; line-height: 1.05; }
+    .profile-account { font-size: .85rem; font-weight: 950; color: var(--text); }
+    .profile-device { font-size: .73rem; font-weight: 800; color: var(--muted); }
+    .profile-caret { color: var(--muted); font-size: .78rem; padding-inline: 2px; }
+    .profile-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 40; width: min(360px, calc(100vw - 28px)); padding: 12px; border: 1px solid var(--line); border-radius: 18px; background: #fff; box-shadow: var(--shadow); display: grid; gap: 10px; }
+    .profile-menu.hidden { display: none; }
+    .profile-menu-header { display: flex; gap: 10px; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+    .profile-menu-title { font-weight: 950; letter-spacing: -.02em; }
+    .profile-menu-subtitle { color: var(--muted); font-size: .78rem; margin-top: 2px; }
+    .profile-menu-section { display: grid; gap: 6px; }
+    .profile-menu-section label { display: grid; gap: 5px; }
+    .profile-menu-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .profile-menu-actions .wide { grid-column: 1 / -1; }
+    .profile-toggle { display: flex !important; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: 13px; padding: 9px 10px; background: #f8fafc; color: var(--text); }
     .baby-name { color: var(--text); font-weight: 950; font-size: clamp(1rem, 2.5vw, 1.35rem); background: rgba(255,255,255,.76); border: 1px solid rgba(226,232,240,.9); border-radius: 999px; padding: .38rem .75rem; box-shadow: 0 8px 24px rgba(15,23,42,.08); }
     h1 { margin: 0; letter-spacing: -.045em; font-size: clamp(2.1rem, 5vw, 4.2rem); line-height: .92; }
     .title-status-dot { display: none; }
@@ -128,6 +144,7 @@ DASHBOARD_HTML = r"""
     .initial-loading.error .loading-spinner { animation: none; border-color: #fecdd3; border-top-color: var(--red); }
     @keyframes loadingSpin { to { transform: rotate(360deg); } }
     .glance-strip { display: grid; grid-template-columns: 1.05fr 1.05fr 1.2fr .9fr; gap: 10px; margin: 10px 0 14px; }
+    .glance-strip.crypto-hidden { grid-template-columns: 1.05fr 1.05fr 1.2fr; }
     .glance-card { min-height: 92px; padding: 12px 13px; }
     .glance-card strong { display: block; font-size: clamp(1.45rem, 3vw, 2.25rem); line-height: 1; letter-spacing: -.045em; margin: 4px 0; }
     .glance-card small { display: block; color: var(--muted); line-height: 1.25; }
@@ -143,6 +160,7 @@ DASHBOARD_HTML = r"""
     .crypto-lines { display: grid; gap: 2px; margin-top: 5px; }
     .crypto-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: var(--muted); font-size: .82rem; }
     .crypto-line b { color: var(--text); }
+    .crypto-card.hidden { display: none; }
     .crypto-change { font-weight: 900; }
     .notification-button { position: relative; }
     .account-cluster.hidden { display: none; }
@@ -263,7 +281,11 @@ DASHBOARD_HTML = r"""
       .filter-cluster { flex: 1 1 auto; min-width: 74px; }
       .device-label { display: none; }
       .filter-cluster select { width: 100%; min-width: 0; max-width: 104px; }
-      .hero-right, .baby-name, .status { display: none; }
+      .profile-label { display: none; }
+      .profile-button { padding: .25rem; }
+      .profile-avatar { width: 34px; height: 34px; }
+      .profile-menu { position: fixed; right: 8px; top: 56px; width: min(360px, calc(100vw - 16px)); }
+      .status { display: none; }
       .refresh-cluster { flex: 0 0 auto; justify-content: flex-end; margin-left: auto; }
       .desktop-label { display: none; }
       .mobile-label { display: inline; }
@@ -334,18 +356,45 @@ DASHBOARD_HTML = r"""
           and raw readings. Retrospective trend viewing only — not a medical monitor or alert replacement.
         </p>
       </div>
-      <div class="hero-right">
-        <div class="baby-name" id="babyName">Owlet sock</div>
-        <div class="status" id="status"><span class="status-dot"></span>Checking collector…</div>
+      <div class="hero-right" id="profileMenuWrap">
+        <button id="profileMenuToggle" class="profile-button" type="button" aria-expanded="false" aria-haspopup="menu" title="Account and dashboard settings">
+          <span id="profileAvatar" class="profile-avatar" aria-hidden="true">O</span>
+          <span class="profile-label">
+            <span id="profileAccountName" class="profile-account">Owlet profile</span>
+            <span id="profileDeviceName" class="profile-device">Owlet sock</span>
+          </span>
+          <span class="profile-caret" aria-hidden="true">▾</span>
+        </button>
+        <div id="profileMenu" class="profile-menu hidden" role="menu" aria-label="Account and dashboard settings">
+          <div class="profile-menu-header">
+            <span id="profileMenuAvatar" class="profile-avatar" aria-hidden="true">O</span>
+            <span>
+              <span id="profileMenuTitle" class="profile-menu-title">Owlet profile</span>
+              <span id="profileMenuSubtitle" class="profile-menu-subtitle">Owlet sock</span>
+            </span>
+          </div>
+          <div id="accountCluster" class="profile-menu-section account-cluster">
+            <label for="accountSelect">Account
+              <select id="accountSelect"><option value="">Default</option></select>
+            </label>
+            <button id="addAccount" class="account-add-button wide" type="button" title="Link another Owlet account">Link Owlet</button>
+          </div>
+          <div class="profile-menu-section">
+            <label class="profile-toggle" for="showCryptoSetting">
+              <span><b>Crypto widget</b><br><small>Show BTC / ETH / XMR card for this account.</small></span>
+              <input id="showCryptoSetting" type="checkbox" />
+            </label>
+          </div>
+          <div class="profile-menu-actions">
+            <button id="installApp" class="install-button wide" type="button" title="Install Owlet as an app">Install app</button>
+            <button id="closeProfileMenu" type="button">Close</button>
+          </div>
+          <div class="status" id="status"><span class="status-dot"></span>Checking collector…</div>
+        </div>
       </div>
     </section>
 
     <section class="toolbar" aria-label="Date and data controls">
-      <div id="accountCluster" class="control-group filter-cluster account-cluster hidden">
-        <label class="device-label" for="accountSelect">Account</label>
-        <select id="accountSelect"><option value="">Default</option></select>
-        <button id="addAccount" class="account-add-button" type="button" title="Link another Owlet account">Link Owlet</button>
-      </div>
       <div class="control-group filter-cluster">
         <label class="device-label" for="deviceSelect">Device</label>
         <select id="deviceSelect"><option value="">Loading devices…</option></select>
@@ -358,7 +407,6 @@ DASHBOARD_HTML = r"""
           <span class="battery-shell" aria-hidden="true"><span id="batteryFill" class="battery-fill" style="width: 0%;"></span></span>
           <span id="batteryLabel">—</span>
         </button>
-        <button id="installApp" class="install-button" type="button" title="Install Owlet as an app">Install app</button>
         <button id="refresh" class="primary">Refresh (15s)</button>
         <div id="challengesPanel" class="challenge-popover hidden" role="dialog" aria-modal="true" aria-label="Oxygen challenges">
           <div class="panel-title">
@@ -387,7 +435,7 @@ DASHBOARD_HTML = r"""
       </div>
     </section>
 
-    <section class="glance-strip" aria-label="At a glance">
+    <section id="glanceStrip" class="glance-strip crypto-hidden" aria-label="At a glance">
       <article class="card glance-card">
         <span class="eyebrow">O₂ now + today</span>
         <strong id="latestOxygen">—</strong>
@@ -409,7 +457,7 @@ DASHBOARD_HTML = r"""
         </div>
         <small>Light <span class="inline-stat" id="lightSleep">—</span> · Deep <span class="inline-stat" id="deepSleep">—</span> · Awake <span class="inline-stat" id="awakeTime">—</span></small>
       </article>
-      <article class="card glance-card crypto-card">
+      <article id="cryptoCard" class="card glance-card crypto-card hidden">
         <span class="eyebrow">Crypto</span>
         <strong id="cryptoHeadline">BTC —</strong>
         <div class="crypto-lines" id="cryptoLines">
@@ -1249,6 +1297,55 @@ DASHBOARD_HTML = r"""
       return el('accountSelect')?.value || new URLSearchParams(window.location.search).get('account') || '';
     }
 
+    function currentAccount() {
+      const id = selectedAccount();
+      return accounts.find(account => String(account.id) === String(id)) || accounts[0] || null;
+    }
+
+    function accountLabel(account = currentAccount()) {
+      return account?.display_name || account?.email || (account?.id ? `Account ${account.id}` : 'Owlet profile');
+    }
+
+    function accountInitials(account = currentAccount()) {
+      const label = accountLabel(account).replace(/[^a-z0-9@.\s_-]/gi, '').trim();
+      const emailName = label.includes('@') ? label.split('@')[0] : label;
+      const parts = emailName.split(/[\s._-]+/).filter(Boolean);
+      const initials = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : (emailName.slice(0, 2) || 'O');
+      return initials.toUpperCase();
+    }
+
+    function showCryptoEnabled() {
+      return !SHARE_MODE && Boolean(currentAccount()?.show_crypto);
+    }
+
+    function renderCryptoVisibility() {
+      const enabled = showCryptoEnabled();
+      el('cryptoCard')?.classList.toggle('hidden', !enabled);
+      el('glanceStrip')?.classList.toggle('crypto-hidden', !enabled);
+      const toggle = el('showCryptoSetting');
+      if (toggle) toggle.checked = enabled;
+      if (!enabled) {
+        crypto = { available: false, prices: {}, series: { bitcoin: [] } };
+        el('cryptoHeadline').textContent = 'BTC —';
+        el('cryptoLines').innerHTML = '<small>Disabled in profile settings.</small>';
+      }
+    }
+
+    function renderProfileMenu() {
+      const account = currentAccount();
+      const device = currentDevice();
+      const deviceName = device?.baby_name || device?.name || 'Owlet sock';
+      const label = accountLabel(account);
+      const initials = accountInitials(account);
+      ['profileAvatar', 'profileMenuAvatar'].forEach(id => { const node = el(id); if (node) node.textContent = initials; });
+      el('profileAccountName').textContent = label;
+      el('profileMenuTitle').textContent = label;
+      el('profileDeviceName').textContent = deviceName;
+      el('profileMenuSubtitle').textContent = `${deviceName}${account?.status && account.status !== 'active' ? ` · ${account.status.replace('_', ' ')}` : ''}`;
+      el('profileMenuWrap')?.classList.toggle('share-only-hidden', SHARE_MODE);
+      renderCryptoVisibility();
+    }
+
     function setUrlAccount(account) {
       const url = new URL(window.location.href);
       if (account) url.searchParams.set('account', account);
@@ -1294,6 +1391,7 @@ DASHBOARD_HTML = r"""
           return `<option value="${account.id}" ${String(account.id) === String(selected) ? 'selected' : ''}>${label}${status}</option>`;
         }).join('')
         : '<option value="">Default</option>';
+      renderProfileMenu();
     }
 
     async function addAccountFromPrompt() {
@@ -1325,6 +1423,25 @@ DASHBOARD_HTML = r"""
         console.error(error);
         alert('Could not validate that Owlet account. Check the email/password/region and try again.');
       }
+    }
+
+    async function updateCurrentAccountPreference(patch) {
+      const account = currentAccount();
+      if (!account?.id) return null;
+      const response = await fetch(`${API_BASE}/api/accounts/${account.id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch)
+      });
+      if (!response.ok) throw new Error(`Could not save account settings: ${response.status}`);
+      const data = await response.json();
+      const index = accounts.findIndex(item => String(item.id) === String(data.account?.id));
+      if (index >= 0) accounts[index] = data.account;
+      else if (data.account) accounts.push(data.account);
+      renderAccountOptions(String(data.account?.id || account.id));
+      renderProfileMenu();
+      return data.account;
     }
 
     async function loadDevices() {
@@ -1366,8 +1483,7 @@ DASHBOARD_HTML = r"""
     }
 
     function renderBabyName() {
-      const device = currentDevice();
-      el('babyName').textContent = device?.baby_name || device?.name || 'Owlet sock';
+      renderProfileMenu();
     }
 
     async function fetchJson(url) {
@@ -1390,6 +1506,7 @@ DASHBOARD_HTML = r"""
       const notificationQs = queryParams({ limit: '500', offset: '0' }, { hoursOverride: loadedHours });
       const challengeQs = queryParams({ limit: '100', offset: '0' }, { hoursOverride: loadedHours });
       const cryptoHours = selectedHours() || 720;
+      renderCryptoVisibility();
       const [health, rows, notificationData, challengeData] = await Promise.all([
         fetchJson(`${API_BASE}/api/health`),
         fetchJson(`${API_BASE}/api/readings?${dataQs}`),
@@ -1418,11 +1535,14 @@ DASHBOARD_HTML = r"""
     }
 
     async function hydrateSecondaryData({ qs, rollupQs, cryptoHours, token, compareRows }) {
+      const cryptoPromise = showCryptoEnabled()
+        ? fetchJson(`${API_BASE}/api/crypto?hours=${cryptoHours}`)
+        : Promise.resolve({ available: false, prices: {}, series: { bitcoin: [] } });
       const [stats, insightData, rollupData, cryptoData] = await Promise.all([
         fetchJson(`${API_BASE}/api/summary?${qs}`),
         fetchJson(`${API_BASE}/api/insights?${qs}`),
         fetchJson(`${API_BASE}/api/rollups?${rollupQs}`),
-        fetchJson(`${API_BASE}/api/crypto?hours=${cryptoHours}`)
+        cryptoPromise
       ]);
       if (token !== refreshToken) return;
       comparisonRows = compareRows || readings;
@@ -1509,6 +1629,8 @@ DASHBOARD_HTML = r"""
     }
 
     function renderCrypto() {
+      renderCryptoVisibility();
+      if (!showCryptoEnabled()) return;
       if (!crypto.available) {
         el('cryptoHeadline').textContent = 'Crypto —';
         el('cryptoLines').innerHTML = `<small>${crypto.error ? 'Price feed unavailable' : 'Loading BTC / ETH / XMR…'}</small>`;
@@ -2737,6 +2859,17 @@ DASHBOARD_HTML = r"""
       button.textContent = deferredInstallPrompt ? 'Install app' : 'Install help';
     }
 
+    function closeProfileMenu() {
+      el('profileMenu')?.classList.add('hidden');
+      el('profileMenuToggle')?.setAttribute('aria-expanded', 'false');
+    }
+
+    function toggleProfileMenu() {
+      const menu = el('profileMenu');
+      const hidden = menu.classList.toggle('hidden');
+      el('profileMenuToggle')?.setAttribute('aria-expanded', String(!hidden));
+    }
+
     function closeO2AddMenu() {
       el('o2AddMenu')?.classList.add('hidden');
       el('o2AddMenuToggle')?.setAttribute('aria-expanded', 'false');
@@ -2764,6 +2897,23 @@ DASHBOARD_HTML = r"""
       el('installApp').classList.remove('show');
     });
 
+    el('profileMenuToggle')?.addEventListener('click', event => {
+      event.stopPropagation();
+      toggleProfileMenu();
+    });
+    el('closeProfileMenu')?.addEventListener('click', closeProfileMenu);
+    el('showCryptoSetting')?.addEventListener('change', async event => {
+      const checked = event.target.checked;
+      try {
+        await updateCurrentAccountPreference({ show_crypto: checked });
+        renderCryptoVisibility();
+        if (checked) safeRefresh({ force: true });
+      } catch (error) {
+        console.error(error);
+        event.target.checked = !checked;
+        alert('Could not save that dashboard setting.');
+      }
+    });
     el('installApp').addEventListener('click', async () => {
       if (deferredInstallPrompt) {
         deferredInstallPrompt.prompt();
@@ -2852,11 +3002,12 @@ DASHBOARD_HTML = r"""
     el('notificationsNext').addEventListener('click', () => { notificationPageOffset += NOTIFICATION_PAGE_SIZE; renderNotifications(); });
     document.addEventListener('click', event => {
       if (!el('o2AddWrap').contains(event.target)) closeO2AddMenu();
+      if (!el('profileMenuWrap')?.contains(event.target)) closeProfileMenu();
     });
     ['vitalsChart', 'oxygenTrendChart'].forEach(id => {
       el(id)?.addEventListener('dblclick', resetZoom);
     });
-    window.addEventListener('resize', () => { renderDeviceOptions(); updateRefreshButton(); renderCharts({ deferTrend: true }); renderRollups(); updatePanControl(); });
+    window.addEventListener('resize', () => { renderDeviceOptions(); renderProfileMenu(); updateRefreshButton(); renderCharts({ deferTrend: true }); renderRollups(); updatePanControl(); });
     if ('serviceWorker' in navigator && !SHARE_MODE) {
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').then(updateInstallButton).catch(updateInstallButton));
     }
