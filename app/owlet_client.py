@@ -14,12 +14,37 @@ logger = logging.getLogger(__name__)
 class OwletClient:
     """Small adapter around pyowletapi so the rest of the app stays testable."""
 
-    def __init__(self, email: str, password: str, region: str = "world"):
+    def __init__(
+        self,
+        email: str | None = None,
+        password: str | None = None,
+        region: str = "world",
+        *,
+        api_token: str | None = None,
+        api_token_expiry: float | None = None,
+        refresh_token: str | None = None,
+    ):
         self.email = email
         self.password = password
         self.region = region
-        self.api = OwletAPI(region, email, password)
+        self.api = OwletAPI(
+            region,
+            user=email,
+            password=password,
+            token=api_token,
+            expiry=api_token_expiry,
+            refresh=refresh_token,
+        )
         self.sock: Sock | None = None
+
+    @property
+    def tokens(self) -> dict[str, Any]:
+        return dict(self.api.tokens)
+
+    def discard_password(self) -> None:
+        self.password = None
+        if hasattr(self.api, "_password"):
+            self.api._password = None  # noqa: SLF001 - pyowletapi has no public password-clear hook.
 
     async def connect(self) -> None:
         await self.api.authenticate()

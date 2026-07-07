@@ -15,7 +15,8 @@ from app.analytics import build_insights, build_rollups
 from app.config import Settings
 from app.crypto import get_crypto_prices
 from app.dashboard import render_dashboard
-from app.poller import Poller, create_owlet_poller
+from app.owlet_client import OwletClient
+from app.poller import Poller, create_account_poller, create_owlet_poller
 from app.pwa import MANIFEST, SERVICE_WORKER_JS
 from app.quality import is_offline_reading
 from app.store import ReadingStore
@@ -54,31 +55,58 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await store.init()
-        poller: Poller | None = None
-        client = None
+        pollers: list[Poller] = []
+        clients: list[OwletClient] = []
         if start_poller:
-            if settings.has_owlet_credentials:
+            accounts = await store.list_accounts()
+            token_accounts = [account for account in accounts if account.get("refresh_token") and account.get("status") == "active"]
+            if token_accounts:
+                for account in token_accounts:
+                    try:
+                        poller, client = await create_account_poller(
+                            store=store,
+                            account=account,
+                            interval_seconds=settings.poll_interval_seconds,
+                        )
+                        poller.start()
+                        pollers.append(poller)
+                        clients.append(client)
+                    except Exception:
+                        logger.exception("Could not start Owlet poller for account_id=%s", account.get("id"))
+                        await store.update_account_status(int(account["id"]), "needs_reauth")
+            elif settings.has_owlet_credentials:
                 try:
+                    default_account_id = await store.default_account_id()
+                    await store.update_account_profile(
+                        default_account_id,
+                        email=settings.owlet_email or "",
+                        region=settings.owlet_region,
+                        display_name=settings.owlet_email or "Owlet account",
+                    )
                     poller, client = await create_owlet_poller(
                         store=store,
                         email=settings.owlet_email or "",
                         password=settings.owlet_password or "",
                         region=settings.owlet_region,
                         interval_seconds=settings.poll_interval_seconds,
+                        account_id=default_account_id,
                     )
                     poller.start()
-                    state["poller"] = poller
-                    state["client"] = client
+                    pollers.append(poller)
+                    clients.append(client)
                 except Exception:
                     logger.exception("Could not start Owlet poller")
             else:
-                logger.warning("OWLET_EMAIL/OWLET_PASSWORD not set; dashboard will show stored data only")
+                logger.warning("No Owlet token account or OWLET_EMAIL/OWLET_PASSWORD set; dashboard will show stored data only")
+            if pollers:
+                state["pollers"] = pollers
+                state["clients"] = clients
         try:
             yield
         finally:
-            if poller:
+            for poller in pollers:
                 await poller.stop()
-            if client:
+            for client in clients:
                 await client.close()
 
     app = FastAPI(title="Owlet History Server", lifespan=lifespan)
@@ -160,7 +188,7 @@ def create_app(
     async def health() -> dict[str, object]:
         return {
             "ok": True,
-            "collecting": "poller" in state,
+            "collecting": bool(state.get("pollers")),
             "has_credentials": settings.has_owlet_credentials,
             "database_path": str(settings.database_path),
         }
@@ -170,14 +198,61 @@ def create_app(
         _require_share_token(token, settings)
         return {
             "ok": True,
-            "collecting": "poller" in state,
+            "collecting": bool(state.get("pollers")),
             "has_credentials": False,
             "database_path": "shared read-only view",
         }
 
+    @app.get("/api/accounts")
+    async def accounts():
+        return {"accounts": [_public_account(account) for account in await store.list_accounts()]}
+
+    @app.post("/api/accounts")
+    async def create_account(payload: dict[str, object] = JSON_BODY):
+        email = str(payload.get("email") or "").strip()
+        password = str(payload.get("password") or "")
+        region = str(payload.get("region") or settings.owlet_region or "world").strip() or "world"
+        display_name = str(payload.get("display_name") or email or "Owlet account").strip()
+        if not email or not password:
+            raise HTTPException(status_code=400, detail="Owlet email and password are required")
+        client: OwletClient | None = None
+        try:
+            client = OwletClient(email=email, password=password, region=region)
+            await client.connect()
+            client.discard_password()
+            assert client is not None
+            account = await store.create_account(
+                email=email,
+                region=region,
+                display_name=display_name,
+                api_token=client.tokens.get("api_token"),
+                api_token_expiry=client.tokens.get("expiry"),
+                refresh_token=client.tokens.get("refresh"),
+                status="active",
+            )
+            if start_poller:
+                client_for_poller = client
+                poller = Poller(
+                    store=store,
+                    read_once=client_for_poller.read_once,
+                    interval_seconds=settings.poll_interval_seconds,
+                    account_id=int(account["id"]),
+                    token_snapshot=lambda client=client_for_poller: client.tokens,
+                )
+                poller.start()
+                state.setdefault("pollers", []).append(poller)  # type: ignore[union-attr]
+                state.setdefault("clients", []).append(client)  # type: ignore[union-attr]
+                client = None
+            return {"account": _public_account(account)}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Could not validate Owlet account") from exc
+        finally:
+            if client is not None:
+                await client.close()
+
     @app.get("/api/devices")
-    async def devices():
-        return {"devices": await store.list_devices()}
+    async def devices(account: int | None = Query(default=None, ge=1)):
+        return {"devices": await store.list_devices(account_id=account)}
 
     @app.get("/share/{token}/api/devices")
     async def shared_devices(token: str = Path(min_length=20)):
@@ -190,11 +265,12 @@ def create_app(
         limit: int = Query(default=5000, ge=1, le=100_000),
         include_raw: bool = Query(default=False),
         device: str | None = Query(default=None),
+        account: int | None = Query(default=None, ge=1),
     ):
         rows = (
-            await store.get_readings(hours=hours, limit=limit, device_serial=device)
+            await store.get_readings(hours=hours, limit=limit, device_serial=device, account_id=account)
             if include_raw
-            else await store.get_analysis_readings(hours=hours, limit=limit, device_serial=device)
+            else await store.get_analysis_readings(hours=hours, limit=limit, device_serial=device, account_id=account)
         )
         return [_reading_response(row, include_raw=include_raw) for row in rows]
 
@@ -213,8 +289,9 @@ def create_app(
     async def summary(
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         device: str | None = Query(default=None),
+        account: int | None = Query(default=None, ge=1),
     ):
-        return await store.get_summary(hours=hours, device_serial=device)
+        return await store.get_summary(hours=hours, device_serial=device, account_id=account)
 
     @app.get("/share/{token}/api/summary")
     async def shared_summary(
@@ -229,9 +306,10 @@ def create_app(
     async def insights(
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         device: str | None = Query(default=None),
+        account: int | None = Query(default=None, ge=1),
     ):
-        rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device)
-        rows = await store.exclude_challenge_readings(rows)
+        rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device, account_id=account)
+        rows = await store.exclude_challenge_readings(rows, account_id=account)
         return build_insights(rows)
 
     @app.get("/share/{token}/api/insights")
@@ -250,9 +328,10 @@ def create_app(
         bucket: Literal["5m", "15m", "30m", "hour", "6h", "12h", "day"] = Query(default="hour"),
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         device: str | None = Query(default=None),
+        account: int | None = Query(default=None, ge=1),
     ):
-        rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device)
-        rows = await store.exclude_challenge_readings(rows)
+        rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device, account_id=account)
+        rows = await store.exclude_challenge_readings(rows, account_id=account)
         return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
 
     @app.get("/share/{token}/api/rollups")
@@ -285,8 +364,9 @@ def create_app(
         limit: int = Query(default=50, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
         device: str | None = Query(default=None),
+        account: int | None = Query(default=None, ge=1),
     ):
-        return await store.get_notifications(hours=hours, limit=limit, offset=offset, device_serial=device)
+        return await store.get_notifications(hours=hours, limit=limit, offset=offset, device_serial=device, account_id=account)
 
     @app.get("/share/{token}/api/notifications")
     async def shared_notifications(
@@ -305,8 +385,9 @@ def create_app(
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
         device: str | None = Query(default=None),
+        account: int | None = Query(default=None, ge=1),
     ):
-        return await store.get_oxygen_challenges(hours=hours, limit=limit, offset=offset, device_serial=device)
+        return await store.get_oxygen_challenges(hours=hours, limit=limit, offset=offset, device_serial=device, account_id=account)
 
     @app.get("/share/{token}/api/oxygen-challenges")
     async def shared_oxygen_challenges(
@@ -325,11 +406,13 @@ def create_app(
         if not isinstance(start_time, str):
             raise HTTPException(status_code=400, detail="start_time is required")
         end_time = payload.get("end_time")
+        account_id = payload.get("account_id")
         return await store.create_oxygen_challenge(
             start_time=start_time,
             end_time=end_time if isinstance(end_time, str) else None,
             label=str(payload.get("label") or "Oxygen challenge"),
             notes=str(payload.get("notes") or ""),
+            account_id=int(account_id) if isinstance(account_id, int | str) and str(account_id).isdigit() else None,
         )
 
     @app.get("/api/oxygen-challenges/{challenge_id}")
@@ -381,8 +464,9 @@ def create_app(
     async def widget(
         hours: int = Query(default=24, ge=1, le=24 * 30),
         device: str | None = Query(default=None),
+        account: int | None = Query(default=None, ge=1),
     ):
-        return await _widget_payload(store, hours=hours, device=device)
+        return await _widget_payload(store, hours=hours, device=device, account_id=account)
 
     @app.get("/share/{token}/api/widget")
     async def shared_widget(
@@ -396,11 +480,22 @@ def create_app(
     return app
 
 
-async def _widget_payload(store: ReadingStore, hours: int = 24, device: str | None = None) -> dict[str, object]:
-    readings = await store.get_readings(hours=hours, limit=100_000, device_serial=device)
-    summary = await store.get_summary(hours=hours, device_serial=device)
-    insights = build_insights(await store.exclude_challenge_readings(readings))
-    notifications = await store.get_notifications(hours=hours, limit=1, offset=0, device_serial=device)
+async def _widget_payload(
+    store: ReadingStore,
+    hours: int = 24,
+    device: str | None = None,
+    account_id: int | None = None,
+) -> dict[str, object]:
+    readings = await store.get_readings(hours=hours, limit=100_000, device_serial=device, account_id=account_id)
+    summary = await store.get_summary(hours=hours, device_serial=device, account_id=account_id)
+    insights = build_insights(await store.exclude_challenge_readings(readings, account_id=account_id))
+    notifications = await store.get_notifications(
+        hours=hours,
+        limit=1,
+        offset=0,
+        device_serial=device,
+        account_id=account_id,
+    )
     latest_reading = readings[-1].model_dump(mode="json", exclude={"raw"}) if readings else {}
     latest = latest_reading or insights.get("latest") or {}
     breathing = insights.get("breathing") or {}
@@ -416,6 +511,21 @@ async def _widget_payload(store: ReadingStore, hours: int = 24, device: str | No
         "battery": latest.get("battery") if isinstance(latest, dict) else None,
         "notification_count": notifications["total"],
         "latest_notification": latest_notification,
+    }
+
+
+def _public_account(account: dict[str, object]) -> dict[str, object]:
+    return {
+        "id": account.get("id"),
+        "email": account.get("email"),
+        "region": account.get("region"),
+        "display_name": account.get("display_name"),
+        "status": account.get("status"),
+        "last_validated_at": account.get("last_validated_at"),
+        "created_at": account.get("created_at"),
+        "updated_at": account.get("updated_at"),
+        "has_refresh_token": bool(account.get("refresh_token")),
+        "has_api_token": bool(account.get("api_token")),
     }
 
 

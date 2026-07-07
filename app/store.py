@@ -22,8 +22,26 @@ class ReadingStore:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """
+                CREATE TABLE IF NOT EXISTS accounts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT NOT NULL DEFAULT '',
+                    region TEXT NOT NULL DEFAULT 'world',
+                    display_name TEXT NOT NULL DEFAULT 'Default account',
+                    api_token TEXT,
+                    api_token_expiry REAL,
+                    refresh_token TEXT,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    last_validated_at TEXT
+                )
+                """
+            )
+            await db.execute(
+                """
                 CREATE TABLE IF NOT EXISTS readings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id INTEGER NOT NULL,
                     device_serial TEXT NOT NULL,
                     recorded_at TEXT NOT NULL,
                     heart_rate REAL,
@@ -33,8 +51,7 @@ class ReadingStore:
                     sleep_state TEXT,
                     skin_temperature REAL,
                     raw_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(device_serial, recorded_at)
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )
@@ -45,6 +62,7 @@ class ReadingStore:
                 """
                 CREATE TABLE IF NOT EXISTS notifications (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id INTEGER NOT NULL,
                     device_serial TEXT NOT NULL,
                     recorded_at TEXT NOT NULL,
                     event_type TEXT NOT NULL,
@@ -56,8 +74,7 @@ class ReadingStore:
                     battery REAL,
                     sleep_state TEXT,
                     details_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(device_serial, recorded_at, event_type)
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )
@@ -68,6 +85,7 @@ class ReadingStore:
                 """
                 CREATE TABLE IF NOT EXISTS oxygen_challenges (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id INTEGER NOT NULL,
                     start_time TEXT NOT NULL,
                     end_time TEXT,
                     label TEXT NOT NULL DEFAULT 'Oxygen challenge',
@@ -88,19 +106,283 @@ class ReadingStore:
                 )
                 """
             )
+            await self._ensure_account_schema(db)
             await self._ensure_notification_backfill(db)
             await db.commit()
 
-    async def insert_reading(self, reading: OwletReading) -> None:
+    async def _ensure_account_schema(self, db: aiosqlite.Connection) -> None:
+        default_account_id = await self._ensure_default_account(db)
+        await self._ensure_readings_account_schema(db, default_account_id)
+        await self._ensure_notifications_account_schema(db, default_account_id)
+        await self._ensure_challenges_account_schema(db, default_account_id)
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_readings_account_device_time_unique "
+            "ON readings(account_id, device_serial, recorded_at)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_readings_account_recorded_at "
+            "ON readings(account_id, recorded_at)"
+        )
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_account_device_event_unique "
+            "ON notifications(account_id, device_serial, recorded_at, event_type)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_notifications_account_recorded_at "
+            "ON notifications(account_id, recorded_at)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_oxygen_challenges_account_start "
+            "ON oxygen_challenges(account_id, start_time)"
+        )
+
+    async def _ensure_default_account(self, db: aiosqlite.Connection) -> int:
+        cursor = await db.execute("SELECT id FROM accounts ORDER BY id ASC LIMIT 1")
+        row = await cursor.fetchone()
+        if row:
+            return int(row[0])
+        cursor = await db.execute(
+            """
+            INSERT INTO accounts (email, region, display_name, status, updated_at)
+            VALUES ('', 'world', 'Default account', 'active', CURRENT_TIMESTAMP)
+            """
+        )
+        return int(cursor.lastrowid)
+
+    async def _table_columns(self, db: aiosqlite.Connection, table: str) -> list[str]:
+        cursor = await db.execute(f"PRAGMA table_info({table})")
+        rows = await cursor.fetchall()
+        return [str(row[1]) for row in rows]
+
+    async def _table_sql(self, db: aiosqlite.Connection, table: str) -> str:
+        cursor = await db.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (table,))
+        row = await cursor.fetchone()
+        return str(row[0] or "") if row else ""
+
+    async def _ensure_readings_account_schema(self, db: aiosqlite.Connection, default_account_id: int) -> None:
+        columns = await self._table_columns(db, "readings")
+        table_sql = await self._table_sql(db, "readings")
+        needs_rebuild = "account_id" not in columns or "UNIQUE(device_serial, recorded_at)" in table_sql
+        if not needs_rebuild:
+            await db.execute("UPDATE readings SET account_id = ? WHERE account_id IS NULL", (default_account_id,))
+            return
+        await db.execute("ALTER TABLE readings RENAME TO readings_legacy_accounts_migration")
+        await db.execute(
+            """
+            CREATE TABLE readings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                device_serial TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                heart_rate REAL,
+                oxygen_saturation REAL,
+                battery REAL,
+                movement REAL,
+                sleep_state TEXT,
+                skin_temperature REAL,
+                raw_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        legacy_columns = await self._table_columns(db, "readings_legacy_accounts_migration")
+        account_expr = "account_id" if "account_id" in legacy_columns else str(default_account_id)
+        await db.execute(
+            f"""
+            INSERT INTO readings (
+                id, account_id, device_serial, recorded_at, heart_rate, oxygen_saturation,
+                battery, movement, sleep_state, skin_temperature, raw_json, created_at
+            )
+            SELECT id, {account_expr}, device_serial, recorded_at, heart_rate, oxygen_saturation,
+                   battery, movement, sleep_state, skin_temperature, raw_json, created_at
+            FROM readings_legacy_accounts_migration
+            """
+        )
+        await db.execute("DROP TABLE readings_legacy_accounts_migration")
+
+    async def _ensure_notifications_account_schema(self, db: aiosqlite.Connection, default_account_id: int) -> None:
+        columns = await self._table_columns(db, "notifications")
+        table_sql = await self._table_sql(db, "notifications")
+        needs_rebuild = "account_id" not in columns or "UNIQUE(device_serial, recorded_at, event_type)" in table_sql
+        if not needs_rebuild:
+            await db.execute("UPDATE notifications SET account_id = ? WHERE account_id IS NULL", (default_account_id,))
+            return
+        await db.execute("ALTER TABLE notifications RENAME TO notifications_legacy_accounts_migration")
+        await db.execute(
+            """
+            CREATE TABLE notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                device_serial TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                heart_rate REAL,
+                oxygen_saturation REAL,
+                battery REAL,
+                sleep_state TEXT,
+                details_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        legacy_columns = await self._table_columns(db, "notifications_legacy_accounts_migration")
+        account_expr = "account_id" if "account_id" in legacy_columns else str(default_account_id)
+        await db.execute(
+            f"""
+            INSERT INTO notifications (
+                id, account_id, device_serial, recorded_at, event_type, severity, title, message,
+                heart_rate, oxygen_saturation, battery, sleep_state, details_json, created_at
+            )
+            SELECT id, {account_expr}, device_serial, recorded_at, event_type, severity, title, message,
+                   heart_rate, oxygen_saturation, battery, sleep_state, details_json, created_at
+            FROM notifications_legacy_accounts_migration
+            """
+        )
+        await db.execute("DROP TABLE notifications_legacy_accounts_migration")
+
+    async def _ensure_challenges_account_schema(self, db: aiosqlite.Connection, default_account_id: int) -> None:
+        columns = await self._table_columns(db, "oxygen_challenges")
+        if "account_id" in columns:
+            await db.execute("UPDATE oxygen_challenges SET account_id = ? WHERE account_id IS NULL", (default_account_id,))
+            return
+        await db.execute("ALTER TABLE oxygen_challenges ADD COLUMN account_id INTEGER")
+        await db.execute("UPDATE oxygen_challenges SET account_id = ? WHERE account_id IS NULL", (default_account_id,))
+
+    async def list_accounts(self) -> list[dict[str, Any]]:
+        await self.init()
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT id, email, region, display_name, api_token, api_token_expiry,
+                       refresh_token, status, created_at, updated_at, last_validated_at
+                FROM accounts
+                ORDER BY id ASC
+                """
+            )
+            rows = await cursor.fetchall()
+        return [self._row_to_account(row) for row in rows]
+
+    async def create_account(
+        self,
+        *,
+        email: str,
+        region: str = "world",
+        display_name: str | None = None,
+        api_token: str | None = None,
+        api_token_expiry: float | None = None,
+        refresh_token: str | None = None,
+        status: str = "active",
+    ) -> dict[str, Any]:
+        await self.init()
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                INSERT INTO accounts (
+                    email, region, display_name, api_token, api_token_expiry,
+                    refresh_token, status, updated_at, last_validated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                (
+                    email,
+                    region or "world",
+                    display_name or email or "Owlet account",
+                    api_token,
+                    api_token_expiry,
+                    refresh_token,
+                    status,
+                ),
+            )
+            await db.commit()
+            account_id = int(cursor.lastrowid)
+        return await self.get_account(account_id)
+
+    async def get_account(self, account_id: int) -> dict[str, Any]:
+        await self.init()
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT id, email, region, display_name, api_token, api_token_expiry,
+                       refresh_token, status, created_at, updated_at, last_validated_at
+                FROM accounts
+                WHERE id = ?
+                """,
+                (account_id,),
+            )
+            row = await cursor.fetchone()
+        if not row:
+            raise KeyError(account_id)
+        return self._row_to_account(row)
+
+    async def default_account_id(self) -> int:
+        await self.init()
+        async with aiosqlite.connect(self.db_path) as db:
+            return await self._ensure_default_account(db)
+
+    async def update_account_profile(
+        self,
+        account_id: int,
+        *,
+        email: str,
+        region: str = "world",
+        display_name: str | None = None,
+    ) -> None:
         await self.init()
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """
+                UPDATE accounts
+                SET email = ?, region = ?, display_name = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (email, region or "world", display_name or email or "Owlet account", account_id),
+            )
+            await db.commit()
+
+    async def update_account_tokens(
+        self,
+        account_id: int,
+        *,
+        api_token: str | None,
+        api_token_expiry: float | None,
+        refresh_token: str | None,
+        status: str = "active",
+    ) -> None:
+        await self.init()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE accounts
+                SET api_token = ?, api_token_expiry = ?, refresh_token = ?, status = ?,
+                    updated_at = CURRENT_TIMESTAMP, last_validated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (api_token, api_token_expiry, refresh_token, status, account_id),
+            )
+            await db.commit()
+
+    async def update_account_status(self, account_id: int, status: str) -> None:
+        await self.init()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE accounts SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (status, account_id),
+            )
+            await db.commit()
+
+    async def insert_reading(self, reading: OwletReading, account_id: int | None = None) -> None:
+        await self.init()
+        account_id = account_id or await self.default_account_id()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
                 INSERT INTO readings (
-                    device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
+                    account_id, device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
                     movement, sleep_state, skin_temperature, raw_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(device_serial, recorded_at) DO UPDATE SET
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(account_id, device_serial, recorded_at) DO UPDATE SET
                     heart_rate=excluded.heart_rate,
                     oxygen_saturation=excluded.oxygen_saturation,
                     battery=excluded.battery,
@@ -110,6 +392,7 @@ class ReadingStore:
                     raw_json=excluded.raw_json
                 """,
                 (
+                    account_id,
                     reading.device_serial,
                     reading.recorded_at.isoformat(),
                     reading.heart_rate,
@@ -121,19 +404,26 @@ class ReadingStore:
                     json.dumps(reading.raw, default=str),
                 ),
             )
-            await self._insert_notification_rows(db, reading)
+            await self._insert_notification_rows(db, reading, account_id=account_id)
             await db.commit()
 
-    async def _latest_timestamp(self, device_serial: str | None = None) -> str | None:
+    async def _latest_timestamp(
+        self,
+        device_serial: str | None = None,
+        account_id: int | None = None,
+    ) -> str | None:
         await self.init()
+        where_parts: list[str] = []
+        params: list[Any] = []
+        if account_id is not None:
+            where_parts.append("account_id = ?")
+            params.append(account_id)
+        if device_serial:
+            where_parts.append("device_serial = ?")
+            params.append(device_serial)
+        where = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         async with aiosqlite.connect(self.db_path) as db:
-            if device_serial:
-                cursor = await db.execute(
-                    "SELECT MAX(recorded_at) FROM readings WHERE device_serial = ?",
-                    (device_serial,),
-                )
-            else:
-                cursor = await db.execute("SELECT MAX(recorded_at) FROM readings")
+            cursor = await db.execute(f"SELECT MAX(recorded_at) FROM readings {where}", params)
             row = await cursor.fetchone()
             return row[0] if row and row[0] else None
 
@@ -142,11 +432,15 @@ class ReadingStore:
         hours: int | None = 24,
         limit: int = 5000,
         device_serial: str | None = None,
+        account_id: int | None = None,
     ) -> list[OwletReading]:
         await self.init()
-        latest = await self._latest_timestamp(device_serial=device_serial)
+        latest = await self._latest_timestamp(device_serial=device_serial, account_id=account_id)
         where_parts: list[str] = []
         params: list[Any] = []
+        if account_id is not None:
+            where_parts.append("account_id = ?")
+            params.append(account_id)
         if device_serial:
             where_parts.append("device_serial = ?")
             params.append(device_serial)
@@ -179,13 +473,17 @@ class ReadingStore:
         hours: int | None = 24,
         limit: int = 100_000,
         device_serial: str | None = None,
+        account_id: int | None = None,
     ) -> list[OwletReading]:
         """Return readings for summaries without materializing large raw payloads."""
 
         await self.init()
-        latest = await self._latest_timestamp(device_serial=device_serial)
+        latest = await self._latest_timestamp(device_serial=device_serial, account_id=account_id)
         where_parts: list[str] = []
         params: list[Any] = []
+        if account_id is not None:
+            where_parts.append("account_id = ?")
+            params.append(account_id)
         if device_serial:
             where_parts.append("device_serial = ?")
             params.append(device_serial)
@@ -218,9 +516,14 @@ class ReadingStore:
 
         return [self._row_to_analysis_reading(row) for row in rows]
 
-    async def get_summary(self, hours: int | None = 24, device_serial: str | None = None) -> dict[str, Any]:
-        readings = await self.get_analysis_readings(hours=hours, device_serial=device_serial)
-        analysis_readings = await self.exclude_challenge_readings(readings)
+    async def get_summary(
+        self,
+        hours: int | None = 24,
+        device_serial: str | None = None,
+        account_id: int | None = None,
+    ) -> dict[str, Any]:
+        readings = await self.get_analysis_readings(hours=hours, device_serial=device_serial, account_id=account_id)
+        analysis_readings = await self.exclude_challenge_readings(readings, account_id=account_id)
         valid_readings = [reading for reading in analysis_readings if not is_offline_reading(reading)]
         first_recorded_at = readings[0].recorded_at.isoformat() if readings else None
         last_recorded_at = readings[-1].recorded_at.isoformat() if readings else None
@@ -228,6 +531,7 @@ class ReadingStore:
             "hours": hours,
             "window": "all" if hours is None else f"{hours}h",
             "device_serial": device_serial,
+            "account_id": account_id,
             "count": len(analysis_readings),
             "total_count": len(readings),
             "valid_count": len(valid_readings),
@@ -245,26 +549,35 @@ class ReadingStore:
             ]),
         }
 
-    async def list_devices(self) -> list[dict[str, Any]]:
+    async def list_devices(self, account_id: int | None = None) -> list[dict[str, Any]]:
         await self.init()
+        where = "WHERE r.account_id = ?" if account_id is not None else ""
+        params: list[Any] = [account_id] if account_id is not None else []
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
-                """
-                SELECT device_serial, COUNT(*) AS reading_count, MIN(recorded_at), MAX(recorded_at)
-                FROM readings
-                GROUP BY device_serial
-                ORDER BY MAX(recorded_at) DESC
-                """
+                f"""
+                SELECT r.account_id, r.device_serial, COUNT(*) AS reading_count,
+                       MIN(r.recorded_at), MAX(r.recorded_at), a.display_name, a.email
+                FROM readings r
+                JOIN accounts a ON a.id = r.account_id
+                {where}
+                GROUP BY r.account_id, r.device_serial
+                ORDER BY MAX(r.recorded_at) DESC
+                """,
+                params,
             )
             rows = await cursor.fetchall()
         return [
             {
-                "serial": row[0],
-                "name": _device_display_name(row[0]),
-                "baby_name": _device_baby_name(row[0]),
-                "reading_count": int(row[1] or 0),
-                "first_recorded_at": row[2],
-                "last_recorded_at": row[3],
+                "account_id": int(row[0]),
+                "serial": row[1],
+                "name": _device_display_name(row[1]),
+                "baby_name": _device_baby_name(row[1]),
+                "account_name": row[5],
+                "account_email": row[6],
+                "reading_count": int(row[2] or 0),
+                "first_recorded_at": row[3],
+                "last_recorded_at": row[4],
             }
             for row in rows
         ]
@@ -275,17 +588,19 @@ class ReadingStore:
         end_time: str | datetime | None = None,
         label: str = "Oxygen challenge",
         notes: str = "",
+        account_id: int | None = None,
     ) -> dict[str, Any]:
         await self.init()
+        account_id = account_id or await self.default_account_id()
         start = parse_time(start_time).isoformat()
         end = parse_time(end_time).isoformat() if end_time else None
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 """
-                INSERT INTO oxygen_challenges (start_time, end_time, label, notes, updated_at)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO oxygen_challenges (account_id, start_time, end_time, label, notes, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """,
-                (start, end, label or "Oxygen challenge", notes or ""),
+                (account_id, start, end, label or "Oxygen challenge", notes or ""),
             )
             await db.commit()
             challenge_id = int(cursor.lastrowid)
@@ -305,8 +620,8 @@ class ReadingStore:
         current = await self._get_oxygen_challenge_row(challenge_id)
         if not current:
             raise KeyError(challenge_id)
-        start = parse_time(start_time).isoformat() if start_time else current[1]
-        end = None if clear_end_time else (parse_time(end_time).isoformat() if end_time else current[2])
+        start = parse_time(start_time).isoformat() if start_time else current[2]
+        end = None if clear_end_time else (parse_time(end_time).isoformat() if end_time else current[3])
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """
@@ -317,8 +632,8 @@ class ReadingStore:
                 (
                     start,
                     end,
-                    label if label is not None else current[3],
-                    notes if notes is not None else current[4],
+                    label if label is not None else current[4],
+                    notes if notes is not None else current[5],
                     challenge_id,
                 ),
             )
@@ -337,21 +652,28 @@ class ReadingStore:
         limit: int = 100,
         offset: int = 0,
         device_serial: str | None = None,
+        account_id: int | None = None,
     ) -> dict[str, Any]:
         await self.init()
-        rows, total = await self._oxygen_challenge_rows(hours=hours, limit=limit, offset=offset)
+        rows, total = await self._oxygen_challenge_rows(hours=hours, limit=limit, offset=offset, account_id=account_id)
         analysis_hours = None if hours is None else min(24 * 365, max(int(hours) * 2, int(hours) + 24))
-        readings = await self.get_analysis_readings(hours=analysis_hours, limit=100_000, device_serial=device_serial)
+        readings = await self.get_analysis_readings(
+            hours=analysis_hours,
+            limit=100_000,
+            device_serial=device_serial,
+            account_id=account_id,
+        )
         latest = readings[-1].recorded_at if readings else None
         items = [challenge_analysis(self._row_to_challenge(row), readings, latest) for row in rows]
         return {"items": items, "total": total, "limit": limit, "offset": offset}
 
-    async def get_oxygen_challenge(self, challenge_id: int) -> dict[str, Any]:
+    async def get_oxygen_challenge(self, challenge_id: int, account_id: int | None = None) -> dict[str, Any]:
         await self.init()
-        row = await self._get_oxygen_challenge_row(challenge_id)
+        row = await self._get_oxygen_challenge_row(challenge_id, account_id=account_id)
         if not row:
             raise KeyError(challenge_id)
-        readings = await self.get_readings(hours=None, limit=100_000)
+        challenge_account_id = int(row[1])
+        readings = await self.get_readings(hours=None, limit=100_000, account_id=challenge_account_id)
         latest = readings[-1].recorded_at if readings else None
         payload = challenge_analysis(self._row_to_challenge(row), readings, latest)
         start = parse_time(payload["start_time"])
@@ -370,18 +692,27 @@ class ReadingStore:
         ]
         return payload
 
-    async def exclude_challenge_readings(self, readings: list[OwletReading]) -> list[OwletReading]:
-        intervals = await self.get_oxygen_challenge_intervals()
+    async def exclude_challenge_readings(
+        self,
+        readings: list[OwletReading],
+        account_id: int | None = None,
+    ) -> list[OwletReading]:
+        intervals = await self.get_oxygen_challenge_intervals(account_id=account_id)
         if not intervals:
             return readings
         return [reading for reading in readings if not reading_in_any_period(reading, intervals)]
 
-    async def get_oxygen_challenge_intervals(self) -> list[tuple[datetime, datetime]]:
+    async def get_oxygen_challenge_intervals(self, account_id: int | None = None) -> list[tuple[datetime, datetime]]:
         await self.init()
-        latest = await self._latest_timestamp()
+        latest = await self._latest_timestamp(account_id=account_id)
         fallback_end = parse_time(latest) if latest else datetime.now()
+        where = "WHERE account_id = ?" if account_id is not None else ""
+        params: list[Any] = [account_id] if account_id is not None else []
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute("SELECT start_time, end_time FROM oxygen_challenges ORDER BY start_time ASC")
+            cursor = await db.execute(
+                f"SELECT start_time, end_time FROM oxygen_challenges {where} ORDER BY start_time ASC",
+                params,
+            )
             rows = await cursor.fetchall()
         return [(parse_time(row[0]), parse_time(row[1]) if row[1] else fallback_end) for row in rows]
 
@@ -390,20 +721,25 @@ class ReadingStore:
         hours: int | None = 24,
         limit: int = 100,
         offset: int = 0,
+        account_id: int | None = None,
     ) -> tuple[list[tuple[Any, ...]], int]:
-        latest = await self._latest_timestamp()
-        where = ""
+        latest = await self._latest_timestamp(account_id=account_id)
+        where_parts: list[str] = []
         params: list[Any] = []
+        if account_id is not None:
+            where_parts.append("account_id = ?")
+            params.append(account_id)
         if latest and hours is not None:
             cutoff = parse_time(latest) - timedelta(hours=int(hours))
-            where = "WHERE (end_time IS NULL OR end_time >= ?)"
+            where_parts.append("(end_time IS NULL OR end_time >= ?)")
             params.append(cutoff.isoformat())
+        where = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         async with aiosqlite.connect(self.db_path) as db:
             count_cursor = await db.execute(f"SELECT COUNT(*) FROM oxygen_challenges {where}", params)
             count_row = await count_cursor.fetchone()
             cursor = await db.execute(
                 f"""
-                SELECT id, start_time, end_time, label, notes, created_at, updated_at
+                SELECT id, account_id, start_time, end_time, label, notes, created_at, updated_at
                 FROM oxygen_challenges
                 {where}
                 ORDER BY start_time DESC, id DESC
@@ -414,15 +750,24 @@ class ReadingStore:
             rows = await cursor.fetchall()
         return rows, int(count_row[0] or 0)
 
-    async def _get_oxygen_challenge_row(self, challenge_id: int) -> tuple[Any, ...] | None:
+    async def _get_oxygen_challenge_row(
+        self,
+        challenge_id: int,
+        account_id: int | None = None,
+    ) -> tuple[Any, ...] | None:
+        where = "WHERE id = ?"
+        params: list[Any] = [challenge_id]
+        if account_id is not None:
+            where += " AND account_id = ?"
+            params.append(account_id)
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
-                """
-                SELECT id, start_time, end_time, label, notes, created_at, updated_at
+                f"""
+                SELECT id, account_id, start_time, end_time, label, notes, created_at, updated_at
                 FROM oxygen_challenges
-                WHERE id = ?
+                {where}
                 """,
-                (challenge_id,),
+                params,
             )
             return await cursor.fetchone()
 
@@ -432,11 +777,15 @@ class ReadingStore:
         limit: int = 50,
         offset: int = 0,
         device_serial: str | None = None,
+        account_id: int | None = None,
     ) -> dict[str, Any]:
         await self.init()
-        latest = await self._latest_timestamp(device_serial=device_serial)
+        latest = await self._latest_timestamp(device_serial=device_serial, account_id=account_id)
         where_parts: list[str] = []
         params: list[Any] = []
+        if account_id is not None:
+            where_parts.append("account_id = ?")
+            params.append(account_id)
         if device_serial:
             where_parts.append("device_serial = ?")
             params.append(device_serial)
@@ -481,52 +830,59 @@ class ReadingStore:
     async def _backfill_notifications(self, db: aiosqlite.Connection) -> None:
         cursor = await db.execute(
             """
-            SELECT device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
+            SELECT account_id, device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
                    movement, sleep_state, skin_temperature, raw_json
             FROM readings
-            ORDER BY recorded_at ASC
+            ORDER BY account_id ASC, device_serial ASC, recorded_at ASC
             """
         )
         rows = await cursor.fetchall()
-        active_types: set[str] = set()
+        active_types_by_key: dict[tuple[int, str], set[str]] = {}
         for row in rows:
-            reading = self._row_to_reading(row)
+            account_id = int(row[0])
+            reading = self._row_to_reading(row[1:])
+            key = (account_id, reading.device_serial)
             events = extract_notifications(reading)
             current_types = {event.event_type for event in events}
+            active_types = active_types_by_key.get(key, set())
             for event in events:
                 if event.event_type not in active_types:
-                    await self._insert_notification_event(db, event)
-            active_types = current_types
+                    await self._insert_notification_event(db, event, account_id=account_id)
+            active_types_by_key[key] = current_types
 
     async def _insert_notification_rows(
         self,
         db: aiosqlite.Connection,
         reading: OwletReading,
+        *,
+        account_id: int,
     ) -> None:
         current_events = extract_notifications(reading)
         if not current_events:
             return
-        previous = await self._previous_reading(db, reading)
+        previous = await self._previous_reading(db, reading, account_id=account_id)
         previous_types = {event.event_type for event in extract_notifications(previous)} if previous else set()
         for event in current_events:
             if event.event_type not in previous_types:
-                await self._insert_notification_event(db, event)
+                await self._insert_notification_event(db, event, account_id=account_id)
 
     async def _previous_reading(
         self,
         db: aiosqlite.Connection,
         reading: OwletReading,
+        *,
+        account_id: int,
     ) -> OwletReading | None:
         cursor = await db.execute(
             """
             SELECT device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
                    movement, sleep_state, skin_temperature, raw_json
             FROM readings
-            WHERE device_serial = ? AND recorded_at < ?
+            WHERE account_id = ? AND device_serial = ? AND recorded_at < ?
             ORDER BY recorded_at DESC
             LIMIT 1
             """,
-            (reading.device_serial, reading.recorded_at.isoformat()),
+            (account_id, reading.device_serial, reading.recorded_at.isoformat()),
         )
         row = await cursor.fetchone()
         return self._row_to_reading(row) if row else None
@@ -535,14 +891,16 @@ class ReadingStore:
         self,
         db: aiosqlite.Connection,
         event: NotificationEvent,
+        *,
+        account_id: int,
     ) -> None:
         await db.execute(
             """
             INSERT INTO notifications (
-                device_serial, recorded_at, event_type, severity, title, message,
+                account_id, device_serial, recorded_at, event_type, severity, title, message,
                 heart_rate, oxygen_saturation, battery, sleep_state, details_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(device_serial, recorded_at, event_type) DO UPDATE SET
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(account_id, device_serial, recorded_at, event_type) DO UPDATE SET
                 severity=excluded.severity,
                 title=excluded.title,
                 message=excluded.message,
@@ -553,6 +911,7 @@ class ReadingStore:
                 details_json=excluded.details_json
             """,
             (
+                account_id,
                 event.device_serial,
                 event.recorded_at,
                 event.event_type,
@@ -566,6 +925,21 @@ class ReadingStore:
                 json.dumps(event.details, default=str),
             ),
         )
+
+    def _row_to_account(self, row: tuple[Any, ...]) -> dict[str, Any]:
+        return {
+            "id": int(row[0]),
+            "email": row[1],
+            "region": row[2],
+            "display_name": row[3],
+            "api_token": row[4],
+            "api_token_expiry": row[5],
+            "refresh_token": row[6],
+            "status": row[7],
+            "created_at": row[8],
+            "updated_at": row[9],
+            "last_validated_at": row[10],
+        }
 
     def _row_to_reading(self, row: tuple[Any, ...]) -> OwletReading:
         raw = json.loads(row[8]) if row[8] else {}
@@ -618,12 +992,13 @@ class ReadingStore:
     def _row_to_challenge(self, row: tuple[Any, ...]) -> dict[str, Any]:
         return {
             "id": row[0],
-            "start_time": row[1],
-            "end_time": row[2],
-            "label": row[3],
-            "notes": row[4],
-            "created_at": row[5],
-            "updated_at": row[6],
+            "account_id": row[1],
+            "start_time": row[2],
+            "end_time": row[3],
+            "label": row[4],
+            "notes": row[5],
+            "created_at": row[6],
+            "updated_at": row[7],
         }
 
 

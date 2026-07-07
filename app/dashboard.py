@@ -145,6 +145,8 @@ DASHBOARD_HTML = r"""
     .crypto-line b { color: var(--text); }
     .crypto-change { font-weight: 900; }
     .notification-button { position: relative; }
+    .account-cluster.hidden { display: none; }
+    .account-add-button { padding-inline: .65rem; }
     .notification-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: #fef2f2; color: #b91c1c; font-size: .72rem; font-weight: 900; }
     .notifications-popover { position: absolute; right: 0; top: calc(100% + 8px); width: min(420px, calc(100vw - 28px)); max-height: min(72vh, 520px); overflow: auto; background: #fff; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 12px; z-index: 30; }
     .notifications-popover.hidden { display: none; }
@@ -339,6 +341,11 @@ DASHBOARD_HTML = r"""
     </section>
 
     <section class="toolbar" aria-label="Date and data controls">
+      <div id="accountCluster" class="control-group filter-cluster account-cluster hidden">
+        <label class="device-label" for="accountSelect">Account</label>
+        <select id="accountSelect"><option value="">Default</option></select>
+        <button id="addAccount" class="account-add-button" type="button" title="Add Owlet account">+</button>
+      </div>
       <div class="control-group filter-cluster">
         <label class="device-label" for="deviceSelect">Device</label>
         <select id="deviceSelect"><option value="">Loading devices…</option></select>
@@ -571,6 +578,7 @@ DASHBOARD_HTML = r"""
     let summary = null;
     let insights = null;
     let devices = [];
+    let accounts = [];
     let rollups = [];
     let comparisonRows = [];
     let notifications = { items: [], total: 0, limit: 500, offset: 0 };
@@ -1230,9 +1238,23 @@ DASHBOARD_HTML = r"""
       const params = new URLSearchParams({ limit: '100000', ...extra });
       const hours = options.hoursOverride ?? (window === 'all' ? null : window);
       if (hours) params.set('hours', hours);
+      const account = selectedAccount();
+      if (account) params.set('account', account);
       const device = selectedDevice();
       if (device) params.set('device', device);
       return params.toString();
+    }
+
+    function selectedAccount() {
+      return el('accountSelect')?.value || new URLSearchParams(window.location.search).get('account') || '';
+    }
+
+    function setUrlAccount(account) {
+      const url = new URL(window.location.href);
+      if (account) url.searchParams.set('account', account);
+      else url.searchParams.delete('account');
+      url.searchParams.delete('device');
+      window.history.replaceState({}, '', url);
     }
 
     function selectedDevice() {
@@ -1246,9 +1268,70 @@ DASHBOARD_HTML = r"""
       window.history.replaceState({}, '', url);
     }
 
+    async function loadAccounts() {
+      if (SHARE_MODE) return;
+      try {
+        const data = await fetchJson(`${API_BASE}/api/accounts`);
+        accounts = data.accounts || [];
+      } catch (error) {
+        console.error(error);
+        accounts = [];
+      }
+      const requested = new URLSearchParams(window.location.search).get('account') || '';
+      const selected = accounts.some(account => String(account.id) === requested) ? requested : (accounts[0]?.id ? String(accounts[0].id) : '');
+      renderAccountOptions(selected);
+      if (selected) setUrlAccount(selected);
+    }
+
+    function renderAccountOptions(selected = selectedAccount()) {
+      const cluster = el('accountCluster');
+      if (!cluster) return;
+      cluster.classList.toggle('hidden', SHARE_MODE || accounts.length <= 1);
+      el('accountSelect').innerHTML = accounts.length
+        ? accounts.map(account => {
+          const status = account.status && account.status !== 'active' ? ` (${account.status.replace('_', ' ')})` : '';
+          const label = account.display_name || account.email || `Account ${account.id}`;
+          return `<option value="${account.id}" ${String(account.id) === String(selected) ? 'selected' : ''}>${label}${status}</option>`;
+        }).join('')
+        : '<option value="">Default</option>';
+    }
+
+    async function addAccountFromPrompt() {
+      const email = prompt('Owlet email');
+      if (!email) return;
+      const password = prompt('Owlet password (used once to fetch refresh token; not stored)');
+      if (!password) return;
+      const region = prompt('Owlet region', 'world') || 'world';
+      const displayName = prompt('Display name', email) || email;
+      try {
+        updateRefreshButton('Adding account…');
+        const response = await fetch(`${API_BASE}/api/accounts`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, region, display_name: displayName })
+        });
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        const data = await response.json();
+        await loadAccounts();
+        const accountId = data.account?.id ? String(data.account.id) : selectedAccount();
+        if (accountId) setUrlAccount(accountId);
+        await loadDevices();
+        notificationPageOffset = 0;
+        loadedHours = null;
+        readingsTableSignature = '';
+        safeRefresh({ resetZoom: true, force: true });
+      } catch (error) {
+        console.error(error);
+        alert('Could not validate that Owlet account. Check the email/password/region and try again.');
+      }
+    }
+
     async function loadDevices() {
       try {
-        const data = await fetchJson(`${API_BASE}/api/devices`);
+        const account = selectedAccount();
+        const accountQs = account ? `?account=${encodeURIComponent(account)}` : '';
+        const data = await fetchJson(`${API_BASE}/api/devices${accountQs}`);
         devices = data.devices || [];
       } catch (error) {
         console.error(error);
@@ -2447,11 +2530,13 @@ DASHBOARD_HTML = r"""
     }
 
     async function saveChallenge(payload) {
+      const account = selectedAccount();
+      const scopedPayload = account ? { ...payload, account_id: Number(account) } : payload;
       const response = await fetch(`${API_BASE}/api/oxygen-challenges`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(scopedPayload)
       });
       if (!response.ok) throw new Error(`Could not save challenge: ${response.status}`);
       await refresh();
@@ -2691,6 +2776,19 @@ DASHBOARD_HTML = r"""
     });
     el('batteryStatus').addEventListener('click', () => alert(el('batteryStatus').dataset.detail || 'Battery unavailable'));
 
+    el('accountSelect')?.addEventListener('change', async event => {
+      setUrlAccount(event.target.value);
+      devices = [];
+      renderDeviceOptions('');
+      await loadDevices();
+      renderBabyName();
+      notificationPageOffset = 0;
+      loadedHours = null;
+      readingsTableSignature = '';
+      safeRefresh({ resetZoom: true, force: true });
+    });
+    el('addAccount')?.addEventListener('click', addAccountFromPrompt);
+
     el('deviceSelect').addEventListener('change', event => {
       setUrlDevice(event.target.value);
       renderBabyName();
@@ -2765,7 +2863,7 @@ DASHBOARD_HTML = r"""
     updateInstallButton();
     applyResponsiveDefaultWindow();
     attachReadingsTableSelection();
-    loadDevices().then(() => safeRefresh({ resetZoom: true }));
+    loadAccounts().then(loadDevices).then(() => safeRefresh({ resetZoom: true }));
     setInterval(tickCountdown, 1000);
   </script>
 </body>

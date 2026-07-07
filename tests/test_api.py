@@ -21,6 +21,7 @@ async def _seed_reading(
     sleep_state=1,
     skin_temp=32,
     device_serial="AC123",
+    account_id=None,
 ):
     await store.insert_reading(
         normalize_reading(
@@ -33,8 +34,44 @@ async def _seed_reading(
                 "skin_temperature": skin_temp,
             },
             device_serial,
-        )
+        ),
+        account_id=account_id,
     )
+
+
+@pytest.mark.asyncio
+async def test_account_api_is_public_metadata_only_and_scopes_data(tmp_path):
+    db_path = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db_path)
+    await store.init()
+    first = (await store.list_accounts())[0]
+    second = await store.create_account(
+        email="second@example.test",
+        region="world",
+        display_name="Second baby",
+        api_token="secret-api-token",
+        api_token_expiry=12345,
+        refresh_token="secret-refresh-token",
+    )
+    await _seed_reading(store, "2026-07-02T01:00:00Z", hr=120, spo2=98, device_serial="SAME", account_id=first["id"])
+    await _seed_reading(store, "2026-07-02T01:00:00Z", hr=150, spo2=90, device_serial="SAME", account_id=second["id"])
+    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+
+    with TestClient(app) as client:
+        accounts = client.get("/api/accounts").json()["accounts"]
+        first_readings = client.get(f"/api/readings?account={first['id']}&hours=24").json()
+        second_readings = client.get(f"/api/readings?account={second['id']}&hours=24").json()
+        second_devices = client.get(f"/api/devices?account={second['id']}").json()["devices"]
+
+    assert len(accounts) == 2
+    second_payload = next(account for account in accounts if account["id"] == second["id"])
+    assert second_payload["display_name"] == "Second baby"
+    assert second_payload["has_refresh_token"] is True
+    assert "refresh_token" not in second_payload
+    assert "api_token" not in second_payload
+    assert first_readings[0]["heart_rate"] == 120
+    assert second_readings[0]["heart_rate"] == 150
+    assert second_devices[0]["account_id"] == second["id"]
 
 
 @pytest.mark.asyncio
@@ -439,6 +476,10 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert '<option value="168">7 days</option>' in response.text
     assert '<option value="all">All stored data</option>' in response.text
     assert 'id="deviceSelect"' in response.text
+    assert 'id="accountSelect"' in response.text
+    assert 'id="addAccount"' in response.text
+    assert "/api/accounts" in response.text
+    assert "has_refresh_token" not in response.text
     assert "/api/devices" in response.text
     assert 'id="smoothing"' in response.text
     assert '<option selected value="raw">Raw points</option>' in response.text
