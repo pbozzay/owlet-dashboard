@@ -577,6 +577,11 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "showCryptoEnabled()\n        ? fetchJson(`${API_BASE}/api/crypto?hours=${cryptoHours}`)" in response.text
     assert "if (showCryptoEnabled())" in response.text
     assert "id: 'btcPrice'" in response.text
+    assert "hidden: preferredDatasetHidden('btcPrice', true)" in response.text
+    assert "function syncCryptoChartDataset()" in response.text
+    assert "vitalsChart.data.datasets[index].data = cryptoBitcoinPoints()" in response.text
+    assert "syncCryptoChartDataset();" in response.text
+    assert "BTC price: ${money(context.parsed.y)}" in response.text
     assert "O₂ trend companion" in response.text
     assert "How to read the O₂ trend companion" in response.text
     assert "MACD-style oxygen view" in response.text

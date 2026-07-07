@@ -1690,7 +1690,7 @@ DASHBOARD_HTML = r"""
       renderInsights();
       renderCrypto();
       renderRollups();
-      vitalsChart?.update('none');
+      syncCryptoChartDataset();
     }
 
     function renderStatus(health) {
@@ -1949,6 +1949,21 @@ DASHBOARD_HTML = r"""
 
     function cryptoBitcoinPoints() {
       return (crypto.series?.bitcoin || []).map(point => ({ x: point.x, y: point.y }));
+    }
+
+    function syncCryptoChartDataset() {
+      if (!vitalsChart) return;
+      const index = vitalsChart.data.datasets.findIndex(dataset => dataset.id === 'btcPrice');
+      if (!showCryptoEnabled()) {
+        vitalsChart.update('none');
+        return;
+      }
+      if (index < 0) {
+        renderCharts({ deferTrend: true });
+        return;
+      }
+      vitalsChart.data.datasets[index].data = cryptoBitcoinPoints();
+      vitalsChart.update('none');
     }
 
     function notificationPoints() {
@@ -2282,7 +2297,7 @@ DASHBOARD_HTML = r"""
         { id: 'skinTemperature', label: 'Skin temp °C', data: readingSeries('skin_temperature'), borderColor: '#0f766e', backgroundColor: '#0f766e20', yAxisID: 'temp', hidden: skinTempHidden, spanGaps: true, pointRadius: 0, tension: .25 }
       ];
       if (showCryptoEnabled()) {
-        datasets.push({ id: 'btcPrice', label: 'BTC price', data: cryptoBitcoinPoints(), borderColor: '#f97316', backgroundColor: '#f9731620', yAxisID: 'btc', hidden: preferredDatasetHidden('btcPrice', false), spanGaps: true, pointRadius: 0, tension: .25 });
+        datasets.push({ id: 'btcPrice', label: 'BTC price', data: cryptoBitcoinPoints(), borderColor: '#f97316', backgroundColor: '#f9731620', yAxisID: 'btc', hidden: preferredDatasetHidden('btcPrice', true), spanGaps: true, pointRadius: 0, tension: .25 });
       }
       datasets.push({ id: 'notifications', type: 'scatter', label: 'Notifications', data: notificationPoints(), yAxisID: 'spo2', hidden: preferredDatasetHidden('notifications', false), pointStyle: 'triangle', pointRadius: 9, pointHoverRadius: 13, hitRadius: 24, showLine: false, borderWidth: 2, borderColor: '#92400e', backgroundColor: '#f59e0b' });
       vitalsChart = upsertChart(vitalsChart, 'vitalsChart', {
