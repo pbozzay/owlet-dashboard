@@ -462,6 +462,9 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "85% O₂" in response.text
     assert "notificationHoverPriority" in response.text
     assert "attachNotificationHover" in response.text
+    assert "function tooltipTitle(items)" in response.text
+    assert "title: tooltipTitle" in response.text
+    assert "label: tooltipLabel" in response.text
     assert "notificationHit" in response.text
     assert "hitRadius: 24" in response.text
     assert "/api/notifications" in response.text

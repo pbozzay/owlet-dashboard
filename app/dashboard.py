@@ -1626,6 +1626,14 @@ DASHBOARD_HTML = r"""
       });
     }
 
+    function tooltipTitle(items) {
+      const first = items?.[0];
+      const rawX = first?.raw?.x;
+      const parsedX = first?.parsed?.x;
+      const timestamp = Number.isFinite(Number(parsedX)) ? Number(parsedX) : Number(rawX);
+      return Number.isFinite(timestamp) ? localTime(new Date(timestamp).toISOString()) : '';
+    }
+
     function tooltipLabel(context) {
       if (context.dataset.id === 'notifications') return context.raw.tooltipLines;
       if (context.dataset.id === 'btcPrice') return `BTC price: ${money(context.parsed.y)}`;
@@ -1705,7 +1713,7 @@ DASHBOARD_HTML = r"""
         maintainAspectRatio: false,
         animation: { duration: 450 },
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: legendOptions(options.legend || {}), tooltip: { callbacks: { label: tooltipLabel } }, zoom: zoomOptions(), challengeBands: { intervals: challengeBandsEnabled ? challengeIntervals() : [] }, offlineBands: { intervals: offlineIntervals() } },
+        plugins: { legend: legendOptions(options.legend || {}), tooltip: { callbacks: { title: tooltipTitle, label: tooltipLabel } }, zoom: zoomOptions(), challengeBands: { intervals: challengeBandsEnabled ? challengeIntervals() : [] }, offlineBands: { intervals: offlineIntervals() } },
         scales
       };
     }
