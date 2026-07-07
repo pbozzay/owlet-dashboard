@@ -32,6 +32,7 @@ class ReadingStore:
                     refresh_token TEXT,
                     status TEXT NOT NULL DEFAULT 'active',
                     show_crypto INTEGER NOT NULL DEFAULT 0,
+                    dashboard_preferences TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     last_validated_at TEXT
@@ -155,6 +156,8 @@ class ReadingStore:
         columns = await self._table_columns(db, "accounts")
         if "show_crypto" not in columns:
             await db.execute("ALTER TABLE accounts ADD COLUMN show_crypto INTEGER NOT NULL DEFAULT 0")
+        if "dashboard_preferences" not in columns:
+            await db.execute("ALTER TABLE accounts ADD COLUMN dashboard_preferences TEXT NOT NULL DEFAULT '{}'")
 
     async def _table_columns(self, db: aiosqlite.Connection, table: str) -> list[str]:
         cursor = await db.execute(f"PRAGMA table_info({table})")
@@ -264,7 +267,8 @@ class ReadingStore:
             cursor = await db.execute(
                 """
                 SELECT id, email, region, display_name, api_token, api_token_expiry,
-                       refresh_token, status, show_crypto, created_at, updated_at, last_validated_at
+                       refresh_token, status, show_crypto, dashboard_preferences,
+                       created_at, updated_at, last_validated_at
                 FROM accounts
                 ORDER BY id ASC
                 """
@@ -312,7 +316,8 @@ class ReadingStore:
             cursor = await db.execute(
                 """
                 SELECT id, email, region, display_name, api_token, api_token_expiry,
-                       refresh_token, status, show_crypto, created_at, updated_at, last_validated_at
+                       refresh_token, status, show_crypto, dashboard_preferences,
+                       created_at, updated_at, last_validated_at
                 FROM accounts
                 WHERE id = ?
                 """,
@@ -354,8 +359,10 @@ class ReadingStore:
         *,
         display_name: str | None = None,
         show_crypto: bool | None = None,
+        dashboard_preferences: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         await self.init()
+        current = await self.get_account(account_id)
         assignments: list[str] = []
         values: list[Any] = []
         if display_name is not None:
@@ -366,14 +373,18 @@ class ReadingStore:
         if show_crypto is not None:
             assignments.append("show_crypto = ?")
             values.append(1 if show_crypto else 0)
+        if dashboard_preferences is not None:
+            merged_preferences = _deep_merge_preferences(
+                dict(current.get("dashboard_preferences") or {}),
+                dashboard_preferences,
+            )
+            assignments.append("dashboard_preferences = ?")
+            values.append(json.dumps(merged_preferences, sort_keys=True))
         if not assignments:
-            return await self.get_account(account_id)
+            return current
         assignments.append("updated_at = CURRENT_TIMESTAMP")
         values.append(account_id)
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute("SELECT id FROM accounts WHERE id = ?", (account_id,))
-            if not await cursor.fetchone():
-                raise KeyError(account_id)
             await db.execute(
                 f"UPDATE accounts SET {', '.join(assignments)} WHERE id = ?",
                 values,
@@ -977,9 +988,10 @@ class ReadingStore:
             "refresh_token": row[6],
             "status": row[7],
             "show_crypto": _sqlite_bool(row[8]),
-            "created_at": row[9],
-            "updated_at": row[10],
-            "last_validated_at": row[11],
+            "dashboard_preferences": _sqlite_json_object(row[9]),
+            "created_at": row[10],
+            "updated_at": row[11],
+            "last_validated_at": row[12],
         }
 
     def _row_to_reading(self, row: tuple[Any, ...]) -> OwletReading:
@@ -1041,6 +1053,30 @@ class ReadingStore:
             "created_at": row[6],
             "updated_at": row[7],
         }
+
+
+def _deep_merge_preferences(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge_preferences(dict(merged[key]), value)
+        elif value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _sqlite_json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if value in (None, ""):
+        return {}
+    try:
+        parsed = json.loads(str(value))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _sqlite_bool(value: Any) -> bool:

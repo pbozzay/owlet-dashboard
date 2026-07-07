@@ -62,7 +62,18 @@ async def test_account_api_is_public_metadata_only_and_scopes_data(tmp_path):
         first_readings = client.get(f"/api/readings?account={first['id']}&hours=24").json()
         second_readings = client.get(f"/api/readings?account={second['id']}&hours=24").json()
         second_devices = client.get(f"/api/devices?account={second['id']}").json()["devices"]
-        updated = client.patch(f"/api/accounts/{second['id']}", json={"show_crypto": True, "display_name": "Second profile"}).json()["account"]
+        updated = client.patch(
+            f"/api/accounts/{second['id']}",
+            json={
+                "show_crypto": True,
+                "display_name": "Second profile",
+                "dashboard_preferences": {
+                    "chart_visibility": {"btcPrice": False, "heartRate": True},
+                    "chart_settings": {"window": "72", "smoothing": "15", "challenge_bands": False},
+                    "secret": "ignored",
+                },
+            },
+        ).json()["account"]
 
     assert len(accounts) == 2
     second_payload = next(account for account in accounts if account["id"] == second["id"])
@@ -71,6 +82,9 @@ async def test_account_api_is_public_metadata_only_and_scopes_data(tmp_path):
     assert second_payload["show_crypto"] is False
     assert updated["display_name"] == "Second profile"
     assert updated["show_crypto"] is True
+    assert updated["dashboard_preferences"]["chart_visibility"] == {"btcPrice": False, "heartRate": True}
+    assert updated["dashboard_preferences"]["chart_settings"]["window"] == "72"
+    assert "secret" not in updated["dashboard_preferences"]
     assert "refresh_token" not in second_payload
     assert "api_token" not in second_payload
     assert first_readings[0]["heart_rate"] == 120
@@ -487,7 +501,7 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert 'id="deviceSelect"' in response.text
     assert 'id="accountSelect"' in response.text
     assert 'id="addAccount"' in response.text
-    assert "Link Owlet" in response.text
+    assert "Link another Owlet account" in response.text
     assert "renderProfileMenu" in response.text
     assert "showCryptoEnabled" in response.text
     assert "updateCurrentAccountPreference" in response.text
@@ -540,7 +554,7 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "Avg skin temp" in response.text
     assert "renderDailyInsightsChart(periods)" in response.text
     assert "Daily insights" in response.text
-    assert "Last 7 rolling 24-hour periods" in response.text
+    assert "Calendar days. Today is in progress" in response.text
     assert "dailyInsightPeriods" in response.text
     assert "sleepBucket(row) === 'sleeping'" in response.text
     assert "sleepBucket(row) === 'waking'" in response.text
@@ -551,7 +565,8 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert 'id="cryptoCard" class="card glance-card crypto-card hidden"' in response.text
     assert 'id="glanceStrip" class="glance-strip crypto-hidden"' in response.text
     assert "showCryptoEnabled()\n        ? fetchJson(`${API_BASE}/api/crypto?hours=${cryptoHours}`)" in response.text
-    assert "BTC price" in response.text
+    assert "if (showCryptoEnabled())" in response.text
+    assert "id: 'btcPrice'" in response.text
     assert "O₂ trend companion" in response.text
     assert "How to read the O₂ trend companion" in response.text
     assert "MACD-style oxygen view" in response.text
@@ -663,8 +678,9 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "challengeBands" in response.text
     assert "beforeDraw(chart, _args, options)" in response.text
     assert "const isTrendCompanion = chart.canvas.id === 'oxygenTrendChart'" in response.text
-    assert "rgba(37, 99, 235, 0.045)" in response.text
-    assert "if (!isTrendCompanion) ctx.strokeRect" in response.text
+    assert "rgba(37, 99, 235, 0.10)" in response.text
+    assert "ctx.setLineDash(isTrendCompanion ? [7, 5] : [8, 5])" in response.text
+    assert "ctx.strokeRect(left, chartArea.top + 1" in response.text
     assert "rgba(4, 120, 87, .96)" in response.text
     assert "rgba(185, 28, 28, .96)" in response.text
     assert "stateStrip" in response.text

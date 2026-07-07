@@ -211,11 +211,13 @@ def create_app(
     async def update_account(account_id: int = Path(ge=1), payload: dict[str, object] = JSON_BODY):
         display_name = payload.get("display_name")
         show_crypto = payload.get("show_crypto")
+        dashboard_preferences = _public_dashboard_preferences_patch(payload.get("dashboard_preferences"))
         try:
             account = await store.update_account_preferences(
                 account_id,
                 display_name=str(display_name).strip() if isinstance(display_name, str) else None,
                 show_crypto=bool(show_crypto) if isinstance(show_crypto, bool) else None,
+                dashboard_preferences=dashboard_preferences,
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Account not found") from exc
@@ -528,6 +530,34 @@ async def _widget_payload(
     }
 
 
+def _public_dashboard_preferences_patch(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    allowed: dict[str, object] = {}
+    chart_visibility = value.get("chart_visibility")
+    if isinstance(chart_visibility, dict):
+        allowed["chart_visibility"] = {
+            str(key): bool(setting)
+            for key, setting in chart_visibility.items()
+            if str(key) in {"heartRate", "oxygen", "movement", "skinTemperature", "btcPrice", "notifications", "o2Trailing30", "o2Baseline4h", "o2TrendSignal"}
+            and isinstance(setting, bool)
+        }
+    chart_settings = value.get("chart_settings")
+    if isinstance(chart_settings, dict):
+        safe_settings: dict[str, object] = {}
+        window_value = chart_settings.get("window")
+        if str(window_value) in {"6", "12", "24", "72", "168", "720", "all"}:
+            safe_settings["window"] = str(window_value)
+        smoothing = chart_settings.get("smoothing")
+        if str(smoothing) in {"raw", "5", "15", "30", "60"}:
+            safe_settings["smoothing"] = str(smoothing)
+        for key in ("challenge_bands", "sleep_highlight", "sleep_ballpark"):
+            if isinstance(chart_settings.get(key), bool):
+                safe_settings[key] = bool(chart_settings[key])
+        allowed["chart_settings"] = safe_settings
+    return allowed
+
+
 def _public_account(account: dict[str, object]) -> dict[str, object]:
     return {
         "id": account.get("id"),
@@ -536,6 +566,7 @@ def _public_account(account: dict[str, object]) -> dict[str, object]:
         "display_name": account.get("display_name"),
         "status": account.get("status"),
         "show_crypto": bool(account.get("show_crypto")),
+        "dashboard_preferences": account.get("dashboard_preferences") if isinstance(account.get("dashboard_preferences"), dict) else {},
         "last_validated_at": account.get("last_validated_at"),
         "created_at": account.get("created_at"),
         "updated_at": account.get("updated_at"),

@@ -247,6 +247,21 @@ async def test_store_persists_account_tokens_without_password(tmp_path):
     assert saved["status"] == "active"
     assert saved["show_crypto"] is False
 
-    updated = await store.update_account_preferences(account["id"], show_crypto=True, display_name="Night profile")
+    updated = await store.update_account_preferences(
+        account["id"],
+        show_crypto=True,
+        display_name="Night profile",
+        dashboard_preferences={
+            "chart_visibility": {"heartRate": False},
+            "chart_settings": {"window": "72", "challenge_bands": False},
+        },
+    )
+    updated = await store.update_account_preferences(
+        account["id"],
+        dashboard_preferences={"chart_visibility": {"oxygen": True}},
+    )
     assert updated["show_crypto"] is True
     assert updated["display_name"] == "Night profile"
+    assert updated["dashboard_preferences"]["chart_visibility"] == {"heartRate": False, "oxygen": True}
+    assert updated["dashboard_preferences"]["chart_settings"]["window"] == "72"
+    assert updated["dashboard_preferences"]["chart_settings"]["challenge_bands"] is False

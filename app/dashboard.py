@@ -52,6 +52,10 @@ DASHBOARD_HTML = r"""
     .profile-menu-title { font-weight: 950; letter-spacing: -.02em; }
     .profile-menu-subtitle { color: var(--muted); font-size: .78rem; margin-top: 2px; }
     .profile-menu-section { display: grid; gap: 6px; }
+    .profile-menu-kicker { color: var(--muted); font-size: .68rem; font-weight: 950; letter-spacing: .08em; text-transform: uppercase; }
+    .profile-current { display: grid; gap: 3px; border: 1px solid var(--line); border-radius: 13px; padding: 9px 10px; background: #f8fafc; }
+    .profile-current b { color: var(--text); }
+    .profile-current span { color: var(--muted); font-size: .78rem; }
     .profile-menu-section label { display: grid; gap: 5px; }
     .profile-menu-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .profile-menu-actions .wide { grid-column: 1 / -1; }
@@ -373,15 +377,24 @@ DASHBOARD_HTML = r"""
               <span id="profileMenuSubtitle" class="profile-menu-subtitle">Owlet sock</span>
             </span>
           </div>
+          <div class="profile-menu-section">
+            <span class="profile-menu-kicker">Current profile</span>
+            <div class="profile-current">
+              <b id="profileCurrentName">Owlet profile</b>
+              <span id="profileCurrentMeta">Owlet sock</span>
+            </div>
+          </div>
           <div id="accountCluster" class="profile-menu-section account-cluster">
-            <label for="accountSelect">Account
+            <span class="profile-menu-kicker">Switch profile</span>
+            <label for="accountSelect">Owlet account
               <select id="accountSelect"><option value="">Default</option></select>
             </label>
-            <button id="addAccount" class="account-add-button wide" type="button" title="Link another Owlet account">Link Owlet</button>
+            <button id="addAccount" class="account-add-button wide" type="button" title="Link another Owlet account">Link another Owlet account</button>
           </div>
           <div class="profile-menu-section">
+            <span class="profile-menu-kicker">Display preferences</span>
             <label class="profile-toggle" for="showCryptoSetting">
-              <span><b>Crypto widget</b><br><small>Show BTC / ETH / XMR card for this account.</small></span>
+              <span><b>Crypto widget</b><br><small>Show BTC / ETH / XMR card and BTC chart line for this account.</small></span>
               <input id="showCryptoSetting" type="checkbox" />
             </label>
           </div>
@@ -439,13 +452,13 @@ DASHBOARD_HTML = r"""
       <article class="card glance-card">
         <span class="eyebrow">O₂ now + today</span>
         <strong id="latestOxygen">—</strong>
-        <small><span class="inline-stat" id="todayOxygen">—</span> 24h avg · <span class="inline-stat" id="o2Compare">—</span></small>
-        <small>Prior <span class="inline-stat" id="priorOxygen">—</span></small>
+        <small><span class="inline-stat" id="todayOxygen">—</span> today avg · <span class="inline-stat" id="o2Compare">—</span></small>
+        <small>Yesterday by now <span class="inline-stat" id="priorOxygen">—</span></small>
       </article>
       <article class="card glance-card">
         <span class="eyebrow">Heart rate</span>
         <strong id="latestHr">—</strong>
-        <small><span class="inline-stat" id="avgHr">—</span> 24h avg · <span class="inline-stat" id="hrCompare">—</span></small>
+        <small><span class="inline-stat" id="avgHr">—</span> today avg · <span class="inline-stat" id="hrCompare">—</span></small>
         <small>State <span class="inline-stat" id="latestState">—</span> · Move <span class="inline-stat" id="latestMove">—</span></small>
       </article>
       <article class="card glance-card">
@@ -604,7 +617,7 @@ DASHBOARD_HTML = r"""
       <div class="panel-title">
         <div>
           <h2>Daily insights</h2>
-          <span class="small" id="dailyInsightsMeta">Last 7 rolling 24-hour periods. Offline/sock-off and O₂ challenge samples excluded.</span>
+          <span class="small" id="dailyInsightsMeta">Calendar days. Today is in progress; offline/sock-off and O₂ challenge samples excluded.</span>
         </div>
         <button id="closeDailyInsights" type="button">Close</button>
       </div>
@@ -657,6 +670,7 @@ DASHBOARD_HTML = r"""
     let firstLoadComplete = false;
     let refreshInFlight = null;
     let readingsTableSignature = '';
+    let applyingAccountPreferences = false;
 
     const sleepPhaseColors = {
       light: 'rgba(124, 58, 237, .21)',
@@ -702,15 +716,17 @@ DASHBOARD_HTML = r"""
         const { ctx, chartArea, scales } = chart;
         const isTrendCompanion = chart.canvas.id === 'oxygenTrendChart';
         ctx.save();
-        ctx.fillStyle = isTrendCompanion ? 'rgba(37, 99, 235, 0.045)' : 'rgba(37, 99, 235, 0.10)';
-        ctx.strokeStyle = 'rgba(37, 99, 235, 0.22)';
+        ctx.fillStyle = isTrendCompanion ? 'rgba(37, 99, 235, 0.10)' : 'rgba(37, 99, 235, 0.13)';
+        ctx.strokeStyle = isTrendCompanion ? 'rgba(29, 78, 216, 0.78)' : 'rgba(29, 78, 216, 0.62)';
+        ctx.lineWidth = isTrendCompanion ? 3 : 2;
+        ctx.setLineDash(isTrendCompanion ? [7, 5] : [8, 5]);
         intervals.forEach(({ start, end }) => {
           const left = Math.max(chartArea.left, scales.x.getPixelForValue(start));
           const right = Math.min(chartArea.right, scales.x.getPixelForValue(end));
           if (!Number.isFinite(left) || !Number.isFinite(right) || right <= chartArea.left || left >= chartArea.right) return;
           const width = Math.max(2, right - left);
           ctx.fillRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
-          if (!isTrendCompanion) ctx.strokeRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
+          ctx.strokeRect(left, chartArea.top + 1, width, Math.max(1, chartArea.bottom - chartArea.top - 2));
         });
         ctx.restore();
       }
@@ -1034,22 +1050,37 @@ DASHBOARD_HTML = r"""
     }
 
     function windowAverage(rows, key, start, end) {
-      return average(rows.filter(row => !isOffline(row) && !isInChallenge(row) && Date.parse(row.recorded_at) > start && Date.parse(row.recorded_at) <= end).map(row => row[key]));
+      return average(rows.filter(row => !isOffline(row) && !isInChallenge(row) && Date.parse(row.recorded_at) >= start && Date.parse(row.recorded_at) <= end).map(row => row[key]));
+    }
+
+    function localDayStartMs(time = Date.now()) {
+      const date = new Date(time);
+      date.setHours(0, 0, 0, 0);
+      return date.getTime();
+    }
+
+    function calendarComparisonRange(rows) {
+      if (!rows.length) return null;
+      const latest = Date.parse(rows[rows.length - 1].recorded_at);
+      if (!Number.isFinite(latest)) return null;
+      const dayMs = 24 * 60 * 60 * 1000;
+      const currentStart = localDayStartMs(latest);
+      const elapsed = Math.max(0, latest - currentStart);
+      const priorStart = currentStart - dayMs;
+      return { currentStart, currentEnd: latest, priorStart, priorEnd: priorStart + elapsed, elapsed };
     }
 
     function comparisonFor(key, threshold) {
       const rows = comparisonRows.length ? comparisonRows : readings;
-      if (!rows.length) return { current: null, prior: null, delta: null, word: 'unknown', css: 'flat' };
-      const latest = Date.parse(rows[rows.length - 1].recorded_at);
-      const currentStart = latest - 24 * 3600 * 1000;
-      const priorStart = latest - 48 * 3600 * 1000;
-      const current = windowAverage(rows, key, currentStart, latest);
-      const prior = windowAverage(rows, key, priorStart, currentStart);
+      const range = calendarComparisonRange(rows);
+      if (!range) return { current: null, prior: null, delta: null, word: 'unknown', css: 'flat' };
+      const current = windowAverage(rows, key, range.currentStart, range.currentEnd);
+      const prior = windowAverage(rows, key, range.priorStart, range.priorEnd);
       const delta = current === null || prior === null ? null : current - prior;
       const css = changeClass(delta, threshold);
       const oxygen = key === 'oxygen_saturation';
       const word = delta === null ? 'unknown' : (css === 'flat' ? 'stable' : (oxygen ? (delta > 0 ? 'improving' : 'worsening') : (delta > 0 ? 'increasing' : 'decreasing')));
-      return { current, prior, delta, word, css };
+      return { current, prior, delta, word, css, range };
     }
 
     function comparisonText(result, digits = 1, unit = '') {
@@ -1101,13 +1132,15 @@ DASHBOARD_HTML = r"""
         end: Date.parse(challenge.effective_end_time || challenge.end_time || new Date().toISOString())
       })).filter(interval => Number.isFinite(interval.start) && Number.isFinite(interval.end));
       const latest = Date.parse(sourceRows[sourceRows.length - 1].recorded_at);
+      if (!Number.isFinite(latest)) return [];
       const dayMs = 24 * 60 * 60 * 1000;
+      const todayStart = localDayStartMs(latest);
       return Array.from({ length: days }, (_, index) => {
-        const end = latest - index * dayMs;
-        const start = end - dayMs;
+        const start = todayStart - index * dayMs;
+        const end = index === 0 ? latest : start + dayMs;
         const rows = sourceRows.filter(row => {
           const time = Date.parse(row.recorded_at);
-          return Number.isFinite(time) && time > start && time <= end && !isOffline(row) && !timeInIntervals(time, challengeWindows);
+          return Number.isFinite(time) && time >= start && time <= end && !isOffline(row) && !timeInIntervals(time, challengeWindows);
         });
         const sleeping = rows.filter(row => sleepBucket(row) === 'sleeping');
         const waking = rows.filter(row => sleepBucket(row) === 'waking');
@@ -1120,6 +1153,7 @@ DASHBOARD_HTML = r"""
           index,
           start,
           end,
+          incomplete: index === 0,
           rows,
           sleeping,
           waking,
@@ -1131,8 +1165,9 @@ DASHBOARD_HTML = r"""
     }
 
     function dailyInsightLabel(period) {
-      if (period.index === 0) return 'Last 24h';
-      return `${period.index * 24}–${(period.index + 1) * 24}h ago`;
+      if (period.index === 0) return 'Today so far';
+      if (period.index === 1) return 'Yesterday';
+      return new Date(period.start).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
     }
 
     function dailyInsightChartValue(period, group, key) {
@@ -1142,7 +1177,7 @@ DASHBOARD_HTML = r"""
 
     function renderDailyInsightsChart(periods) {
       const chartPeriods = periods.slice().reverse();
-      const labels = chartPeriods.map(period => period.index === 0 ? 'Last 24h' : `${period.index}d ago`);
+      const labels = chartPeriods.map(period => period.index === 0 ? 'Today' : dailyInsightLabel(period));
       const datasets = [
         { id: 'dailyOxygenAvg', label: 'O₂ avg', data: chartPeriods.map(period => dailyInsightChartValue(period, 'overall', 'oxygen_saturation')), yAxisID: 'oxygen', borderColor: '#2563eb', backgroundColor: '#2563eb20', pointBackgroundColor: '#2563eb', pointRadius: 4, tension: .28, spanGaps: false },
         { id: 'dailyOxygenSleep', label: 'Sleep O₂', data: chartPeriods.map(period => dailyInsightChartValue(period, 'sleepingStats', 'oxygen_saturation')), yAxisID: 'oxygen', borderColor: '#7c3aed', backgroundColor: '#7c3aed20', pointBackgroundColor: '#7c3aed', borderDash: [5, 4], pointRadius: 3, tension: .28, spanGaps: false },
@@ -1208,7 +1243,7 @@ DASHBOARD_HTML = r"""
       renderDailyInsightsChart(periods);
       const rows = periods.map(period => `
         <tr>
-          <td><b>${dailyInsightLabel(period)}</b><br><span class="small">${localTime(new Date(period.start).toISOString(), true)} → ${localTime(new Date(period.end).toISOString(), true)} · ${period.rows.length} valid</span></td>
+          <td><b>${dailyInsightLabel(period)}</b>${period.incomplete ? ' <span class="small">in progress</span>' : ''}<br><span class="small">${localTime(new Date(period.start).toISOString(), true)} → ${localTime(new Date(period.end).toISOString(), true)} · ${period.rows.length} valid</span></td>
           <td>${metricCell(period.overall, 'oxygen_saturation', 'avg')}</td>
           <td>${metricCell(period.sleepingStats, 'oxygen_saturation', 'avg')}</td>
           <td>${metricCell(period.wakingStats, 'oxygen_saturation', 'avg')}</td>
@@ -1223,9 +1258,9 @@ DASHBOARD_HTML = r"""
           <td>${metricCell(period.overall, 'skin_temperature', 'min')}</td>
           <td>${metricCell(period.overall, 'skin_temperature', 'max')}</td>
         </tr>`).join('');
-      el('dailyInsightsTable').innerHTML = `<thead><tr><th>24h period</th><th>O₂ avg</th><th>O₂ sleep</th><th>O₂ wake</th><th>O₂ low</th><th>O₂ high</th><th>HR avg</th><th>HR sleep</th><th>HR wake</th><th>HR low</th><th>HR high</th><th>Temp avg</th><th>Temp low</th><th>Temp high</th></tr></thead><tbody>${rows || '<tr><td colspan="14" class="empty">No valid readings in the last 7 days.</td></tr>'}</tbody>`;
+      el('dailyInsightsTable').innerHTML = `<thead><tr><th>Calendar day</th><th>O₂ avg</th><th>O₂ sleep</th><th>O₂ wake</th><th>O₂ low</th><th>O₂ high</th><th>HR avg</th><th>HR sleep</th><th>HR wake</th><th>HR low</th><th>HR high</th><th>Temp avg</th><th>Temp low</th><th>Temp high</th></tr></thead><tbody>${rows || '<tr><td colspan="14" class="empty">No valid readings in the last 7 calendar days.</td></tr>'}</tbody>`;
       const totalSamples = periods.reduce((sum, period) => sum + period.rows.length, 0);
-      el('dailyInsightsMeta').textContent = `${periods.length} rolling 24-hour periods · ${totalSamples} valid samples · offline/sock-off and O₂ challenge samples excluded`;
+      el('dailyInsightsMeta').textContent = `${periods.length} calendar days · today is in progress · ${totalSamples} valid samples · offline/sock-off and O₂ challenge samples excluded`;
     }
 
     async function openDailyInsightsModal() {
@@ -1239,7 +1274,7 @@ DASHBOARD_HTML = r"""
         dailyInsightsChart = null;
       }
       el('dailyInsightsSummary').innerHTML = '<span>Loading daily insights…</span>';
-      el('dailyInsightsTable').innerHTML = '<tbody><tr><td class="empty">Loading last 7 days…</td></tr></tbody>';
+      el('dailyInsightsTable').innerHTML = '<tbody><tr><td class="empty">Loading last 7 calendar days…</td></tr></tbody>';
       try {
         const qs = queryParams({}, { hoursOverride: 168 });
         const challengeQs = queryParams({ limit: '500', offset: '0' }, { hoursOverride: 168 });
@@ -1302,6 +1337,24 @@ DASHBOARD_HTML = r"""
       return accounts.find(account => String(account.id) === String(id)) || accounts[0] || null;
     }
 
+    function dashboardPreferences(account = currentAccount()) {
+      return account?.dashboard_preferences && typeof account.dashboard_preferences === 'object' ? account.dashboard_preferences : {};
+    }
+
+    function chartVisibilityPreferences() {
+      return dashboardPreferences().chart_visibility || {};
+    }
+
+    function chartSettingsPreferences() {
+      return dashboardPreferences().chart_settings || {};
+    }
+
+    function preferredDatasetHidden(datasetId, fallback = false) {
+      const visibility = chartVisibilityPreferences();
+      if (Object.prototype.hasOwnProperty.call(visibility, datasetId)) return !Boolean(visibility[datasetId]);
+      return fallback;
+    }
+
     function accountLabel(account = currentAccount()) {
       return account?.display_name || account?.email || (account?.id ? `Account ${account.id}` : 'Owlet profile');
     }
@@ -1342,6 +1395,8 @@ DASHBOARD_HTML = r"""
       el('profileMenuTitle').textContent = label;
       el('profileDeviceName').textContent = deviceName;
       el('profileMenuSubtitle').textContent = `${deviceName}${account?.status && account.status !== 'active' ? ` · ${account.status.replace('_', ' ')}` : ''}`;
+      el('profileCurrentName').textContent = label;
+      el('profileCurrentMeta').textContent = `${deviceName} · ${account?.email || 'local account'} · ${showCryptoEnabled() ? 'crypto on' : 'crypto off'}`;
       el('profileMenuWrap')?.classList.toggle('share-only-hidden', SHARE_MODE);
       renderCryptoVisibility();
     }
@@ -1378,6 +1433,7 @@ DASHBOARD_HTML = r"""
       const selected = accounts.some(account => String(account.id) === requested) ? requested : (accounts[0]?.id ? String(accounts[0].id) : '');
       renderAccountOptions(selected);
       if (selected) setUrlAccount(selected);
+      applyAccountPreferencesToControls();
     }
 
     function renderAccountOptions(selected = selectedAccount()) {
@@ -1442,6 +1498,58 @@ DASHBOARD_HTML = r"""
       renderAccountOptions(String(data.account?.id || account.id));
       renderProfileMenu();
       return data.account;
+    }
+
+    async function saveDashboardPreferencePatch(patch) {
+      if (SHARE_MODE || applyingAccountPreferences || !currentAccount()?.id) return null;
+      try {
+        return await updateCurrentAccountPreference({ dashboard_preferences: patch });
+      } catch (error) {
+        console.error(error);
+        return null;
+      }
+    }
+
+    function applyAccountPreferencesToControls() {
+      const settings = chartSettingsPreferences();
+      applyingAccountPreferences = true;
+      try {
+        if (settings.window && el('window')?.querySelector(`option[value="${settings.window}"]`)) el('window').value = settings.window;
+        if (settings.smoothing && el('smoothing')?.querySelector(`option[value="${settings.smoothing}"]`)) el('smoothing').value = settings.smoothing;
+        if (typeof settings.challenge_bands === 'boolean') challengeBandsEnabled = settings.challenge_bands;
+        if (typeof settings.sleep_highlight === 'boolean') sleepHighlightEnabled = settings.sleep_highlight;
+        if (typeof settings.sleep_ballpark === 'boolean') sleepBallparkEnabled = settings.sleep_ballpark;
+        el('challengeBandsToggle').checked = challengeBandsEnabled;
+        el('sleepHighlightToggle').checked = sleepHighlightEnabled;
+        el('sleepBallparkToggle').checked = sleepBallparkEnabled;
+        el('sleepBallparkToggle').disabled = !sleepHighlightEnabled;
+      } finally {
+        applyingAccountPreferences = false;
+      }
+    }
+
+    function persistChartSettings(extra = {}) {
+      return saveDashboardPreferencePatch({
+        chart_settings: {
+          window: el('window')?.value,
+          smoothing: el('smoothing')?.value,
+          challenge_bands: challengeBandsEnabled,
+          sleep_highlight: sleepHighlightEnabled,
+          sleep_ballpark: sleepBallparkEnabled,
+          ...extra
+        }
+      });
+    }
+
+    function persistChartVisibility(chart) {
+      if (!chart || applyingAccountPreferences || SHARE_MODE) return;
+      const visibility = {};
+      chart.data.datasets.forEach((dataset, index) => {
+        const key = dataset.id || dataset.label;
+        if (!key) return;
+        visibility[key] = chart.isDatasetVisible(index);
+      });
+      saveDashboardPreferencePatch({ chart_visibility: visibility });
     }
 
     async function loadDevices() {
@@ -1585,10 +1693,10 @@ DASHBOARD_HTML = r"""
       renderBatteryStatus(latest);
 
       const breathing = insights.breathing;
-      el('o2Compare').textContent = comparisonText(oxygenCompare, 1, ' pts');
+      el('o2Compare').textContent = `${comparisonText(oxygenCompare, 1, ' pts')} vs same time yesterday`;
       el('o2Compare').className = `inline-stat ${oxygenCompare.css}`;
       el('priorOxygen').textContent = oxygenCompare.prior === null ? fmt(breathing.previous_avg_oxygen, '%') : fmt(oxygenCompare.prior.toFixed(1), '%');
-      el('hrCompare').textContent = comparisonText(hrCompare, 0, ' bpm');
+      el('hrCompare').textContent = `${comparisonText(hrCompare, 0, ' bpm')} vs same time yesterday`;
       el('hrCompare').className = `inline-stat ${hrCompare.css}`;
 
       const sleep = insights.sleep;
@@ -1874,7 +1982,11 @@ DASHBOARD_HTML = r"""
       return {
         position: overrides.position || (mobile ? 'chartArea' : 'bottom'),
         align: overrides.align || 'start',
-        labels: { boxWidth: mobile ? 8 : 12, boxHeight: mobile ? 8 : 12, padding: mobile ? 6 : 12, usePointStyle: true, font: { size: mobile ? 10 : 12 } }
+        labels: { boxWidth: mobile ? 8 : 12, boxHeight: mobile ? 8 : 12, padding: mobile ? 6 : 12, usePointStyle: true, font: { size: mobile ? 10 : 12 } },
+        onClick(event, legendItem, legend) {
+          Chart.defaults.plugins.legend.onClick.call(this, event, legendItem, legend);
+          persistChartVisibility(legend.chart);
+        }
       };
     }
 
@@ -2114,20 +2226,20 @@ DASHBOARD_HTML = r"""
     }
 
     function renderCharts({ deferTrend = false } = {}) {
-      const btcHidden = vitalsChart?.data.datasets.find(dataset => dataset.id === 'btcPrice')?.hidden ?? true;
-      const skinTempHidden = vitalsChart?.data.datasets.find(dataset => dataset.id === 'skinTemperature')?.hidden ?? true;
+      const skinTempHidden = vitalsChart?.data.datasets.find(dataset => dataset.id === 'skinTemperature')?.hidden ?? preferredDatasetHidden('skinTemperature', true);
+      const datasets = [
+        { id: 'heartRate', label: 'Heart rate', data: readingSeries('heart_rate'), borderColor: '#dc2626', backgroundColor: '#dc262620', yAxisID: 'hr', hidden: preferredDatasetHidden('heartRate', false), spanGaps: true, pointRadius: 0, tension: .25 },
+        { id: 'oxygen', label: 'SpO₂', data: readingSeries('oxygen_saturation'), borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'spo2', hidden: preferredDatasetHidden('oxygen', false), spanGaps: true, pointRadius: 0, tension: .25 },
+        { id: 'movement', label: 'Movement', data: readingSeries('movement'), borderColor: '#059669', backgroundColor: '#05966920', yAxisID: 'move', hidden: preferredDatasetHidden('movement', false), spanGaps: true, pointRadius: 0, tension: .2 },
+        { id: 'skinTemperature', label: 'Skin temp °C', data: readingSeries('skin_temperature'), borderColor: '#0f766e', backgroundColor: '#0f766e20', yAxisID: 'temp', hidden: skinTempHidden, spanGaps: true, pointRadius: 0, tension: .25 }
+      ];
+      if (showCryptoEnabled()) {
+        datasets.push({ id: 'btcPrice', label: 'BTC price', data: cryptoBitcoinPoints(), borderColor: '#f97316', backgroundColor: '#f9731620', yAxisID: 'btc', hidden: preferredDatasetHidden('btcPrice', false), spanGaps: true, pointRadius: 0, tension: .25 });
+      }
+      datasets.push({ id: 'notifications', type: 'scatter', label: 'Notifications', data: notificationPoints(), yAxisID: 'spo2', hidden: preferredDatasetHidden('notifications', false), pointStyle: 'triangle', pointRadius: 9, pointHoverRadius: 13, hitRadius: 24, showLine: false, borderWidth: 2, borderColor: '#92400e', backgroundColor: '#f59e0b' });
       vitalsChart = upsertChart(vitalsChart, 'vitalsChart', {
         type: 'line',
-        data: {
-          datasets: [
-            { label: 'Heart rate', data: readingSeries('heart_rate'), borderColor: '#dc2626', backgroundColor: '#dc262620', yAxisID: 'hr', spanGaps: true, pointRadius: 0, tension: .25 },
-            { label: 'SpO₂', data: readingSeries('oxygen_saturation'), borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'spo2', spanGaps: true, pointRadius: 0, tension: .25 },
-            { label: 'Movement', data: readingSeries('movement'), borderColor: '#059669', backgroundColor: '#05966920', yAxisID: 'move', spanGaps: true, pointRadius: 0, tension: .2 },
-            { id: 'skinTemperature', label: 'Skin temp °C', data: readingSeries('skin_temperature'), borderColor: '#0f766e', backgroundColor: '#0f766e20', yAxisID: 'temp', hidden: skinTempHidden, spanGaps: true, pointRadius: 0, tension: .25 },
-            { id: 'btcPrice', label: 'BTC price', data: cryptoBitcoinPoints(), borderColor: '#f97316', backgroundColor: '#f9731620', yAxisID: 'btc', hidden: btcHidden, spanGaps: true, pointRadius: 0, tension: .25 },
-            { id: 'notifications', type: 'scatter', label: 'Notifications', data: notificationPoints(), yAxisID: 'spo2', pointStyle: 'triangle', pointRadius: 9, pointHoverRadius: 13, hitRadius: 24, showLine: false, borderWidth: 2, borderColor: '#92400e', backgroundColor: '#f59e0b' }
-          ]
-        },
+        data: { datasets },
         options: chartOptions({
           hr: { type: 'linear', position: 'left', min: 0, title: { display: true, text: 'BPM' } },
           spo2: { type: 'linear', position: 'right', min: 0, suggestedMax: 100, grid: { drawOnChartArea: false }, title: { display: true, text: 'SpO₂' } },
@@ -2536,9 +2648,9 @@ DASHBOARD_HTML = r"""
         type: 'line',
         data: {
           datasets: [
-            { id: 'o2Trailing30', label: shortLabel, data: shortAvg, borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, spanGaps: false },
-            { id: 'o2Baseline4h', label: `Baseline ${Math.round(longMinutes / 60)}h O₂ avg`, data: longAvg, borderColor: '#7c3aed', backgroundColor: '#7c3aed20', yAxisID: 'oxygen', tension: .25, pointRadius: 0, borderDash: [6, 4], spanGaps: false },
-            { id: 'o2TrendSignal', type: 'bar', label: signalLabel, data: signal, yAxisID: 'signal', backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(4, 120, 87, .96)' : 'rgba(185, 28, 28, .96)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#065f46' : '#991b1b', borderWidth: 1, barThickness: isMobileViewport() ? 3 : 4, maxBarThickness: 8, minBarLength: 2 }
+            { id: 'o2Trailing30', label: shortLabel, data: shortAvg, borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'oxygen', hidden: preferredDatasetHidden('o2Trailing30', false), tension: .25, pointRadius: 0, spanGaps: false },
+            { id: 'o2Baseline4h', label: `Baseline ${Math.round(longMinutes / 60)}h O₂ avg`, data: longAvg, borderColor: '#7c3aed', backgroundColor: '#7c3aed20', yAxisID: 'oxygen', hidden: preferredDatasetHidden('o2Baseline4h', false), tension: .25, pointRadius: 0, borderDash: [6, 4], spanGaps: false },
+            { id: 'o2TrendSignal', type: 'bar', label: signalLabel, data: signal, yAxisID: 'signal', hidden: preferredDatasetHidden('o2TrendSignal', false), backgroundColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? 'rgba(4, 120, 87, .96)' : 'rgba(185, 28, 28, .96)', borderColor: ctx => (ctx.raw?.y ?? 0) >= 0 ? '#065f46' : '#991b1b', borderWidth: 1, barThickness: isMobileViewport() ? 3 : 4, maxBarThickness: 8, minBarLength: 2 }
           ]
         },
         options: chartOptions({
@@ -2907,6 +3019,7 @@ DASHBOARD_HTML = r"""
       try {
         await updateCurrentAccountPreference({ show_crypto: checked });
         renderCryptoVisibility();
+        renderCharts({ deferTrend: true });
         if (checked) safeRefresh({ force: true });
       } catch (error) {
         console.error(error);
@@ -2928,6 +3041,11 @@ DASHBOARD_HTML = r"""
 
     el('accountSelect')?.addEventListener('change', async event => {
       setUrlAccount(event.target.value);
+      applyAccountPreferencesToControls();
+      vitalsChart?.destroy();
+      oxygenTrendChart?.destroy();
+      vitalsChart = null;
+      oxygenTrendChart = null;
       devices = [];
       renderDeviceOptions('');
       await loadDevices();
@@ -2947,8 +3065,8 @@ DASHBOARD_HTML = r"""
       readingsTableSignature = '';
       safeRefresh({ resetZoom: true, force: true });
     });
-    el('window').addEventListener('change', () => { notificationPageOffset = 0; readingsTableSignature = ''; safeRefresh({ resetZoom: true, force: true }); });
-    el('smoothing').addEventListener('change', () => { renderCharts({ deferTrend: true }); safeRefresh({ resetZoom: false }); });
+    el('window').addEventListener('change', () => { notificationPageOffset = 0; readingsTableSignature = ''; persistChartSettings({ window: el('window').value }); safeRefresh({ resetZoom: true, force: true }); });
+    el('smoothing').addEventListener('change', () => { persistChartSettings({ smoothing: el('smoothing').value }); renderCharts({ deferTrend: true }); safeRefresh({ resetZoom: false }); });
     el('refresh').addEventListener('click', () => safeRefresh());
     el('dailyInsightsToggle').addEventListener('click', openDailyInsightsModal);
     el('closeDailyInsights').addEventListener('click', () => el('dailyInsightsModal').classList.add('hidden'));
@@ -2980,15 +3098,18 @@ DASHBOARD_HTML = r"""
     el('timePan').addEventListener('change', () => loadOlderHistoryIfNeeded().catch(console.error));
     el('challengeBandsToggle').addEventListener('change', event => {
       challengeBandsEnabled = event.target.checked;
+      persistChartSettings({ challenge_bands: challengeBandsEnabled });
       updateChallengeBandOptions();
     });
     el('sleepHighlightToggle').addEventListener('change', event => {
       sleepHighlightEnabled = event.target.checked;
       el('sleepBallparkToggle').disabled = !sleepHighlightEnabled;
+      persistChartSettings({ sleep_highlight: sleepHighlightEnabled });
       vitalsChart?.update('none');
     });
     el('sleepBallparkToggle').addEventListener('change', event => {
       sleepBallparkEnabled = event.target.checked;
+      persistChartSettings({ sleep_ballpark: sleepBallparkEnabled });
       vitalsChart?.update('none');
     });
     el('notificationsToggle').addEventListener('click', () => {
