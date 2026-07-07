@@ -344,7 +344,7 @@ DASHBOARD_HTML = r"""
       <div id="accountCluster" class="control-group filter-cluster account-cluster hidden">
         <label class="device-label" for="accountSelect">Account</label>
         <select id="accountSelect"><option value="">Default</option></select>
-        <button id="addAccount" class="account-add-button" type="button" title="Add Owlet account">+</button>
+        <button id="addAccount" class="account-add-button" type="button" title="Link another Owlet account">Link Owlet</button>
       </div>
       <div class="control-group filter-cluster">
         <label class="device-label" for="deviceSelect">Device</label>
@@ -1286,7 +1286,7 @@ DASHBOARD_HTML = r"""
     function renderAccountOptions(selected = selectedAccount()) {
       const cluster = el('accountCluster');
       if (!cluster) return;
-      cluster.classList.toggle('hidden', SHARE_MODE || accounts.length <= 1);
+      cluster.classList.toggle('hidden', SHARE_MODE);
       el('accountSelect').innerHTML = accounts.length
         ? accounts.map(account => {
           const status = account.status && account.status !== 'active' ? ` (${account.status.replace('_', ' ')})` : '';

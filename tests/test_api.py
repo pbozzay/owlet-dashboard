@@ -478,6 +478,8 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert 'id="deviceSelect"' in response.text
     assert 'id="accountSelect"' in response.text
     assert 'id="addAccount"' in response.text
+    assert "Link Owlet" in response.text
+    assert "cluster.classList.toggle('hidden', SHARE_MODE);" in response.text
     assert "/api/accounts" in response.text
     assert "has_refresh_token" not in response.text
     assert "/api/devices" in response.text
