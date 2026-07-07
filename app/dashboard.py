@@ -46,20 +46,18 @@ DASHBOARD_HTML = r"""
     .profile-account { font-size: .85rem; font-weight: 950; color: var(--text); }
     .profile-device { font-size: .73rem; font-weight: 800; color: var(--muted); }
     .profile-caret { color: var(--muted); font-size: .78rem; padding-inline: 2px; }
-    .profile-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 40; width: min(360px, calc(100vw - 28px)); padding: 12px; border: 1px solid var(--line); border-radius: 18px; background: #fff; box-shadow: var(--shadow); display: grid; gap: 10px; }
+    .profile-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 40; width: min(320px, calc(100vw - 28px)); padding: 10px; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: var(--shadow); display: grid; gap: 8px; }
     .profile-menu.hidden { display: none; }
-    .profile-menu-header { display: flex; gap: 10px; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
-    .profile-menu-title { font-weight: 950; letter-spacing: -.02em; }
-    .profile-menu-subtitle { color: var(--muted); font-size: .78rem; margin-top: 2px; }
-    .profile-menu-section { display: grid; gap: 6px; }
-    .profile-menu-kicker { color: var(--muted); font-size: .68rem; font-weight: 950; letter-spacing: .08em; text-transform: uppercase; }
-    .profile-current { display: grid; gap: 3px; border: 1px solid var(--line); border-radius: 13px; padding: 9px 10px; background: #f8fafc; }
-    .profile-current b { color: var(--text); }
-    .profile-current span { color: var(--muted); font-size: .78rem; }
-    .profile-menu-section label { display: grid; gap: 5px; }
-    .profile-menu-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .profile-menu-actions .wide { grid-column: 1 / -1; }
-    .profile-toggle { display: flex !important; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: 13px; padding: 9px 10px; background: #f8fafc; color: var(--text); }
+    .profile-menu-header { display: flex; gap: 9px; align-items: center; padding-bottom: 7px; border-bottom: 1px solid var(--line); }
+    .profile-menu-title { display: block; font-weight: 950; letter-spacing: -.02em; }
+    .profile-menu-subtitle { display: block; color: var(--muted); font-size: .76rem; margin-top: 1px; }
+    .profile-menu-row { display: grid; gap: 5px; }
+    .profile-menu-row label { color: var(--muted); font-size: .72rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
+    .profile-account-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; align-items: end; }
+    .profile-account-row select { width: 100%; min-width: 0; }
+    .profile-menu-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .profile-toggle { display: flex !important; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 9px; background: #f8fafc; color: var(--text); }
+    .profile-toggle small { color: var(--muted); }
     .baby-name { color: var(--text); font-weight: 950; font-size: clamp(1rem, 2.5vw, 1.35rem); background: rgba(255,255,255,.76); border: 1px solid rgba(226,232,240,.9); border-radius: 999px; padding: .38rem .75rem; box-shadow: 0 8px 24px rgba(15,23,42,.08); }
     h1 { margin: 0; letter-spacing: -.045em; font-size: clamp(2.1rem, 5vw, 4.2rem); line-height: .92; }
     .title-status-dot { display: none; }
@@ -289,7 +287,7 @@ DASHBOARD_HTML = r"""
       .profile-label { display: none; }
       .profile-button { padding: .25rem; }
       .profile-avatar { width: 34px; height: 34px; }
-      .profile-menu { position: fixed; right: 8px; top: 56px; width: min(360px, calc(100vw - 16px)); }
+      .profile-menu { position: fixed; right: 8px; top: 56px; width: min(320px, calc(100vw - 16px)); }
       .status { display: none; }
       .refresh-cluster { flex: 0 0 auto; justify-content: flex-end; margin-left: auto; }
       .desktop-label { display: none; }
@@ -378,29 +376,19 @@ DASHBOARD_HTML = r"""
               <span id="profileMenuSubtitle" class="profile-menu-subtitle">Owlet sock</span>
             </span>
           </div>
-          <div class="profile-menu-section">
-            <span class="profile-menu-kicker">Current profile</span>
-            <div class="profile-current">
-              <b id="profileCurrentName">Owlet profile</b>
-              <span id="profileCurrentMeta">Owlet sock</span>
+          <div id="accountCluster" class="profile-menu-row account-cluster">
+            <label for="accountSelect">Owlet account</label>
+            <div class="profile-account-row">
+              <select id="accountSelect"><option value="">Default</option></select>
+              <button id="addAccount" class="account-add-button" type="button" title="Link another Owlet account">Link</button>
             </div>
           </div>
-          <div id="accountCluster" class="profile-menu-section account-cluster">
-            <span class="profile-menu-kicker">Switch profile</span>
-            <label for="accountSelect">Owlet account
-              <select id="accountSelect"><option value="">Default</option></select>
-            </label>
-            <button id="addAccount" class="account-add-button wide" type="button" title="Link another Owlet account">Link another Owlet account</button>
-          </div>
-          <div class="profile-menu-section">
-            <span class="profile-menu-kicker">Display preferences</span>
-            <label class="profile-toggle" for="showCryptoSetting">
-              <span><b>Crypto widget</b><br><small>Show BTC / ETH / XMR card and BTC chart line for this account.</small></span>
-              <input id="showCryptoSetting" type="checkbox" />
-            </label>
-          </div>
+          <label class="profile-toggle" for="showCryptoSetting">
+            <span><b>Crypto widget</b><br><small>BTC card + optional chart line</small></span>
+            <input id="showCryptoSetting" type="checkbox" />
+          </label>
           <div class="profile-menu-actions">
-            <button id="installApp" class="install-button wide" type="button" title="Install Owlet as an app">Install app</button>
+            <button id="installApp" class="install-button" type="button" title="Install Owlet as an app">Install app</button>
             <button id="closeProfileMenu" type="button">Close</button>
           </div>
           <div class="status" id="status"><span class="status-dot"></span>Checking collector…</div>
@@ -651,6 +639,8 @@ DASHBOARD_HTML = r"""
     let notificationPageOffset = 0;
     const NOTIFICATION_PAGE_SIZE = 10;
     const TREND_MAX_SAMPLE_GAP_MS = 5 * 60 * 1000;
+    const TREND_MAX_SOURCE_POINTS_DESKTOP = 800;
+    const TREND_MAX_SOURCE_POINTS_MOBILE = 420;
     let vitalsChart = null;
     let oxygenTrendChart = null;
     let challengeDetailChart = null;
@@ -1436,8 +1426,6 @@ DASHBOARD_HTML = r"""
       el('profileMenuTitle').textContent = label;
       el('profileDeviceName').textContent = deviceName;
       el('profileMenuSubtitle').textContent = `${deviceName}${account?.status && account.status !== 'active' ? ` · ${account.status.replace('_', ' ')}` : ''}`;
-      el('profileCurrentName').textContent = label;
-      el('profileCurrentMeta').textContent = `${deviceName} · ${account?.email || 'local account'} · ${showCryptoEnabled() ? 'crypto on' : 'crypto off'}`;
       el('profileMenuWrap')?.classList.toggle('share-only-hidden', SHARE_MODE);
       renderCryptoVisibility();
     }
@@ -1849,23 +1837,39 @@ DASHBOARD_HTML = r"""
       return chartPoints(points);
     }
 
-    function rollingOxygenAverage(minutes) {
+    function trendMaxSourcePoints() {
+      return isMobileViewport() ? TREND_MAX_SOURCE_POINTS_MOBILE : TREND_MAX_SOURCE_POINTS_DESKTOP;
+    }
+
+    function trendSourceRows(maxPoints = trendMaxSourcePoints()) {
+      if (readings.length <= maxPoints) return readings;
+      const stride = Math.ceil(readings.length / maxPoints);
+      return readings.filter((row, index) => {
+        const previous = readings[index - 1];
+        const next = readings[index + 1];
+        const time = Date.parse(row.recorded_at);
+        const previousTime = previous ? Date.parse(previous.recorded_at) : null;
+        const offlineTransition = isOffline(row) && (!isOffline(previous) || !isOffline(next));
+        const gapBoundary = Number.isFinite(time) && Number.isFinite(previousTime) && time - previousTime > TREND_MAX_SAMPLE_GAP_MS;
+        return index === 0 || index === readings.length - 1 || offlineTransition || gapBoundary || index % stride === 0;
+      });
+    }
+
+    function rollingOxygenAverage(minutes, rows = readings) {
       const windowMs = minutes * 60 * 1000;
       const queue = [];
       let sum = 0;
       const points = [];
       let previousValidTime = null;
       let inOfflineGap = false;
-      const resetWindow = () => {
-        queue.length = 0;
-        sum = 0;
-      };
+      const resetWindow = () => { queue.length = 0; sum = 0; };
       const addGapMarker = (time, reason) => {
+        if (!Number.isFinite(time)) return;
         const last = points[points.length - 1];
         if (last && last.y === null && last.reason === reason && Math.abs(last.x - time) < TREND_MAX_SAMPLE_GAP_MS) return;
         points.push({ x: time, y: null, reason });
       };
-      readings.forEach(row => {
+      rows.forEach(row => {
         const time = Date.parse(row.recorded_at);
         const value = Number(row.oxygen_saturation);
         const offline = isOffline(row) || !Number.isFinite(value);
@@ -2694,8 +2698,9 @@ DASHBOARD_HTML = r"""
       const longMinutes = Math.max(240, shortMinutes * 8);
       const shortLabel = `${shortMinutes}m O₂ avg`;
       const signalLabel = `${shortMinutes}m − ${Math.round(longMinutes / 60)}h signal`;
-      const shortAvg = rollingOxygenAverage(shortMinutes);
-      const longAvg = rollingOxygenAverage(longMinutes);
+      const trendRows = trendSourceRows();
+      const shortAvg = rollingOxygenAverage(shortMinutes, trendRows);
+      const longAvg = rollingOxygenAverage(longMinutes, trendRows);
       const signal = oxygenTrendSignal(shortAvg, longAvg);
       oxygenTrendChart = upsertChart(oxygenTrendChart, 'oxygenTrendChart', {
         type: 'line',

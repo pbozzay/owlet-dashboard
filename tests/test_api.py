@@ -498,6 +498,11 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert 'id="profileMenu"' in response.text
     assert 'id="showCryptoSetting"' in response.text
     assert "Crypto widget" in response.text
+    assert "BTC card + optional chart line" in response.text
+    assert 'id="profileCurrentName"' not in response.text
+    assert "Current profile" not in response.text
+    assert "Switch profile" not in response.text
+    assert "Display preferences" not in response.text
     assert 'id="deviceSelect"' in response.text
     assert 'id="accountSelect"' in response.text
     assert 'id="addAccount"' in response.text
@@ -585,11 +590,16 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "Trend signal" in response.text
     assert "legend: { display: false }" in response.text
     assert "TREND_MAX_SAMPLE_GAP_MS" in response.text
+    assert "TREND_MAX_SOURCE_POINTS_DESKTOP = 800" in response.text
+    assert "TREND_MAX_SOURCE_POINTS_MOBILE = 420" in response.text
+    assert "trendSourceRows" in response.text
+    assert "rollingOxygenAverage(shortMinutes, trendRows)" in response.text
+    assert "rollingOxygenAverage(longMinutes, trendRows)" in response.text
     assert "y: null" in response.text
     assert "spanGaps: false" in response.text
     assert "Trend gap — offline or missing data." in response.text
     assert "Trend gap — offline, missing data, or O₂ challenge." not in response.text
-    assert "function rollingOxygenAverage(minutes)" in response.text
+    assert "function rollingOxygenAverage(minutes, rows = readings)" in response.text
     assert "const offline = isOffline(row) || !Number.isFinite(value)" in response.text
     assert "addGapMarker(time, inChallenge ? 'challenge' : 'offline')" not in response.text
     assert "const inChallenge = timeInIntervals(time, challengeWindows)" not in response.text
