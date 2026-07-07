@@ -519,6 +519,9 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert 'id="menuNewChallenge"' in response.text
     assert 'id="profileDeviceName"' in response.text
     assert '<button id="download" class="icon-button"' in response.text
+    assert 'id="resetZoom"' in response.text
+    assert 'id="resetZoomHeader"' in response.text
+    assert "Reset view" in response.text
     assert "chartjs-plugin-zoom" in response.text
     assert "mobile-web-app-capable" in response.text
     assert 'rel="manifest"' in response.text
@@ -536,6 +539,8 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "function tooltipTitle(items)" in response.text
     assert "title: tooltipTitle" in response.text
     assert "label: tooltipLabel" in response.text
+    assert "chartValue(context.parsed.y, '%')" in response.text
+    assert "callback: axisTick" in response.text
     assert "notificationHit" in response.text
     assert "hitRadius: 24" in response.text
     assert "/api/notifications" in response.text
@@ -620,9 +625,10 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "TABLE_ROW_LIMIT = 500" in response.text
     assert "newest ${tableRows.length} of ${filtered.length} loaded" in response.text
     assert "tableRows.map((row, index)" in response.text
-    assert "CHART_MAX_POINTS = 1000" in response.text
+    assert "CHART_MAX_POINTS = 3000" in response.text
+    assert "bucket.forEach(item" in response.text
+    assert "Number(item.point.y) < Number(min.point.y)" in response.text
     assert "offlineTransition" in response.text
-    assert "!isOffline(rows[index - 1]) || !isOffline(rows[index + 1])" in response.text
     assert "table.addEventListener('click'" in response.text
     assert "loadOlderHistoryIfNeeded" in response.text
     assert "release near the left edge to load more" in response.text
@@ -631,6 +637,10 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "sleepBands" in response.text
     assert "stateChartHover" in response.text
     assert "stateTooltip" in response.text
+    assert "dayBoundaries" in response.text
+    assert "dayBoundaryTimes" in response.text
+    assert "state-day-boundary" in response.text
+    assert "timeTickValues(range)" in response.text
     assert "sleepStageInfo" in response.text
     assert "sleepHighlightToggle" in response.text
     assert "sleepBallparkToggle" in response.text

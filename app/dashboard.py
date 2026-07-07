@@ -207,7 +207,8 @@ DASHBOARD_HTML = r"""
     .challenge-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
     .challenge-summary-grid .mini { min-width: 0; }
     .state-strip-wrap { position: relative; margin: -2px var(--chart-right-pad, 0px) 0 var(--chart-left-pad, 0px); }
-    .state-strip { height: 18px; border-radius: 0 0 10px 10px; overflow: hidden; background: #e2e8f0; border: 1px solid var(--line); border-top: 0; cursor: crosshair; }
+    .state-strip { position: relative; height: 18px; border-radius: 0 0 10px 10px; overflow: hidden; background: #e2e8f0; border: 1px solid var(--line); border-top: 0; cursor: crosshair; }
+    .state-day-boundary { position: absolute; top: 0; bottom: 0; border-left: 1px dotted rgba(15, 23, 42, .55); pointer-events: none; }
     .state-segment { min-width: 1px; }
     .state-segment:hover { filter: saturate(1.2) brightness(1.03); }
     .state-time-axis { position: relative; height: 18px; color: var(--muted); font-size: .72rem; }
@@ -488,6 +489,7 @@ DASHBOARD_HTML = r"""
           </div>
           <div class="chart-actions">
             <span class="update-chip" id="updateChip">New data</span>
+            <button id="resetZoomHeader" type="button" title="Reset the vitals and O₂ trend charts to the selected range">Reset view</button>
             <span class="o2-menu-wrap" id="o2AddWrap">
               <button id="o2AddMenuToggle" class="o2-add-button" type="button" aria-expanded="false" title="Add O₂ challenge event">O₂+</button>
               <span id="o2AddMenu" class="o2-add-menu hidden" role="menu" aria-label="Add O₂ challenge">
@@ -633,7 +635,7 @@ DASHBOARD_HTML = r"""
     const SHARE_MODE = __SHARE_MODE__;
     const REFRESH_SECONDS = 15;
     const TABLE_ROW_LIMIT = 500;
-    const CHART_MAX_POINTS = 1000;
+    const CHART_MAX_POINTS = 3000;
     let readings = [];
     let filtered = [];
     let summary = null;
@@ -877,10 +879,41 @@ DASHBOARD_HTML = r"""
         ctx.restore();
       }
     };
-    Chart.register(sleepBandsPlugin, challengeBandsPlugin, offlineBandsPlugin, sleepPhaseHoverPlugin, stateChartHoverPlugin, notificationGlyphsPlugin, notificationHoverPlugin, oxygen85ThresholdPlugin);
+    const dayBoundaryPlugin = {
+      id: 'dayBoundaries',
+      afterDraw(chart, _args, options) {
+        if (options?.display === false || !chart.scales?.x) return;
+        const { ctx, chartArea, scales } = chart;
+        const min = Number(scales.x.min);
+        const max = Number(scales.x.max);
+        if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(15, 23, 42, .38)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 5]);
+        dayBoundaryTimes({ min, max }).forEach(time => {
+          const x = scales.x.getPixelForValue(time);
+          if (Number.isFinite(x) && x > chartArea.left && x < chartArea.right) {
+            ctx.beginPath();
+            ctx.moveTo(x, chartArea.top);
+            ctx.lineTo(x, chartArea.bottom);
+            ctx.stroke();
+          }
+        });
+        ctx.restore();
+      }
+    };
+    Chart.register(sleepBandsPlugin, challengeBandsPlugin, offlineBandsPlugin, dayBoundaryPlugin, sleepPhaseHoverPlugin, stateChartHoverPlugin, notificationGlyphsPlugin, notificationHoverPlugin, oxygen85ThresholdPlugin);
 
     const el = (id) => document.getElementById(id);
     const fmt = (value, suffix = '') => value === null || value === undefined ? '—' : `${value}${suffix}`;
+    const compactNumber = (value, digits = 1) => {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return '—';
+      return number.toFixed(digits).replace(/\.0$/, '');
+    };
+    const chartValue = (value, suffix = '') => value === null || value === undefined || !Number.isFinite(Number(value)) ? '—' : `${compactNumber(value, 1)}${suffix}`;
+    const axisTick = (value) => compactNumber(value, 1);
     const num = (value, digits = 1) => value === null || value === undefined ? '—' : Number(value).toFixed(digits).replace(/\.0$/, '');
     const money = (value) => value === null || value === undefined ? '—' : Number(value).toLocaleString([], { style: 'currency', currency: 'USD', maximumFractionDigits: Number(value) >= 100 ? 0 : 2 });
     const pct = (value) => value === null || value === undefined ? '—' : `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(1)}%`;
@@ -993,6 +1026,18 @@ DASHBOARD_HTML = r"""
 
     function timeInIntervals(time, intervals) {
       return intervals.some(interval => time >= interval.start && time <= interval.end);
+    }
+
+    function dayBoundaryTimes(range) {
+      if (!range || !Number.isFinite(range.min) || !Number.isFinite(range.max) || range.max <= range.min) return [];
+      const times = [];
+      const boundary = new Date(range.min);
+      boundary.setHours(24, 0, 0, 0);
+      while (boundary.getTime() < range.max) {
+        times.push(boundary.getTime());
+        boundary.setDate(boundary.getDate() + 1);
+      }
+      return times;
     }
 
     function isInChallenge(rowOrTime) {
@@ -1754,27 +1799,47 @@ DASHBOARD_HTML = r"""
         </div>`).join('') || '<small>Price feed unavailable</small>';
     }
 
-    function downsample(rows, maxPoints = CHART_MAX_POINTS) {
-      if (rows.length <= maxPoints) return rows;
-      const range = visibleRange();
-      const step = Math.ceil(rows.length / maxPoints);
-      return rows.filter((row, index) => {
-        const time = Date.parse(row.recorded_at);
-        const visibleEdge = range && (time === range.min || time === range.max);
-        const offlineTransition = isOffline(row) && (!isOffline(rows[index - 1]) || !isOffline(rows[index + 1]));
-        return visibleEdge || offlineTransition || index % step === 0 || index === rows.length - 1;
-      });
-    }
-
     function downsamplePoints(points, maxPoints = CHART_MAX_POINTS) {
       const range = visibleRange();
-      if (points.length <= maxPoints) return extendPointsToVisibleEdges(points, range);
-      const step = Math.ceil(points.length / maxPoints);
-      const sampled = points.filter((point, index) => {
-        const visibleEdge = range && (point.x === range.min || point.x === range.max);
-        return visibleEdge || point.y === null || index % step === 0 || index === points.length - 1;
+      const clean = points.filter(point => point && Number.isFinite(Number(point.x)));
+      if (clean.length <= maxPoints) return extendPointsToVisibleEdges(clean, range);
+      const preserved = new Map();
+      const add = (index) => {
+        const point = clean[index];
+        if (!point) return;
+        preserved.set(index, point);
+      };
+      add(0);
+      add(clean.length - 1);
+      clean.forEach((point, index) => {
+        if (point.y === null || point.reason || (range && (Math.abs(point.x - range.min) < 1000 || Math.abs(point.x - range.max) < 1000))) add(index);
       });
-      return extendPointsToVisibleEdges(sampled, range, points);
+      const finite = clean.map((point, index) => ({ point, index })).filter(item => item.point.y !== null && item.point.y !== undefined && Number.isFinite(Number(item.point.y)));
+      if (!finite.length) return extendPointsToVisibleEdges([...preserved.values()].sort((a, b) => a.x - b.x), range, clean);
+      const remainingBudget = Math.max(80, maxPoints - preserved.size);
+      const bucketCount = Math.max(1, Math.floor(remainingBudget / 4));
+      const minX = finite[0].point.x;
+      const maxX = finite[finite.length - 1].point.x;
+      const bucketWidth = Math.max(1, (maxX - minX) / bucketCount);
+      const buckets = Array.from({ length: bucketCount }, () => []);
+      finite.forEach(item => {
+        const bucket = Math.min(bucketCount - 1, Math.max(0, Math.floor((item.point.x - minX) / bucketWidth)));
+        buckets[bucket].push(item);
+      });
+      buckets.forEach(bucket => {
+        if (!bucket.length) return;
+        add(bucket[0].index);
+        add(bucket[bucket.length - 1].index);
+        let min = bucket[0];
+        let max = bucket[0];
+        bucket.forEach(item => {
+          if (Number(item.point.y) < Number(min.point.y)) min = item;
+          if (Number(item.point.y) > Number(max.point.y)) max = item;
+        });
+        add(min.index);
+        add(max.index);
+      });
+      return extendPointsToVisibleEdges([...preserved.values()].sort((a, b) => a.x - b.x), range, clean);
     }
 
     function extendPointsToVisibleEdges(points, range = visibleRange(), sourcePoints = points) {
@@ -1792,9 +1857,11 @@ DASHBOARD_HTML = r"""
     function readingSeries(key) {
       const minutes = smoothingMinutes();
       if (minutes > 0) return rollingAverageForKey(key, minutes);
-      const sampled = downsample(readings).map(row => ({ x: Date.parse(row.recorded_at), y: metricValue(row, key) }));
-      const source = readings.map(row => ({ x: Date.parse(row.recorded_at), y: metricValue(row, key) }));
-      return extendPointsToVisibleEdges(sampled, visibleRange(), source);
+      const source = readings.map((row, index) => {
+        const offlineTransition = isOffline(row) && (!isOffline(readings[index - 1]) || !isOffline(readings[index + 1]));
+        return { x: Date.parse(row.recorded_at), y: metricValue(row, key), reason: offlineTransition ? 'offline-transition' : undefined };
+      });
+      return downsamplePoints(source);
     }
 
     function rollingAverageForKey(key, minutes) {
@@ -1967,13 +2034,13 @@ DASHBOARD_HTML = r"""
         return `Trend signal ${valueText}: recent O₂ is near baseline.`;
       }
       if (context.dataset.id === 'o2Trailing30') {
-        return `${context.dataset.label}: ${Number(context.parsed.y).toFixed(1)}%`;
+        return `${context.dataset.label}: ${chartValue(context.parsed.y, '%')}`;
       }
       if (context.dataset.id === 'o2Baseline4h') {
-        return `${context.dataset.label}: ${Number(context.parsed.y).toFixed(1)}%`;
+        return `${context.dataset.label}: ${chartValue(context.parsed.y, '%')}`;
       }
       const value = context.parsed?.y;
-      return `${context.dataset.label}: ${value === null || value === undefined ? '—' : value}`;
+      return `${context.dataset.label}: ${chartValue(value)}`;
     }
 
     function legendOptions(overrides = {}) {
@@ -1990,6 +2057,16 @@ DASHBOARD_HTML = r"""
       };
     }
 
+    function chartTimeTickLimit() {
+      return window.matchMedia('(max-width: 640px)').matches ? 6 : 14;
+    }
+
+    function timeTickValues(range, maxTicks = chartTimeTickLimit()) {
+      if (!range || range.max <= range.min) return [];
+      const count = Math.max(2, maxTicks);
+      return Array.from({ length: count }, (_, index) => range.min + ((range.max - range.min) * index) / (count - 1));
+    }
+
     function xScaleOptions({ hideTicks = false } = {}) {
       const range = visibleRange();
       return {
@@ -1997,7 +2074,7 @@ DASHBOARD_HTML = r"""
         offset: false,
         min: range?.min,
         max: range?.max,
-        ticks: { display: !hideTicks, maxRotation: 0, autoSkip: true, maxTicksLimit: window.matchMedia('(max-width: 640px)').matches ? 6 : 14, callback: timeTick }
+        ticks: { display: !hideTicks, maxRotation: 0, autoSkip: true, maxTicksLimit: chartTimeTickLimit(), callback: timeTick }
       };
     }
 
@@ -2019,6 +2096,10 @@ DASHBOARD_HTML = r"""
     function chartOptions(extraScales, options = {}) {
       const mobile = window.matchMedia('(max-width: 640px)').matches;
       const scales = { x: xScaleOptions({ hideTicks: options.hideXTicks }), ...extraScales };
+      Object.entries(scales).forEach(([key, scale]) => {
+        if (key === 'x') return;
+        scale.ticks = { callback: axisTick, ...(scale.ticks || {}) };
+      });
       if (mobile) {
         Object.entries(scales).forEach(([key, scale]) => {
           if (key !== 'x' && scale.title && !options.keepAxisTitles) scale.title.display = false;
@@ -2030,7 +2111,7 @@ DASHBOARD_HTML = r"""
         maintainAspectRatio: false,
         animation: { duration: 450 },
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: legendOptions(options.legend || {}), tooltip: { callbacks: { title: tooltipTitle, label: tooltipLabel } }, zoom: zoomOptions(), challengeBands: { intervals: challengeBandsEnabled ? challengeIntervals() : [] }, offlineBands: { intervals: offlineIntervals() } },
+        plugins: { legend: legendOptions(options.legend || {}), tooltip: { callbacks: { title: tooltipTitle, label: tooltipLabel } }, zoom: zoomOptions(), dayBoundaries: {}, challengeBands: { intervals: challengeBandsEnabled ? challengeIntervals() : [] }, offlineBands: { intervals: offlineIntervals() } },
         scales
       };
     }
@@ -2110,15 +2191,19 @@ DASHBOARD_HTML = r"""
     }
 
     function resetZoom() {
-      zoomWindow = defaultVisibleRange();
+      const nextRange = defaultVisibleRange();
+      zoomWindow = nextRange ? { ...nextRange } : null;
+      syncInProgress = true;
       chartList().forEach(chart => {
         if (typeof chart.resetZoom === 'function') chart.resetZoom('none');
         chart.options.scales.x.min = zoomWindow?.min;
         chart.options.scales.x.max = zoomWindow?.max;
         chart.update('none');
       });
+      syncInProgress = false;
       renderStateStrip();
       updatePanControl();
+      loadOlderHistoryIfNeeded().catch(console.error);
     }
 
     function applyVisibleWindow(range) {
@@ -2624,7 +2709,11 @@ DASHBOARD_HTML = r"""
         return;
       }
       stateStripSegments = rawStateIntervals(range);
-      el('stateStrip').innerHTML = '';
+      const dayMarkers = dayBoundaryTimes(range).map(time => {
+        const position = ((time - range.min) / (range.max - range.min)) * 100;
+        return `<span class="state-day-boundary" style="left:${position}%"></span>`;
+      }).join('');
+      el('stateStrip').innerHTML = dayMarkers;
       const stops = stateStripSegments.flatMap(segment => {
         const left = ((segment.start - range.min) / (range.max - range.min)) * 100;
         const right = ((segment.end - range.min) / (range.max - range.min)) * 100;
@@ -2632,7 +2721,10 @@ DASHBOARD_HTML = r"""
         return [`${color} ${Math.max(0, left).toFixed(3)}%`, `${color} ${Math.min(100, right).toFixed(3)}%`];
       });
       el('stateStrip').style.background = stops.length ? `linear-gradient(to right, ${stops.join(', ')})` : '#e2e8f0';
-      const ticks = [0, .25, .5, .75, 1].map(position => `<span style="left:${position * 100}%">${timeTick(range.min + (range.max - range.min) * position)}</span>`).join('');
+      const ticks = timeTickValues(range).map(value => {
+        const position = ((value - range.min) / (range.max - range.min)) * 100;
+        return `<span style="left:${position}%">${timeTick(value)}</span>`;
+      }).join('');
       el('stateTimeAxis').innerHTML = ticks;
     }
 
@@ -3072,6 +3164,7 @@ DASHBOARD_HTML = r"""
     el('closeDailyInsights').addEventListener('click', () => el('dailyInsightsModal').classList.add('hidden'));
     el('download').addEventListener('click', downloadCsv);
     el('resetZoom').addEventListener('click', resetZoom);
+    el('resetZoomHeader').addEventListener('click', resetZoom);
     el('challengesToggle').addEventListener('click', () => {
       el('notificationsPanel').classList.add('hidden');
       el('notificationsToggle').setAttribute('aria-expanded', 'false');
