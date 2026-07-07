@@ -19,6 +19,7 @@ async def _seed_reading(
     hr=120,
     spo2=96,
     sleep_state=1,
+    skin_temp=32,
     device_serial="AC123",
 ):
     await store.insert_reading(
@@ -29,6 +30,7 @@ async def _seed_reading(
                 "sleep_state": sleep_state,
                 "last_updated": timestamp,
                 "battery": 100,
+                "skin_temperature": skin_temp,
             },
             device_serial,
         )
@@ -40,9 +42,9 @@ async def test_summary_excludes_zero_offline_vitals_from_metric_averages(tmp_pat
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)
     await store.init()
-    await _seed_reading(store, "2026-07-02T01:00:00Z", hr=120, spo2=98)
-    await _seed_reading(store, "2026-07-02T01:05:00Z", hr=0, spo2=0, sleep_state=0)
-    await _seed_reading(store, "2026-07-02T01:10:00Z", hr=140, spo2=96)
+    await _seed_reading(store, "2026-07-02T01:00:00Z", hr=120, spo2=98, skin_temp=31)
+    await _seed_reading(store, "2026-07-02T01:05:00Z", hr=0, spo2=0, sleep_state=0, skin_temp=35)
+    await _seed_reading(store, "2026-07-02T01:10:00Z", hr=140, spo2=96, skin_temp=33)
     app = create_app(store=store, settings=_test_settings(), start_poller=False)
 
     with TestClient(app) as client:
@@ -54,7 +56,10 @@ async def test_summary_excludes_zero_offline_vitals_from_metric_averages(tmp_pat
     assert summary["offline_count"] == 1
     assert summary["heart_rate"]["avg"] == 130
     assert summary["oxygen_saturation"]["min"] == 96
+    assert summary["skin_temperature"]["avg"] == 32
+    assert summary["skin_temperature"]["min"] == 31
     assert rollups["rollups"][0]["offline_samples"] == 1
+    assert rollups["rollups"][0]["avg_skin_temperature"] == 32
 
 
 @pytest.mark.asyncio
@@ -108,11 +113,11 @@ async def test_oxygen_challenges_are_stored_and_excluded_from_normal_stats(tmp_p
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)
     await store.init()
-    await _seed_reading(store, "2026-07-02T00:00:00Z", hr=120, spo2=98, sleep_state=8)
-    await _seed_reading(store, "2026-07-02T00:30:00Z", hr=122, spo2=97, sleep_state=8)
-    await _seed_reading(store, "2026-07-02T01:00:00Z", hr=150, spo2=90, sleep_state=15)
-    await _seed_reading(store, "2026-07-02T01:30:00Z", hr=155, spo2=89, sleep_state=15)
-    await _seed_reading(store, "2026-07-02T02:00:00Z", hr=126, spo2=97, sleep_state=1)
+    await _seed_reading(store, "2026-07-02T00:00:00Z", hr=120, spo2=98, sleep_state=8, skin_temp=31)
+    await _seed_reading(store, "2026-07-02T00:30:00Z", hr=122, spo2=97, sleep_state=8, skin_temp=32)
+    await _seed_reading(store, "2026-07-02T01:00:00Z", hr=150, spo2=90, sleep_state=15, skin_temp=40)
+    await _seed_reading(store, "2026-07-02T01:30:00Z", hr=155, spo2=89, sleep_state=15, skin_temp=41)
+    await _seed_reading(store, "2026-07-02T02:00:00Z", hr=126, spo2=97, sleep_state=1, skin_temp=33)
     app = create_app(store=store, settings=_test_settings(), start_poller=False)
 
     with TestClient(app) as client:
@@ -146,6 +151,8 @@ async def test_oxygen_challenges_are_stored_and_excluded_from_normal_stats(tmp_p
     assert created["label"] == "Nap off oxygen"
     assert summary["challenge_count"] == 2
     assert summary["oxygen_saturation"]["min"] == 97
+    assert summary["skin_temperature"]["avg"] == 32
+    assert summary["skin_temperature"]["max"] == 33
     assert insights["breathing"]["low_oxygen_samples"] == 0
     assert detail["summary"]["avg_oxygen_saturation"] == 89.5
     assert detail["summary"]["low_oxygen_samples"] == 2
@@ -467,6 +474,10 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "dailyOxygenSleep" in response.text
     assert "dailyOxygenWake" in response.text
     assert "dailyHeartRateAvg" in response.text
+    assert "dailySkinTempAvg" in response.text
+    assert "Skin temp °C" in response.text
+    assert "Temp avg" in response.text
+    assert "Avg skin temp" in response.text
     assert "renderDailyInsightsChart(periods)" in response.text
     assert "Daily insights" in response.text
     assert "Last 7 rolling 24-hour periods" in response.text
@@ -509,11 +520,18 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "extendPointsToVisibleEdges" in response.text
     assert "readingSeries('heart_rate')" in response.text
     assert "rollingAverageForKey" in response.text
-    assert "if (isOffline(row) || !Number.isFinite(value))" in response.text
-    assert "reason: 'offline-zero'" in response.text
+    assert "const value = metricValue(row, key)" in response.text
+    assert "if (isOffline(row) || value === null)" in response.text
+    assert "key === 'skin_temperature' ? null : 0" in response.text
+    assert "reason: key === 'skin_temperature' ? 'missing' : 'offline-zero'" in response.text
     assert "offset: false" in response.text
     assert "hr: { type: 'linear', position: 'left', min: 0" in response.text
     assert "spo2: { type: 'linear', position: 'right', min: 0" in response.text
+    assert "id: 'skinTemperature'" in response.text
+    assert "readingSeries('skin_temperature')" in response.text
+    assert "metric-grid" not in response.text
+    assert "renderMetricCards" not in response.text
+    assert 'id="metricCards"' not in response.text
     assert "dataQs" in response.text
     assert response.text.count("fetchJson(`${API_BASE}/api/readings?${dataQs}`)") == 1
     assert "refreshInFlight" in response.text

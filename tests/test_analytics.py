@@ -2,7 +2,7 @@ from app.analytics import build_insights, build_rollups, sleep_state_label
 from app.models import normalize_reading
 
 
-def _reading(timestamp: str, *, hr=120, spo2=96, movement=0, sleep_state=1):
+def _reading(timestamp: str, *, hr=120, spo2=96, movement=0, sleep_state=1, skin_temp=32):
     return normalize_reading(
         {
             "heart_rate": hr,
@@ -11,6 +11,7 @@ def _reading(timestamp: str, *, hr=120, spo2=96, movement=0, sleep_state=1):
             "sleep_state": sleep_state,
             "last_updated": timestamp,
             "battery": 100,
+            "skin_temperature": skin_temp,
         },
         device_serial="AC123",
     )
@@ -26,10 +27,10 @@ def test_sleep_state_labels_match_known_owlet_codes():
 
 def test_build_rollups_computes_hourly_averages_and_duration_estimates():
     readings = [
-        _reading("2026-07-03T10:00:00Z", hr=100, spo2=93, sleep_state=8),
-        _reading("2026-07-03T10:30:00Z", hr=110, spo2=94, sleep_state=15),
-        _reading("2026-07-03T11:00:00Z", hr=120, spo2=96, sleep_state=1),
-        _reading("2026-07-03T11:30:00Z", hr=130, spo2=98, sleep_state=1),
+        _reading("2026-07-03T10:00:00Z", hr=100, spo2=93, sleep_state=8, skin_temp=31),
+        _reading("2026-07-03T10:30:00Z", hr=110, spo2=94, sleep_state=15, skin_temp=33),
+        _reading("2026-07-03T11:00:00Z", hr=120, spo2=96, sleep_state=1, skin_temp=34),
+        _reading("2026-07-03T11:30:00Z", hr=130, spo2=98, sleep_state=1, skin_temp=36),
     ]
 
     rollups = build_rollups(readings, bucket="hour")
@@ -38,6 +39,9 @@ def test_build_rollups_computes_hourly_averages_and_duration_estimates():
     assert rollups[0]["avg_heart_rate"] == 105
     assert rollups[0]["avg_oxygen_saturation"] == 93.5
     assert rollups[0]["min_oxygen_saturation"] == 93
+    assert rollups[0]["avg_skin_temperature"] == 32
+    assert rollups[0]["min_skin_temperature"] == 31
+    assert rollups[0]["max_skin_temperature"] == 33
     assert rollups[0]["sleep_seconds"] == 3600
     assert rollups[0]["awake_seconds"] == 0
     assert rollups[1]["awake_seconds"] == 1800

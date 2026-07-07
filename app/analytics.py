@@ -62,6 +62,11 @@ def build_rollups(readings: list[OwletReading], bucket: Bucket = "hour") -> list
         )
         offline_seconds = sum(duration for reading, duration in pairs if is_offline_reading(reading))
         movement_values = [row.movement for row in valid_rows]
+        skin_temperature_values: list[float | int | None] = [
+            row.skin_temperature
+            for row in valid_rows
+            if row.skin_temperature is not None and row.skin_temperature > 0
+        ]
         movement_seconds = sum(
             duration
             for reading, duration in valid_pairs
@@ -81,6 +86,9 @@ def build_rollups(readings: list[OwletReading], bucket: Bucket = "hour") -> list
                 "min_oxygen_saturation": _min([row.oxygen_saturation for row in valid_rows]),
                 "avg_movement": _avg(movement_values),
                 "max_movement": _max(movement_values),
+                "avg_skin_temperature": _avg(skin_temperature_values),
+                "min_skin_temperature": _min(skin_temperature_values),
+                "max_skin_temperature": _max(skin_temperature_values),
                 "movement_seconds": movement_seconds,
                 "movement_samples": sum(
                     1 for row in valid_rows if row.movement is not None and row.movement >= MOVEMENT_AWAKE_THRESHOLD

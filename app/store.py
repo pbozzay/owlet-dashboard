@@ -239,6 +239,10 @@ class ReadingStore:
             "oxygen_saturation": _metric_summary([r.oxygen_saturation for r in valid_readings]),
             "battery": _metric_summary([r.battery for r in readings]),
             "movement": _metric_summary([r.movement for r in valid_readings]),
+            "skin_temperature": _metric_summary([
+                r.skin_temperature if r.skin_temperature is not None and r.skin_temperature > 0 else None
+                for r in valid_readings
+            ]),
         }
 
     async def list_devices(self) -> list[dict[str, Any]]:

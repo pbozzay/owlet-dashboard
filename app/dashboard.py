@@ -199,7 +199,6 @@ DASHBOARD_HTML = r"""
     .sleep-overlay-controls { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px 12px; color: var(--muted); font-size: .78rem; }
     .inline-toggle { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; }
     .inline-toggle input { padding: 0; }
-    .metric-grid { grid-template-columns: repeat(4, minmax(140px, 1fr)); margin-top: 14px; }
     .card, .panel { padding: 16px; }
     .hero-card { min-height: 172px; }
     .eyebrow { color: var(--muted); font-size: .77rem; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
@@ -239,7 +238,7 @@ DASHBOARD_HTML = r"""
     @media (max-width: 1080px) {
       .hero { align-items: flex-start; flex-direction: column; }
       .glance-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .metric-grid, .details-grid, .readings-grid { grid-template-columns: 1fr; }
+      .details-grid, .readings-grid { grid-template-columns: 1fr; }
       .reading-detail-panel { position: static; }
       .status { white-space: normal; }
       .toolbar { position: static; }
@@ -486,8 +485,6 @@ DASHBOARD_HTML = r"""
       </div>
     </section>
 
-    <section class="grid metric-grid" id="metricCards"></section>
-
     <section class="panel" style="margin-top: 14px;">
         <div class="panel-title">
           <h2>Drill-down table</h2>
@@ -557,7 +554,7 @@ DASHBOARD_HTML = r"""
         <button id="closeDailyInsights" type="button">Close</button>
       </div>
       <div id="dailyInsightsSummary" class="daily-insights-summary"></div>
-      <div class="daily-insights-chart" aria-label="Daily O₂ and heart-rate comparison chart"><canvas id="dailyInsightsChart"></canvas></div>
+      <div class="daily-insights-chart" aria-label="Daily O₂, heart-rate, and skin-temperature comparison chart"><canvas id="dailyInsightsChart"></canvas></div>
       <div class="table-wrap"><table id="dailyInsightsTable" class="daily-insights-table"></table></div>
       <p class="small">Sleeping = Owlet light/deep sleep states. Waking = Owlet awake state. Inactive/unknown samples count only in overall averages.</p>
     </div>
@@ -1005,8 +1002,15 @@ DASHBOARD_HTML = r"""
       return `${result.word} ${sign}${result.delta.toFixed(digits).replace(/\.0$/, '')}${unit}`;
     }
 
+    function metricValue(row, key) {
+      const value = Number(row?.[key]);
+      if (!Number.isFinite(value)) return null;
+      if (key === 'skin_temperature' && (isOffline(row) || value <= 0)) return null;
+      return value;
+    }
+
     function validMetricValues(rows, key) {
-      return rows.map(row => Number(row[key])).filter(value => Number.isFinite(value));
+      return rows.map(row => metricValue(row, key)).filter(value => value !== null);
     }
 
     function summarizeMetric(rows, key) {
@@ -1029,8 +1033,8 @@ DASHBOARD_HTML = r"""
     function metricCell(summary, key, field) {
       const value = summary?.[key]?.[field];
       if (value === null || value === undefined) return '—';
-      const digits = key === 'oxygen_saturation' ? 1 : 0;
-      const suffix = key === 'oxygen_saturation' ? '%' : '';
+      const digits = key === 'heart_rate' ? 0 : 1;
+      const suffix = key === 'oxygen_saturation' ? '%' : (key === 'skin_temperature' ? '°C' : '');
       return `${Number(value).toFixed(digits).replace(/\.0$/, '')}${suffix}`;
     }
 
@@ -1053,7 +1057,8 @@ DASHBOARD_HTML = r"""
         const waking = rows.filter(row => sleepBucket(row) === 'waking');
         const summarizeRows = periodRows => ({
           oxygen_saturation: summarizeMetric(periodRows, 'oxygen_saturation'),
-          heart_rate: summarizeMetric(periodRows, 'heart_rate')
+          heart_rate: summarizeMetric(periodRows, 'heart_rate'),
+          skin_temperature: summarizeMetric(periodRows, 'skin_temperature')
         });
         return {
           index,
@@ -1086,7 +1091,8 @@ DASHBOARD_HTML = r"""
         { id: 'dailyOxygenAvg', label: 'O₂ avg', data: chartPeriods.map(period => dailyInsightChartValue(period, 'overall', 'oxygen_saturation')), yAxisID: 'oxygen', borderColor: '#2563eb', backgroundColor: '#2563eb20', pointBackgroundColor: '#2563eb', pointRadius: 4, tension: .28, spanGaps: false },
         { id: 'dailyOxygenSleep', label: 'Sleep O₂', data: chartPeriods.map(period => dailyInsightChartValue(period, 'sleepingStats', 'oxygen_saturation')), yAxisID: 'oxygen', borderColor: '#7c3aed', backgroundColor: '#7c3aed20', pointBackgroundColor: '#7c3aed', borderDash: [5, 4], pointRadius: 3, tension: .28, spanGaps: false },
         { id: 'dailyOxygenWake', label: 'Wake O₂', data: chartPeriods.map(period => dailyInsightChartValue(period, 'wakingStats', 'oxygen_saturation')), yAxisID: 'oxygen', borderColor: '#f59e0b', backgroundColor: '#f59e0b20', pointBackgroundColor: '#f59e0b', borderDash: [3, 3], pointRadius: 3, tension: .28, spanGaps: false },
-        { id: 'dailyHeartRateAvg', label: 'HR avg', data: chartPeriods.map(period => dailyInsightChartValue(period, 'overall', 'heart_rate')), yAxisID: 'heart', borderColor: '#dc2626', backgroundColor: '#dc262620', pointBackgroundColor: '#dc2626', pointRadius: 4, tension: .25, spanGaps: false }
+        { id: 'dailyHeartRateAvg', label: 'HR avg', data: chartPeriods.map(period => dailyInsightChartValue(period, 'overall', 'heart_rate')), yAxisID: 'heart', borderColor: '#dc2626', backgroundColor: '#dc262620', pointBackgroundColor: '#dc2626', pointRadius: 4, tension: .25, spanGaps: false },
+        { id: 'dailySkinTempAvg', label: 'Skin temp °C', data: chartPeriods.map(period => dailyInsightChartValue(period, 'overall', 'skin_temperature')), yAxisID: 'temp', borderColor: '#0f766e', backgroundColor: '#0f766e20', pointBackgroundColor: '#0f766e', pointRadius: 4, tension: .25, spanGaps: false }
       ];
       if (dailyInsightsChart) dailyInsightsChart.destroy();
       dailyInsightsChart = new Chart(el('dailyInsightsChart'), {
@@ -1100,15 +1106,17 @@ DASHBOARD_HTML = r"""
           plugins: {
             legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true } },
             tooltip: { callbacks: { label: context => {
-              const suffix = context.dataset.yAxisID === 'oxygen' ? '%' : ' bpm';
+              const suffix = context.dataset.yAxisID === 'oxygen' ? '%' : (context.dataset.yAxisID === 'temp' ? '°C' : ' bpm');
+              const digits = context.dataset.yAxisID === 'heart' ? 0 : 1;
               const value = context.parsed?.y;
-              return `${context.dataset.label}: ${value === null || value === undefined ? '—' : `${Number(value).toFixed(context.dataset.yAxisID === 'oxygen' ? 1 : 0).replace(/\\.0$/, '')}${suffix}`}`;
+              return `${context.dataset.label}: ${value === null || value === undefined ? '—' : `${Number(value).toFixed(digits).replace(/\\.0$/, '')}${suffix}`}`;
             } } }
           },
           scales: {
             x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: false } },
             oxygen: { type: 'linear', position: 'left', suggestedMin: 88, suggestedMax: 100, title: { display: true, text: 'O₂ %' } },
-            heart: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'HR bpm' } }
+            heart: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'HR bpm' } },
+            temp: { type: 'linear', position: 'right', display: false, suggestedMin: 28, suggestedMax: 38, grid: { drawOnChartArea: false } }
           }
         }
       });
@@ -1120,15 +1128,18 @@ DASHBOARD_HTML = r"""
       const wakingRows = periods.flatMap(period => period.waking);
       const overall = {
         oxygen_saturation: summarizeMetric(allRows, 'oxygen_saturation'),
-        heart_rate: summarizeMetric(allRows, 'heart_rate')
+        heart_rate: summarizeMetric(allRows, 'heart_rate'),
+        skin_temperature: summarizeMetric(allRows, 'skin_temperature')
       };
       const sleepingStats = {
         oxygen_saturation: summarizeMetric(sleepingRows, 'oxygen_saturation'),
-        heart_rate: summarizeMetric(sleepingRows, 'heart_rate')
+        heart_rate: summarizeMetric(sleepingRows, 'heart_rate'),
+        skin_temperature: summarizeMetric(sleepingRows, 'skin_temperature')
       };
       const wakingStats = {
         oxygen_saturation: summarizeMetric(wakingRows, 'oxygen_saturation'),
-        heart_rate: summarizeMetric(wakingRows, 'heart_rate')
+        heart_rate: summarizeMetric(wakingRows, 'heart_rate'),
+        skin_temperature: summarizeMetric(wakingRows, 'skin_temperature')
       };
       el('dailyInsightsSummary').innerHTML = `
         <span>Overall O₂ <b>${metricCell(overall, 'oxygen_saturation', 'avg')}</b></span>
@@ -1136,7 +1147,8 @@ DASHBOARD_HTML = r"""
         <span>Wake O₂ <b>${metricCell(wakingStats, 'oxygen_saturation', 'avg')}</b></span>
         <span>Overall HR <b>${metricCell(overall, 'heart_rate', 'avg')}</b></span>
         <span>Sleep HR <b>${metricCell(sleepingStats, 'heart_rate', 'avg')}</b></span>
-        <span>Wake HR <b>${metricCell(wakingStats, 'heart_rate', 'avg')}</b></span>`;
+        <span>Wake HR <b>${metricCell(wakingStats, 'heart_rate', 'avg')}</b></span>
+        <span>Skin temp <b>${metricCell(overall, 'skin_temperature', 'avg')}</b></span>`;
       renderDailyInsightsChart(periods);
       const rows = periods.map(period => `
         <tr>
@@ -1151,8 +1163,11 @@ DASHBOARD_HTML = r"""
           <td>${metricCell(period.wakingStats, 'heart_rate', 'avg')}</td>
           <td>${metricCell(period.overall, 'heart_rate', 'min')}</td>
           <td>${metricCell(period.overall, 'heart_rate', 'max')}</td>
+          <td>${metricCell(period.overall, 'skin_temperature', 'avg')}</td>
+          <td>${metricCell(period.overall, 'skin_temperature', 'min')}</td>
+          <td>${metricCell(period.overall, 'skin_temperature', 'max')}</td>
         </tr>`).join('');
-      el('dailyInsightsTable').innerHTML = `<thead><tr><th>24h period</th><th>O₂ avg</th><th>O₂ sleep</th><th>O₂ wake</th><th>O₂ low</th><th>O₂ high</th><th>HR avg</th><th>HR sleep</th><th>HR wake</th><th>HR low</th><th>HR high</th></tr></thead><tbody>${rows || '<tr><td colspan="11" class="empty">No valid readings in the last 7 days.</td></tr>'}</tbody>`;
+      el('dailyInsightsTable').innerHTML = `<thead><tr><th>24h period</th><th>O₂ avg</th><th>O₂ sleep</th><th>O₂ wake</th><th>O₂ low</th><th>O₂ high</th><th>HR avg</th><th>HR sleep</th><th>HR wake</th><th>HR low</th><th>HR high</th><th>Temp avg</th><th>Temp low</th><th>Temp high</th></tr></thead><tbody>${rows || '<tr><td colspan="14" class="empty">No valid readings in the last 7 days.</td></tr>'}</tbody>`;
       const totalSamples = periods.reduce((sum, period) => sum + period.rows.length, 0);
       el('dailyInsightsMeta').textContent = `${periods.length} rolling 24-hour periods · ${totalSamples} valid samples · offline/sock-off and O₂ challenge samples excluded`;
     }
@@ -1334,7 +1349,6 @@ DASHBOARD_HTML = r"""
       crypto = cryptoData;
       renderInsights();
       renderCrypto();
-      renderMetricCards();
       renderRollups();
       vitalsChart?.update('none');
     }
@@ -1384,6 +1398,7 @@ DASHBOARD_HTML = r"""
       el('lightBar').style.width = `${(sleep.light_sleep_seconds / total) * 100}%`;
       el('deepBar').style.width = `${(sleep.deep_sleep_seconds / total) * 100}%`;
       el('awakeBar').style.width = `${(sleep.awake_seconds / total) * 100}%`;
+      el('coverage').textContent = `${summary.window} · ${summary.challenge_count || 0} in challenges`;
     }
 
     function currentSleepStatus() {
@@ -1426,22 +1441,6 @@ DASHBOARD_HTML = r"""
         </div>`).join('') || '<small>Price feed unavailable</small>';
     }
 
-    function renderMetricCards() {
-      const cards = [
-        ['Avg oxygen', fmt(summary.oxygen_saturation.avg, '%'), `min ${fmt(summary.oxygen_saturation.min, '%')} · ${summary.oxygen_saturation.trend}`, summary.oxygen_saturation.trend],
-        ['Avg heart rate', fmt(summary.heart_rate.avg, ' bpm'), `latest ${fmt(summary.heart_rate.latest, ' bpm')}`, summary.heart_rate.trend],
-        ['Avg movement', num(summary.movement.avg), `latest ${num(summary.movement.latest)} · ${summary.movement.trend}`, summary.movement.trend],
-        ['Coverage', `${summary.valid_count ?? summary.count}/${summary.total_count ?? summary.count}`, `${summary.offline_count || 0} offline/zero · ${summary.challenge_count || 0} challenge readings excluded`, summary.offline_count ? 'down' : 'unknown'],
-      ];
-      el('metricCards').innerHTML = cards.map(([label, value, foot, trend]) => `
-        <article class="card">
-          <div class="eyebrow">${label}</div>
-          <div class="metric-value ${trendClass(trend)}">${value}</div>
-          <div class="sub">${foot}</div>
-        </article>`).join('');
-      el('coverage').textContent = `${summary.window} · ${summary.challenge_count || 0} in challenges`;
-    }
-
     function downsample(rows, maxPoints = CHART_MAX_POINTS) {
       if (rows.length <= maxPoints) return rows;
       const range = visibleRange();
@@ -1480,8 +1479,8 @@ DASHBOARD_HTML = r"""
     function readingSeries(key) {
       const minutes = smoothingMinutes();
       if (minutes > 0) return rollingAverageForKey(key, minutes);
-      const sampled = downsample(readings).map(row => ({ x: Date.parse(row.recorded_at), y: row[key] }));
-      const source = readings.map(row => ({ x: Date.parse(row.recorded_at), y: row[key] }));
+      const sampled = downsample(readings).map(row => ({ x: Date.parse(row.recorded_at), y: metricValue(row, key) }));
+      const source = readings.map(row => ({ x: Date.parse(row.recorded_at), y: metricValue(row, key) }));
       return extendPointsToVisibleEdges(sampled, visibleRange(), source);
     }
 
@@ -1494,10 +1493,10 @@ DASHBOARD_HTML = r"""
       const reset = () => { queue.length = 0; sum = 0; };
       readings.forEach(row => {
         const time = Date.parse(row.recorded_at);
-        const value = Number(row[key]);
-        if (isOffline(row) || !Number.isFinite(value)) {
+        const value = metricValue(row, key);
+        if (isOffline(row) || value === null) {
           reset();
-          points.push({ x: time, y: 0, reason: 'offline-zero' });
+          points.push({ x: time, y: key === 'skin_temperature' ? null : 0, reason: key === 'skin_temperature' ? 'missing' : 'offline-zero' });
           previousValidTime = null;
           return;
         }
@@ -1903,6 +1902,7 @@ DASHBOARD_HTML = r"""
 
     function renderCharts({ deferTrend = false } = {}) {
       const btcHidden = vitalsChart?.data.datasets.find(dataset => dataset.id === 'btcPrice')?.hidden ?? true;
+      const skinTempHidden = vitalsChart?.data.datasets.find(dataset => dataset.id === 'skinTemperature')?.hidden ?? true;
       vitalsChart = upsertChart(vitalsChart, 'vitalsChart', {
         type: 'line',
         data: {
@@ -1910,6 +1910,7 @@ DASHBOARD_HTML = r"""
             { label: 'Heart rate', data: readingSeries('heart_rate'), borderColor: '#dc2626', backgroundColor: '#dc262620', yAxisID: 'hr', spanGaps: true, pointRadius: 0, tension: .25 },
             { label: 'SpO₂', data: readingSeries('oxygen_saturation'), borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'spo2', spanGaps: true, pointRadius: 0, tension: .25 },
             { label: 'Movement', data: readingSeries('movement'), borderColor: '#059669', backgroundColor: '#05966920', yAxisID: 'move', spanGaps: true, pointRadius: 0, tension: .2 },
+            { id: 'skinTemperature', label: 'Skin temp °C', data: readingSeries('skin_temperature'), borderColor: '#0f766e', backgroundColor: '#0f766e20', yAxisID: 'temp', hidden: skinTempHidden, spanGaps: true, pointRadius: 0, tension: .25 },
             { id: 'btcPrice', label: 'BTC price', data: cryptoBitcoinPoints(), borderColor: '#f97316', backgroundColor: '#f9731620', yAxisID: 'btc', hidden: btcHidden, spanGaps: true, pointRadius: 0, tension: .25 },
             { id: 'notifications', type: 'scatter', label: 'Notifications', data: notificationPoints(), yAxisID: 'spo2', pointStyle: 'triangle', pointRadius: 9, pointHoverRadius: 13, hitRadius: 24, showLine: false, borderWidth: 2, borderColor: '#92400e', backgroundColor: '#f59e0b' }
           ]
@@ -1917,6 +1918,7 @@ DASHBOARD_HTML = r"""
         options: chartOptions({
           hr: { type: 'linear', position: 'left', min: 0, title: { display: true, text: 'BPM' } },
           spo2: { type: 'linear', position: 'right', min: 0, suggestedMax: 100, grid: { drawOnChartArea: false }, title: { display: true, text: 'SpO₂' } },
+          temp: { type: 'linear', position: 'right', display: false, suggestedMin: 28, suggestedMax: 38, grid: { drawOnChartArea: false } },
           btc: { type: 'linear', position: 'right', min: 0, display: false, grid: { drawOnChartArea: false } },
           move: { min: 0, display: false }
         }, { hideXTicks: true, legend: { position: 'top', align: 'end' } })
@@ -2334,8 +2336,8 @@ DASHBOARD_HTML = r"""
     }
 
     function renderRollups() {
-      const rows = rollups.slice().reverse().map((row, index) => `<tr class="${index === 0 ? 'newest-rollup' : ''}"><td>${rollupLabel(row)}</td><td>${row.samples}/${row.total_samples ?? row.samples}</td><td>${fmt(row.avg_oxygen_saturation, '%')}</td><td>${fmt(row.min_oxygen_saturation, '%')}</td><td>${fmt(row.avg_heart_rate, ' bpm')}</td><td>${hours(row.sleep_seconds)}</td><td>${hours(row.awake_seconds)}</td><td>${row.offline_samples || 0}</td></tr>`).join('');
-      el('rollupTable').innerHTML = `<thead><tr><th>Window</th><th>Valid/total</th><th>Avg O₂</th><th>Min O₂</th><th>Avg HR</th><th>Sleep</th><th>Awake</th><th>Offline</th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="empty">No readings yet.</td></tr>'}</tbody>`;
+      const rows = rollups.slice().reverse().map((row, index) => `<tr class="${index === 0 ? 'newest-rollup' : ''}"><td>${rollupLabel(row)}</td><td>${row.samples}/${row.total_samples ?? row.samples}</td><td>${fmt(row.avg_oxygen_saturation, '%')}</td><td>${fmt(row.min_oxygen_saturation, '%')}</td><td>${fmt(row.avg_heart_rate, ' bpm')}</td><td>${fmt(row.avg_skin_temperature, '°C')}</td><td>${hours(row.sleep_seconds)}</td><td>${hours(row.awake_seconds)}</td><td>${row.offline_samples || 0}</td></tr>`).join('');
+      el('rollupTable').innerHTML = `<thead><tr><th>Window</th><th>Valid/total</th><th>Avg O₂</th><th>Min O₂</th><th>Avg HR</th><th>Avg skin temp</th><th>Sleep</th><th>Awake</th><th>Offline</th></tr></thead><tbody>${rows || '<tr><td colspan="9" class="empty">No readings yet.</td></tr>'}</tbody>`;
     }
 
     function applyFilter() {
@@ -2363,9 +2365,9 @@ DASHBOARD_HTML = r"""
           <td>${num(row.movement)}</td>
           <td>${isOffline(row) ? 'offline / sock off' : stateLabel(row.sleep_state)}</td>
           <td>${fmt(row.battery, '%')}</td>
-          <td>${num(row.skin_temperature)}</td>
+          <td>${fmt(row.skin_temperature, '°C')}</td>
         </tr>`).join('');
-      el('readingsTable').innerHTML = `<thead><tr><th>Time</th><th>Serial</th><th>HR</th><th>O₂</th><th>Move</th><th>State</th><th>Battery</th><th>Temp</th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="empty">No readings yet.</td></tr>'}</tbody>`;
+      el('readingsTable').innerHTML = `<thead><tr><th>Time</th><th>Serial</th><th>HR</th><th>O₂</th><th>Move</th><th>State</th><th>Battery</th><th>Skin temp</th></tr></thead><tbody>${rows || '<tr><td colspan="8" class="empty">No readings yet.</td></tr>'}</tbody>`;
     }
 
     function attachReadingsTableSelection() {
