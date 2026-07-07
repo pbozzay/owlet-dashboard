@@ -14,6 +14,12 @@ MANIFEST = {
     "categories": ["health", "utilities"],
     "icons": [
         {
+            "src": "/icon-32.png",
+            "sizes": "32x32",
+            "type": "image/png",
+            "purpose": "any",
+        },
+        {
             "src": "/icon-192.png",
             "sizes": "192x192",
             "type": "image/png",
@@ -33,8 +39,12 @@ const CACHE_NAME = 'owlet-dashboard-v1';
 const APP_SHELL = [
   '/',
   '/manifest.webmanifest',
+  '/favicon.ico',
+  '/icon-32.png',
+  '/icon-180.png',
   '/icon-192.png',
-  '/icon-512.png'
+  '/icon-512.png',
+  '/logo.svg'
 ];
 
 self.addEventListener('install', event => {

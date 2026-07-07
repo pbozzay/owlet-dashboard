@@ -172,10 +172,26 @@ def create_app(
         )
 
     @app.get("/icon-{size}.png")
-    async def icon(size: Literal["192", "512"]) -> FileResponse:
+    async def icon(size: Literal["32", "180", "192", "512"]) -> FileResponse:
         return FileResponse(
             STATIC_DIR / f"icon-{size}.png",
             media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
+    @app.get("/favicon.ico")
+    async def favicon() -> FileResponse:
+        return FileResponse(
+            STATIC_DIR / "favicon.ico",
+            media_type="image/x-icon",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
+    @app.get("/logo.svg")
+    async def logo() -> FileResponse:
+        return FileResponse(
+            STATIC_DIR / "logo.svg",
+            media_type="image/svg+xml",
             headers={"Cache-Control": "public, max-age=86400"},
         )
 

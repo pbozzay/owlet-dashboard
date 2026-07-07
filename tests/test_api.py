@@ -529,7 +529,11 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "Reset view" in response.text
     assert "chartjs-plugin-zoom" in response.text
     assert "mobile-web-app-capable" in response.text
-    assert 'rel="manifest"' in response.text
+    assert 'rel="manifest" href="/manifest.webmanifest"' in response.text
+    assert 'rel="icon" href="/favicon.ico" sizes="any"' in response.text
+    assert 'rel="icon" type="image/svg+xml" href="/logo.svg"' in response.text
+    assert 'rel="icon" type="image/png" sizes="32x32" href="/icon-32.png"' in response.text
+    assert 'rel="apple-touch-icon" sizes="180x180" href="/icon-180.png"' in response.text
     assert "serviceWorker" in response.text
     assert "offlineBands" in response.text
     assert "rgba(100, 116, 139, 0.14)" in response.text
@@ -774,16 +778,32 @@ def test_pwa_assets_are_served(tmp_path):
     with TestClient(app) as client:
         manifest = client.get("/manifest.webmanifest")
         worker = client.get("/sw.js")
-        icon = client.get("/icon-192.png")
+        favicon = client.get("/favicon.ico")
+        logo = client.get("/logo.svg")
+        icon_32 = client.get("/icon-32.png")
+        icon_180 = client.get("/icon-180.png")
+        icon_192 = client.get("/icon-192.png")
+        icon_512 = client.get("/icon-512.png")
 
     assert manifest.status_code == 200
-    assert manifest.json()["id"] == "/"
-    assert manifest.json()["display"] == "standalone"
-    assert manifest.json()["start_url"] == "/"
+    payload = manifest.json()
+    assert payload["id"] == "/"
+    assert payload["display"] == "standalone"
+    assert payload["start_url"] == "/"
+    assert {icon["sizes"] for icon in payload["icons"]} >= {"32x32", "192x192", "512x512"}
     assert worker.status_code == 200
     assert "CACHE_NAME" in worker.text
-    assert icon.status_code == 200
-    assert icon.headers["content-type"] == "image/png"
+    assert "/favicon.ico" in worker.text
+    assert "/logo.svg" in worker.text
+    assert favicon.status_code == 200
+    assert favicon.headers["content-type"] == "image/x-icon"
+    assert logo.status_code == 200
+    assert logo.headers["content-type"] == "image/svg+xml"
+    assert "Owlet Dashboard logo" in logo.text
+    for icon in (icon_32, icon_180, icon_192, icon_512):
+        assert icon.status_code == 200
+        assert icon.headers["content-type"] == "image/png"
+        assert icon.content.startswith(b"\x89PNG")
 
 
 @pytest.mark.asyncio

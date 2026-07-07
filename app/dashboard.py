@@ -3220,7 +3220,13 @@ def render_dashboard(api_base: str = "", *, share_mode: bool = False) -> str:
     pwa_head = (
         ""
         if share_mode
-        else '<link rel="manifest" href="/manifest.webmanifest" />\n  <link rel="apple-touch-icon" href="/icon-192.png" />'
+        else (
+            '<link rel="manifest" href="/manifest.webmanifest" />\n'
+            '  <link rel="icon" href="/favicon.ico" sizes="any" />\n'
+            '  <link rel="icon" type="image/svg+xml" href="/logo.svg" />\n'
+            '  <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png" />\n'
+            '  <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png" />'
+        )
     )
     return (
         DASHBOARD_HTML.replace("__API_BASE__", api_base)
