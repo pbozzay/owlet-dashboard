@@ -635,7 +635,8 @@ DASHBOARD_HTML = r"""
     const SHARE_MODE = __SHARE_MODE__;
     const REFRESH_SECONDS = 15;
     const TABLE_ROW_LIMIT = 500;
-    const CHART_MAX_POINTS = 3000;
+    const HISTORY_PAN_BUFFER_HOURS = 2;
+    const OLDER_HISTORY_CHUNK_HOURS = 24;
     let readings = [];
     let filtered = [];
     let summary = null;
@@ -1054,14 +1055,9 @@ DASHBOARD_HTML = r"""
       return window.matchMedia('(max-width: 640px)').matches;
     }
 
-    function applyResponsiveDefaultWindow() {
-      const selector = el('window');
-      if (isMobileViewport() && selector?.value === '24') selector.value = '6';
-    }
-
     function historyHoursForSelection(hours = selectedHours()) {
       if (!hours) return null;
-      return Math.min(24 * 365, Math.max(hours * 3, hours + 48));
+      return Math.min(24 * 365, Math.ceil(hours) + HISTORY_PAN_BUFFER_HOURS);
     }
 
     function selectedWindowMs() {
@@ -1799,47 +1795,10 @@ DASHBOARD_HTML = r"""
         </div>`).join('') || '<small>Price feed unavailable</small>';
     }
 
-    function downsamplePoints(points, maxPoints = CHART_MAX_POINTS) {
+    function chartPoints(points) {
       const range = visibleRange();
       const clean = points.filter(point => point && Number.isFinite(Number(point.x)));
-      if (clean.length <= maxPoints) return extendPointsToVisibleEdges(clean, range);
-      const preserved = new Map();
-      const add = (index) => {
-        const point = clean[index];
-        if (!point) return;
-        preserved.set(index, point);
-      };
-      add(0);
-      add(clean.length - 1);
-      clean.forEach((point, index) => {
-        if (point.y === null || point.reason || (range && (Math.abs(point.x - range.min) < 1000 || Math.abs(point.x - range.max) < 1000))) add(index);
-      });
-      const finite = clean.map((point, index) => ({ point, index })).filter(item => item.point.y !== null && item.point.y !== undefined && Number.isFinite(Number(item.point.y)));
-      if (!finite.length) return extendPointsToVisibleEdges([...preserved.values()].sort((a, b) => a.x - b.x), range, clean);
-      const remainingBudget = Math.max(80, maxPoints - preserved.size);
-      const bucketCount = Math.max(1, Math.floor(remainingBudget / 4));
-      const minX = finite[0].point.x;
-      const maxX = finite[finite.length - 1].point.x;
-      const bucketWidth = Math.max(1, (maxX - minX) / bucketCount);
-      const buckets = Array.from({ length: bucketCount }, () => []);
-      finite.forEach(item => {
-        const bucket = Math.min(bucketCount - 1, Math.max(0, Math.floor((item.point.x - minX) / bucketWidth)));
-        buckets[bucket].push(item);
-      });
-      buckets.forEach(bucket => {
-        if (!bucket.length) return;
-        add(bucket[0].index);
-        add(bucket[bucket.length - 1].index);
-        let min = bucket[0];
-        let max = bucket[0];
-        bucket.forEach(item => {
-          if (Number(item.point.y) < Number(min.point.y)) min = item;
-          if (Number(item.point.y) > Number(max.point.y)) max = item;
-        });
-        add(min.index);
-        add(max.index);
-      });
-      return extendPointsToVisibleEdges([...preserved.values()].sort((a, b) => a.x - b.x), range, clean);
+      return extendPointsToVisibleEdges(clean, range);
     }
 
     function extendPointsToVisibleEdges(points, range = visibleRange(), sourcePoints = points) {
@@ -1861,7 +1820,7 @@ DASHBOARD_HTML = r"""
         const offlineTransition = isOffline(row) && (!isOffline(readings[index - 1]) || !isOffline(readings[index + 1]));
         return { x: Date.parse(row.recorded_at), y: metricValue(row, key), reason: offlineTransition ? 'offline-transition' : undefined };
       });
-      return downsamplePoints(source);
+      return chartPoints(source);
     }
 
     function rollingAverageForKey(key, minutes) {
@@ -1887,7 +1846,7 @@ DASHBOARD_HTML = r"""
         while (queue.length && queue[0].time < time - windowMs) sum -= queue.shift().value;
         points.push({ x: time, y: sum / queue.length });
       });
-      return downsamplePoints(points);
+      return chartPoints(points);
     }
 
     function rollingOxygenAverage(minutes) {
@@ -1932,7 +1891,7 @@ DASHBOARD_HTML = r"""
         points.push({ x: time, y: sum / queue.length });
         previousValidTime = time;
       });
-      return downsamplePoints(points);
+      return chartPoints(points);
     }
 
     function oxygenTrendSignal(short, long) {
@@ -2082,7 +2041,7 @@ DASHBOARD_HTML = r"""
       const mobile = isMobileViewport();
       return {
         limits: { x: { min: 'original', max: 'original' } },
-        pan: { enabled: true, mode: 'x', threshold: mobile ? 4 : 8, onPanComplete: ({ chart }) => syncZoomFrom(chart) },
+        pan: { enabled: true, mode: 'x', threshold: mobile ? 4 : 8, onPanComplete: ({ chart }) => { syncZoomFrom(chart); loadOlderHistoryIfNeeded().catch(console.error); } },
         zoom: {
           drag: { enabled: !mobile, backgroundColor: 'rgba(37, 99, 235, .12)', borderColor: 'rgba(37, 99, 235, .55)', borderWidth: 1 },
           wheel: { enabled: true, speed: 0.08 },
@@ -2433,7 +2392,9 @@ DASHBOARD_HTML = r"""
       if (SHARE_MODE || loadingOlderHistory || selectedHours() === null) return;
       const slider = el('timePan');
       if (slider.disabled || Number(slider.value) > 20) return;
-      const nextHours = Math.min(24 * 365, Math.max((loadedHours || selectedHours()) * 2, (loadedHours || selectedHours()) + 24));
+      const currentHours = loadedHours || historyHoursForSelection();
+      const incrementHours = Math.max(OLDER_HISTORY_CHUNK_HOURS, selectedHours() || OLDER_HISTORY_CHUNK_HOURS);
+      const nextHours = Math.min(24 * 365, currentHours + incrementHours);
       if (!loadedHours || nextHours <= loadedHours) return;
       loadingOlderHistory = true;
       const previousTitle = slider.title;
@@ -3226,7 +3187,6 @@ DASHBOARD_HTML = r"""
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').then(updateInstallButton).catch(updateInstallButton));
     }
     updateInstallButton();
-    applyResponsiveDefaultWindow();
     attachReadingsTableSelection();
     loadAccounts().then(loadDevices).then(() => safeRefresh({ resetZoom: true }));
     setInterval(tickCountdown, 1000);

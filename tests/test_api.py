@@ -599,6 +599,7 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "hydrateSecondaryData" in response.text
     assert "renderCharts({ deferTrend: true })" in response.text
     assert "historyHoursForSelection" in response.text
+    assert "Math.ceil(hours) + HISTORY_PAN_BUFFER_HOURS" in response.text
     assert "defaultVisibleRange" in response.text
     assert "extendPointsToVisibleEdges" in response.text
     assert "readingSeries('heart_rate')" in response.text
@@ -625,9 +626,12 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "TABLE_ROW_LIMIT = 500" in response.text
     assert "newest ${tableRows.length} of ${filtered.length} loaded" in response.text
     assert "tableRows.map((row, index)" in response.text
-    assert "CHART_MAX_POINTS = 3000" in response.text
-    assert "bucket.forEach(item" in response.text
-    assert "Number(item.point.y) < Number(min.point.y)" in response.text
+    assert "HISTORY_PAN_BUFFER_HOURS = 2" in response.text
+    assert "OLDER_HISTORY_CHUNK_HOURS = 24" in response.text
+    assert "function chartPoints(points)" in response.text
+    assert "downsamplePoints" not in response.text
+    assert "CHART_MAX_POINTS" not in response.text
+    assert "bucket.forEach(item" not in response.text
     assert "offlineTransition" in response.text
     assert "table.addEventListener('click'" in response.text
     assert "loadOlderHistoryIfNeeded" in response.text
@@ -661,10 +665,10 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert response.text.index("id=\"vitalsChart\"") < response.text.index("id=\"stateStrip\"") < response.text.index("id=\"oxygenTrendChart\"")
     assert "wheel:" in response.text
     assert "pinch:" in response.text
-    assert "applyResponsiveDefaultWindow" in response.text
-    assert "selector.value = '6'" in response.text
+    assert "selector.value = '6'" not in response.text
     assert "drag: { enabled: !mobile" in response.text
     assert "pan: { enabled: true" in response.text
+    assert "onPanComplete: ({ chart }) => { syncZoomFrom(chart); loadOlderHistoryIfNeeded().catch(console.error); }" in response.text
     assert "touch-action: pan-y" in response.text
     assert "attachMobileDragPan" in response.text
     assert "panVisibleWindowByPixels" in response.text
