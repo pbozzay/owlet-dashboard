@@ -211,7 +211,12 @@ def create_app(
 
     @app.get("/api/accounts")
     async def accounts(user: dict = Depends(require_user)):
-        return {"accounts": [_public_account(account) for account in await store.list_accounts()]}
+        return {
+            "accounts": [
+                _public_account(account)
+                for account in await store.list_accounts(user_id=user["id"])
+            ]
+        }
 
     @app.patch("/api/accounts/{account_id}")
     async def update_account(
@@ -223,6 +228,7 @@ def create_app(
         show_crypto = payload.get("show_crypto")
         dashboard_preferences = _public_dashboard_preferences_patch(payload.get("dashboard_preferences"))
         try:
+            await store.get_account(account_id, user_id=user["id"])  # ownership check -> KeyError
             account = await store.update_account_preferences(
                 account_id,
                 display_name=str(display_name).strip() if isinstance(display_name, str) else None,
@@ -232,6 +238,14 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Account not found") from exc
         return {"account": _public_account(account)}
+
+    async def _scope(user: dict, account: int | None) -> list[int]:
+        owned = [int(a["id"]) for a in await store.list_accounts(user_id=user["id"])]
+        if account is None:
+            return owned
+        if account not in owned:
+            raise HTTPException(status_code=404, detail="Not found")
+        return [account]
 
     async def _link_owlet_account(payload: dict[str, object], user: dict) -> dict:
         if not app.state.rate_limiter.allow(
@@ -311,7 +325,7 @@ def create_app(
         account: int | None = Query(default=None, ge=1),
         user: dict = Depends(require_user),
     ):
-        return {"devices": await store.list_devices(account_id=account)}
+        return {"devices": await store.list_devices(account_ids=await _scope(user, account))}
 
     @app.get("/share/{token}/api/devices")
     async def shared_devices(token: str = Path(min_length=20)):
@@ -327,10 +341,11 @@ def create_app(
         account: int | None = Query(default=None, ge=1),
         user: dict = Depends(require_user),
     ):
+        ids = await _scope(user, account)
         rows = (
-            await store.get_readings(hours=hours, limit=limit, device_serial=device, account_id=account)
+            await store.get_readings(hours=hours, limit=limit, device_serial=device, account_ids=ids)
             if include_raw
-            else await store.get_analysis_readings(hours=hours, limit=limit, device_serial=device, account_id=account)
+            else await store.get_analysis_readings(hours=hours, limit=limit, device_serial=device, account_ids=ids)
         )
         return [_reading_response(row, include_raw=include_raw) for row in rows]
 
@@ -352,7 +367,9 @@ def create_app(
         account: int | None = Query(default=None, ge=1),
         user: dict = Depends(require_user),
     ):
-        return await store.get_summary(hours=hours, device_serial=device, account_id=account)
+        return await store.get_summary(
+            hours=hours, device_serial=device, account_ids=await _scope(user, account)
+        )
 
     @app.get("/share/{token}/api/summary")
     async def shared_summary(
@@ -370,8 +387,9 @@ def create_app(
         account: int | None = Query(default=None, ge=1),
         user: dict = Depends(require_user),
     ):
-        rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device, account_id=account)
-        rows = await store.exclude_challenge_readings(rows, account_id=account)
+        ids = await _scope(user, account)
+        rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device, account_ids=ids)
+        rows = await store.exclude_challenge_readings(rows, account_ids=ids)
         return build_insights(rows)
 
     @app.get("/share/{token}/api/insights")
@@ -393,8 +411,9 @@ def create_app(
         account: int | None = Query(default=None, ge=1),
         user: dict = Depends(require_user),
     ):
-        rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device, account_id=account)
-        rows = await store.exclude_challenge_readings(rows, account_id=account)
+        ids = await _scope(user, account)
+        rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device, account_ids=ids)
+        rows = await store.exclude_challenge_readings(rows, account_ids=ids)
         return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
 
     @app.get("/share/{token}/api/rollups")
@@ -433,7 +452,13 @@ def create_app(
         account: int | None = Query(default=None, ge=1),
         user: dict = Depends(require_user),
     ):
-        return await store.get_notifications(hours=hours, limit=limit, offset=offset, device_serial=device, account_id=account)
+        return await store.get_notifications(
+            hours=hours,
+            limit=limit,
+            offset=offset,
+            device_serial=device,
+            account_ids=await _scope(user, account),
+        )
 
     @app.get("/share/{token}/api/notifications")
     async def shared_notifications(
@@ -455,7 +480,13 @@ def create_app(
         account: int | None = Query(default=None, ge=1),
         user: dict = Depends(require_user),
     ):
-        return await store.get_oxygen_challenges(hours=hours, limit=limit, offset=offset, device_serial=device, account_id=account)
+        return await store.get_oxygen_challenges(
+            hours=hours,
+            limit=limit,
+            offset=offset,
+            device_serial=device,
+            account_ids=await _scope(user, account),
+        )
 
     @app.get("/share/{token}/api/oxygen-challenges")
     async def shared_oxygen_challenges(
@@ -478,16 +509,15 @@ def create_app(
             raise HTTPException(status_code=400, detail="start_time is required")
         end_time = payload.get("end_time")
         account_id = payload.get("account_id")
-        target_account_id = (
+        requested = (
             int(account_id)
             if isinstance(account_id, int | str) and str(account_id).isdigit()
             else None
         )
-        if target_account_id is None:
-            accounts_list = await store.list_accounts()
-            if not accounts_list:
-                raise HTTPException(status_code=400, detail="Link an Owlet account first")
-            target_account_id = int(accounts_list[0]["id"])
+        ids = await _scope(user, requested)
+        if not ids:
+            raise HTTPException(status_code=400, detail="Link an Owlet account first")
+        target_account_id = ids[0]
         return await store.create_oxygen_challenge(
             start_time=start_time,
             end_time=end_time if isinstance(end_time, str) else None,
@@ -502,7 +532,9 @@ def create_app(
         user: dict = Depends(require_user),
     ):
         try:
-            return await store.get_oxygen_challenge(challenge_id)
+            return await store.get_oxygen_challenge(
+                challenge_id, account_ids=await _scope(user, None)
+            )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Challenge not found") from exc
 
@@ -529,6 +561,9 @@ def create_app(
         end_time = end_value if isinstance(end_value, str) else None
         clear_end_time = "end_time" in payload and not end_time
         try:
+            await store.get_oxygen_challenge(  # ownership check -> KeyError
+                challenge_id, account_ids=await _scope(user, None)
+            )
             return await store.update_oxygen_challenge(
                 challenge_id,
                 start_time=start_time,
@@ -545,7 +580,11 @@ def create_app(
         challenge_id: int = Path(ge=1),
         user: dict = Depends(require_user),
     ):
-        await store.delete_oxygen_challenge(challenge_id)
+        deleted = await store.delete_oxygen_challenge(
+            challenge_id, account_ids=await _scope(user, None)
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Challenge not found")
         return {"ok": True}
 
     @app.get("/api/widget")
@@ -555,7 +594,9 @@ def create_app(
         account: int | None = Query(default=None, ge=1),
         user: dict = Depends(require_user),
     ):
-        return await _widget_payload(store, hours=hours, device=device, account_id=account)
+        return await _widget_payload(
+            store, hours=hours, device=device, account_ids=await _scope(user, account)
+        )
 
     @app.get("/share/{token}/api/widget")
     async def shared_widget(
@@ -573,17 +614,17 @@ async def _widget_payload(
     store: ReadingStore,
     hours: int = 24,
     device: str | None = None,
-    account_id: int | None = None,
+    account_ids: list[int] | None = None,
 ) -> dict[str, object]:
-    readings = await store.get_readings(hours=hours, limit=100_000, device_serial=device, account_id=account_id)
-    summary = await store.get_summary(hours=hours, device_serial=device, account_id=account_id)
-    insights = build_insights(await store.exclude_challenge_readings(readings, account_id=account_id))
+    readings = await store.get_readings(hours=hours, limit=100_000, device_serial=device, account_ids=account_ids)
+    summary = await store.get_summary(hours=hours, device_serial=device, account_ids=account_ids)
+    insights = build_insights(await store.exclude_challenge_readings(readings, account_ids=account_ids))
     notifications = await store.get_notifications(
         hours=hours,
         limit=1,
         offset=0,
         device_serial=device,
-        account_id=account_id,
+        account_ids=account_ids,
     )
     latest_reading = readings[-1].model_dump(mode="json", exclude={"raw"}) if readings else {}
     latest = latest_reading or insights.get("latest") or {}
