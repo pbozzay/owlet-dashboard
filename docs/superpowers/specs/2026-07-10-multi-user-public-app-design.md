@@ -1,8 +1,20 @@
 # Owlet Dashboard — Multi-User Public App
 
 - **Date:** 2026-07-10
-- **Status:** Approved design, pre-implementation
+- **Status:** Approved design, pre-implementation — **superseded in part by the v1 scope reduction below**
 - **Owner:** Paul (pbozzay)
+
+## v1 Scope Reduction (2026-07-10)
+
+Owner opted for a leaner v1. **Kept:** email+password auth (argon2, server-side
+sessions), sign-in/onboarding pages, full per-user tenancy, Owlet linking via UI
+(tokens stored, password discarded — unchanged mechanism), single Docker container +
+GHCR CI for Unraid behind nginx. **Deferred to later versions:** email sending
+(verification + password reset), Fernet encryption at rest, per-user share links,
+settings page & account deletion, adaptive polling/heartbeat, retention/downsampling,
+snapshots/backups, CSRF origin middleware (SameSite=Lax cookies only), security
+headers, terms/privacy pages. Sections below describing those features are design
+reference for later, not v1 requirements. Work happens on the `multi-user` branch.
 
 ## Context
 
