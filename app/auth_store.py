@@ -1,0 +1,156 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+import aiosqlite
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+class AuthStore:
+    """Users and sessions. Shares the SQLite file with ReadingStore."""
+
+    def __init__(self, db_path: str | Path):
+        self.db_path = Path(db_path)
+
+    async def init(self) -> None:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sessions (
+                    token_hash TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TEXT NOT NULL,
+                    user_agent TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
+            await db.commit()
+
+    async def create_user(self, email: str, password_hash: str) -> dict[str, Any]:
+        await self.init()
+        normalized = email.strip().lower()
+        async with aiosqlite.connect(self.db_path) as db:
+            try:
+                cursor = await db.execute(
+                    "INSERT INTO users (email, password_hash) VALUES (?, ?)",
+                    (normalized, password_hash),
+                )
+            except aiosqlite.IntegrityError as exc:
+                raise ValueError("email already registered") from exc
+            user_id = int(cursor.lastrowid)
+            await self._adopt_orphan_accounts(db, user_id)
+            await db.commit()
+        user = await self.get_user(user_id)
+        assert user is not None
+        return user
+
+    async def _adopt_orphan_accounts(self, db: aiosqlite.Connection, user_id: int) -> None:
+        """The very first user inherits accounts created before multi-user existed."""
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='accounts'"
+        )
+        row = await cursor.fetchone()
+        if not row or not row[0]:
+            return
+        columns_cursor = await db.execute("PRAGMA table_info(accounts)")
+        columns = [r[1] for r in await columns_cursor.fetchall()]
+        if "user_id" not in columns:
+            return
+        cursor = await db.execute("SELECT COUNT(*) FROM users")
+        count_row = await cursor.fetchone()
+        if count_row and int(count_row[0]) == 1:
+            await db.execute("UPDATE accounts SET user_id = ? WHERE user_id IS NULL", (user_id,))
+
+    async def get_user(self, user_id: int) -> dict[str, Any] | None:
+        await self.init()
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT id, email, password_hash, created_at, updated_at FROM users WHERE id = ?",
+                (user_id,),
+            )
+            return _row_to_user(await cursor.fetchone())
+
+    async def get_user_by_email(self, email: str) -> dict[str, Any] | None:
+        await self.init()
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT id, email, password_hash, created_at, updated_at FROM users WHERE email = ?",
+                (email.strip().lower(),),
+            )
+            return _row_to_user(await cursor.fetchone())
+
+    async def create_session(
+        self, user_id: int, token_hash: str, *, ttl_days: int = 30, user_agent: str = ""
+    ) -> None:
+        await self.init()
+        now = _now()
+        expires = (now + timedelta(days=ttl_days)).isoformat()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT INTO sessions (token_hash, user_id, expires_at, last_seen_at, user_agent) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (token_hash, user_id, expires, now.isoformat(), user_agent[:200]),
+            )
+            await db.commit()
+
+    async def get_session_user(self, token_hash: str) -> dict[str, Any] | None:
+        await self.init()
+        now = _now()
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT u.id, u.email, u.password_hash, u.created_at, u.updated_at,
+                       s.expires_at, s.last_seen_at
+                FROM sessions s JOIN users u ON u.id = s.user_id
+                WHERE s.token_hash = ?
+                """,
+                (token_hash,),
+            )
+            row = await cursor.fetchone()
+            if not row or datetime.fromisoformat(row[5]) < now:
+                return None
+            if (now - datetime.fromisoformat(row[6])) > timedelta(hours=1):  # rolling expiry
+                await db.execute(
+                    "UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE token_hash = ?",
+                    (now.isoformat(), (now + timedelta(days=30)).isoformat(), token_hash),
+                )
+                await db.commit()
+            return _row_to_user(row[:5])
+
+    async def delete_session(self, token_hash: str) -> None:
+        await self.init()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+            await db.commit()
+
+
+def _row_to_user(row: tuple[Any, ...] | None) -> dict[str, Any] | None:
+    if not row:
+        return None
+    return {
+        "id": int(row[0]),
+        "email": row[1],
+        "password_hash": row[2],
+        "created_at": row[3],
+        "updated_at": row[4],
+    }
