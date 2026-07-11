@@ -16,14 +16,14 @@ sign up, link their own Owlet accounts, and see only their own data.
 | Question | Decision |
 |---|---|
 | Audience | Real public product (not invite-only) |
-| App login | Email + password **and** email magic links (no Google/Apple OAuth in v1) |
+| App login | Email + password with email-based password reset (magic links and OAuth deferred) |
 | Owlet credential handling | Entered once at link time, validated live, password discarded; only refresh/API tokens stored (existing behavior, now encrypted at rest) |
 | Polling fidelity | High — 30s while sock is worn; adaptive back-off otherwise |
 | Hosting | Single Docker container on Paul's Unraid box |
 | Ingress | Paul's existing nginx reverse proxy provides domain + TLS; no cloudflared, no port mapping beyond the container port |
 | Database | SQLite stays (WAL). No Postgres in v1 |
 | Monitoring | None in v1 (heartbeat surfaces collector staleness in-app) |
-| Email | Resend (free tier) for verification + magic links |
+| Email | Resend (free tier) for verification + password reset |
 | `.env` Owlet credentials | Removed as a concept; all account linking via UI |
 
 ## Goals
@@ -63,12 +63,15 @@ Uvicorn runs with proxy-header trust so client IPs (rate limiting) and scheme
 "verify your email" gate instead of the dashboard (prevents typo'd-email lockouts
 while keeping unverified accounts inert).
 
-**Sign-in:** either email+password, or "email me a login link" (magic link).
-A magic link doubles as password recovery: log in via link → change password in
-settings. No separate reset flow.
+**Sign-in:** email + password.
 
-**Tokens (verification + magic link):** random 256-bit values, stored **hashed**
-(SHA-256) in `auth_tokens`, single-use, 15-minute expiry, scoped by purpose.
+**Password reset:** "forgot password?" on the login page → reset email (same
+token mechanism as verification) → landing page sets a new password and
+invalidates all of the user's existing sessions.
+
+**Tokens (verification + password reset):** random 256-bit values, stored
+**hashed** (SHA-256) in `auth_tokens`, single-use, 15-minute expiry, scoped by
+purpose.
 
 **Passwords:** argon2id via `argon2-cffi`. No composition rules; minimum length 8;
 maximum 128.
@@ -82,18 +85,18 @@ button in settings deletes all the user's sessions).
 requests (the API is same-origin JSON; no cross-site POST surface is needed).
 
 **Rate limits (per IP + per identifier, in-process):** login 10/min, signup 5/hour,
-magic-link request 3/15min per email, Owlet link attempts 5/hour per user.
+password-reset request 3/15min per email, Owlet link attempts 5/hour per user.
 Basic-auth middleware and `OWLET_BASIC_AUTH_*` are removed.
 
 ## Data Model Changes
 
 New tables:
 
-- `users` — id, email (unique, citext-style lowercased), password_hash (nullable:
-  magic-link-only users), email_verified_at, created_at, updated_at.
+- `users` — id, email (unique, citext-style lowercased), password_hash,
+  email_verified_at, created_at, updated_at.
 - `sessions` — id (hashed), user_id, created_at, last_seen_at, expires_at,
   user_agent.
-- `auth_tokens` — token_hash, user_id, purpose (`verify` | `magic_link`),
+- `auth_tokens` — token_hash, user_id, purpose (`verify` | `password_reset`),
   expires_at, used_at.
 
 Changed tables:
@@ -132,8 +135,8 @@ is unchanged but lists only the session user's accounts.
 
 ## Sign-in & Onboarding UX
 
-- `/login` — single page: email+password form, "email me a link instead" toggle,
-  and sign-up. Unauthenticated requests to the dashboard redirect here;
+- `/login` — single page: email+password form, "forgot password?" link, and
+  sign-up. Unauthenticated requests to the dashboard redirect here;
   unauthenticated API calls get 401 JSON.
 - First login lands on an empty-state screen: "Link your Owlet sock" → existing
   Link flow (Owlet email/password + region dropdown world/europe). Copy states:
@@ -179,7 +182,7 @@ is unchanged but lists only the session user's accounts.
 
 ## Email (Resend)
 
-- Templates: verify-email, magic-link. Plain, no tracking.
+- Templates: verify-email, password-reset. Plain, no tracking.
 - From address on Paul's domain (Resend domain verification required at deploy).
 - `APP_BASE_URL` env builds absolute links.
 - Send failures surface as a friendly "couldn't send, try again" and are logged.
@@ -216,8 +219,9 @@ Removed: `OWLET_EMAIL`, `OWLET_PASSWORD`, `OWLET_REGION`,
 
 Extends existing pytest/httpx suite (`create_app(start_poller=False)` pattern):
 
-1. Auth flows — signup, verify, login, magic link (happy path, expiry, reuse,
-   wrong purpose), logout-everywhere, rate-limit responses.
+1. Auth flows — signup, verify, login, password reset (happy path, expiry,
+   reuse, wrong purpose, sessions invalidated), logout-everywhere, rate-limit
+   responses.
 2. **Tenancy isolation** — dedicated test class: user A vs user B across every
    data endpoint, including share tokens and CSV export; expects 404.
 3. Store — encryption round-trip, migration on a fixture legacy DB (accounts
@@ -234,12 +238,13 @@ Extends existing pytest/httpx suite (`create_app(start_poller=False)` pattern):
   (no backfill API). Heartbeat banner makes it visible — accepted for v1.
 - **Owlet rate limiting:** many accounts polled from one IP. Jitter + adaptive
   intervals + backoff reduce footprint; residential IP is a mild advantage.
-- **Email deliverability:** magic links depend on Resend + domain reputation;
-  password login remains a fallback path.
+- **Email deliverability:** verification and reset emails depend on Resend +
+  domain reputation; normal login is unaffected.
 - **SQLite ceiling:** single-writer is fine for hundreds of accounts; Postgres
   is the designated escape hatch if the product outgrows one box.
 
 ## Out of Scope (v1)
 
-OAuth providers, Postgres, alerting/notifications delivery, admin tooling,
-billing, multi-node polling, Apple/Google sign-in, mobile apps.
+Email magic-link login, OAuth providers, Postgres, alerting/notifications
+delivery, admin tooling, billing, multi-node polling, Apple/Google sign-in,
+mobile apps.
