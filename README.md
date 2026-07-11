@@ -22,36 +22,39 @@ Each poll stores:
 - skin temperature, when available
 - raw normalized payload for future fields
 
-## Setup
+## Run with Docker (recommended)
 
 ```bash
-cd /Users/paul/Projects/Personal/owlet-history-server
-/Users/paul/.hermes/hermes-agent/venv/bin/python3.11 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
-cp .env.example .env
+docker run -d --name owlet-dashboard \
+  -p 8888:8888 \
+  -v /path/to/appdata/owlet-dashboard:/data \
+  ghcr.io/pbozzay/owlet-dashboard:latest
 ```
 
-Edit `.env` and set your Owlet email/password.
+Put your reverse proxy (nginx, Nginx Proxy Manager, ...) in front of port 8888 with
+HTTPS; the app trusts `X-Forwarded-*` headers. On Unraid: add a container using the
+GHCR image, map `/data` to an appdata share, map the port.
 
-Region options seen in community libraries:
+Open the site, create an account (the first signup adopts any data from a
+pre-multi-user database), and link your Owlet login on the onboarding page. Owlet
+passwords are verified once with Owlet and never stored — only access tokens.
+Region options: `world` (typical US/global account) or `europe` (EU account).
 
-- `world` — typical US/global account
-- `europe` — EU account
-
-## Run
+## Local development
 
 ```bash
-cd /Users/paul/Projects/Personal/owlet-history-server
-.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8788
+python -m venv .venv
+.venv/Scripts/python -m pip install -e ".[dev]"   # .venv/bin/... on mac/linux
+.venv/Scripts/python -m uvicorn app.main:app --host 127.0.0.1 --port 8888
 ```
 
 Open:
 
-- Dashboard: <http://127.0.0.1:8788/>
-- Health: <http://127.0.0.1:8788/api/health>
-- All readings JSON: <http://127.0.0.1:8788/api/readings>
-- Recent readings JSON: <http://127.0.0.1:8788/api/readings?hours=24>
-- Summary JSON: <http://127.0.0.1:8788/api/summary>
+- Sign in / sign up: <http://127.0.0.1:8888/>
+- Health: <http://127.0.0.1:8888/api/health>
+- All readings JSON (session required): <http://127.0.0.1:8888/api/readings>
+- Recent readings JSON: <http://127.0.0.1:8888/api/readings?hours=24>
+- Summary JSON: <http://127.0.0.1:8888/api/summary>
 
 Dashboard features:
 
@@ -85,40 +88,25 @@ Dashboard features:
 
 Analytics endpoints:
 
-- Insights: <http://127.0.0.1:8788/api/insights?hours=24>
-- Hourly rollups: <http://127.0.0.1:8788/api/rollups?bucket=hour&hours=24>
-- Daily rollups: <http://127.0.0.1:8788/api/rollups?bucket=day&hours=168>
-- Notifications: <http://127.0.0.1:8788/api/notifications?hours=24>
-- Oxygen challenges: <http://127.0.0.1:8788/api/oxygen-challenges?hours=24>
-- Crypto prices: <http://127.0.0.1:8788/api/crypto?hours=24>
-- Compact widget JSON: <http://127.0.0.1:8788/api/widget?hours=24>
+- Insights: <http://127.0.0.1:8888/api/insights?hours=24>
+- Hourly rollups: <http://127.0.0.1:8888/api/rollups?bucket=hour&hours=24>
+- Daily rollups: <http://127.0.0.1:8888/api/rollups?bucket=day&hours=168>
+- Notifications: <http://127.0.0.1:8888/api/notifications?hours=24>
+- Oxygen challenges: <http://127.0.0.1:8888/api/oxygen-challenges?hours=24>
+- Crypto prices: <http://127.0.0.1:8888/api/crypto?hours=24>
+- Compact widget JSON: <http://127.0.0.1:8888/api/widget?hours=24>
 
 The same compact widget payload is available on the tokenized share path at `/share/<token>/api/widget?hours=24`. iOS PWAs cannot create native Home Screen or Lock Screen widgets, but apps like Widgy or Scriptable can poll this JSON URL for a private glanceable widget.
 
 ## Internet access
 
-Best recommendation: **Cloudflare Tunnel + Cloudflare Access**. Cloudflare Access should be configured before starting a public named tunnel so unauthenticated visitors never reach the local FastAPI app.
-
-Why this path:
-
-- no router port forwarding
-- no inbound firewall hole to your Mac
-- HTTPS termination through Cloudflare
-- Cloudflare Access can require your email / OTP / Google login before anyone reaches the app
-
-Temporary test tunnel:
-
-```bash
-cloudflared tunnel --url http://127.0.0.1:8788
-```
-
-Permanent local deployment notes live in [`docs/deployment.md`](docs/deployment.md).
+Any HTTPS reverse proxy works; every page requires sign-in, so exposure is gated by
+the app's own auth. Deployment notes live in [`docs/deployment.md`](docs/deployment.md).
 
 ## Run tests
 
 ```bash
-cd /Users/paul/Projects/Personal/owlet-history-server
-.venv/bin/python -m pytest -q
+.venv/Scripts/python -m pytest -q   # .venv/bin/... on mac/linux
 ```
 
 ## Notes on Owlet API fragility
