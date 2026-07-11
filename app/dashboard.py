@@ -11,6 +11,7 @@ DASHBOARD_HTML = r"""
   __PWA_HEAD__
   <title>Owlet Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
   <style>
     :root {
@@ -3129,6 +3130,18 @@ DASHBOARD_HTML = r"""
       safeRefresh({ resetZoom: true, force: true });
     });
     el('addAccount')?.addEventListener('click', addAccountFromPrompt);
+    (function injectSignOut() {
+      if (SHARE_MODE) return;
+      const wrap = el('profileMenuWrap');
+      if (!wrap) return;
+      const nav = document.createElement('form');
+      nav.method = 'post';
+      nav.action = '/auth/logout';
+      nav.style.cssText = 'margin:0;padding:6px 12px;text-align:right';
+      nav.innerHTML = '<button type="submit" style="all:unset;cursor:pointer;color:inherit;'
+        + 'font-size:12px;text-decoration:underline">Sign out</button>';
+      wrap.appendChild(nav);
+    })();
 
     el('deviceSelect').addEventListener('change', event => {
       setUrlDevice(event.target.value);

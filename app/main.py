@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import secrets
@@ -8,10 +7,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path as FilePath
 from typing import Literal
 
-from fastapi import Body, FastAPI, HTTPException, Path, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi import Body, Depends, FastAPI, Form, HTTPException, Path, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
+from app import auth_pages
 from app.analytics import build_insights, build_rollups
+from app.auth_routes import current_user, require_user
+from app.auth_routes import router as auth_router
+from app.auth_store import AuthStore
 from app.config import Settings
 from app.crypto import get_crypto_prices
 from app.dashboard import render_dashboard
@@ -19,6 +22,7 @@ from app.owlet_client import OwletClient
 from app.poller import Poller, create_account_poller, create_owlet_poller
 from app.pwa import MANIFEST, SERVICE_WORKER_JS
 from app.quality import is_offline_reading
+from app.ratelimit import RateLimiter
 from app.store import ReadingStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -47,14 +51,17 @@ def create_app(
     store: ReadingStore | None = None,
     settings: Settings | None = None,
     start_poller: bool = True,
+    auth_store: AuthStore | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     store = store or ReadingStore(settings.database_path)
+    auth_store = auth_store or AuthStore(settings.database_path)
     state: dict[str, object] = {"store": store}
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await store.init()
+        await auth_store.init()
         pollers: list[Poller] = []
         clients: list[OwletClient] = []
         if start_poller:
@@ -116,49 +123,27 @@ def create_app(
 
     app = FastAPI(title="Owlet History Server", lifespan=lifespan)
     app.state.owlet_state = state
+    app.state.auth_store = auth_store
+    app.state.rate_limiter = RateLimiter()
+    app.include_router(auth_router)
 
     @app.middleware("http")
-    async def require_basic_auth(request: Request, call_next):
+    async def share_guard(request: Request, call_next):
         if request.url.path.startswith("/share/"):
             if _share_path_is_authorized(request.url.path, settings.owlet_share_token):
                 return await call_next(request)
             return Response(status_code=404)
+        return await call_next(request)
 
-        if not settings.basic_auth_enabled:
-            return await call_next(request)
-
-        expected_username = settings.owlet_basic_auth_username or ""
-        expected_password = settings.owlet_basic_auth_password or ""
-        expected_cookie = _basic_auth_cookie_value(expected_username, expected_password)
-        cookie_authenticated = secrets.compare_digest(
-            request.cookies.get("owlet_auth", ""),
-            expected_cookie,
-        )
-        if cookie_authenticated:
-            return await call_next(request)
-
-        username, password = _parse_basic_auth(request.headers.get("authorization"))
-        authenticated = secrets.compare_digest(username, expected_username) and secrets.compare_digest(
-            password,
-            expected_password,
-        )
-        if not authenticated:
-            return Response(
-                status_code=401,
-                headers={"WWW-Authenticate": 'Basic realm="Owlet History"'},
-            )
-        response = await call_next(request)
-        response.set_cookie(
-            "owlet_auth",
-            expected_cookie,
-            httponly=True,
-            samesite="lax",
-        )
-        return response
-
-    @app.get("/", response_class=HTMLResponse)
-    async def dashboard() -> str:
-        return render_dashboard()
+    @app.get("/")
+    async def dashboard(request: Request):
+        user = await current_user(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=303)
+        accounts = await store.list_accounts(user_id=user["id"])
+        if not accounts:
+            return HTMLResponse(auth_pages.onboarding_page())
+        return HTMLResponse(render_dashboard())
 
     @app.get("/manifest.webmanifest")
     async def manifest() -> Response:
@@ -225,11 +210,15 @@ def create_app(
         }
 
     @app.get("/api/accounts")
-    async def accounts():
+    async def accounts(user: dict = Depends(require_user)):
         return {"accounts": [_public_account(account) for account in await store.list_accounts()]}
 
     @app.patch("/api/accounts/{account_id}")
-    async def update_account(account_id: int = Path(ge=1), payload: dict[str, object] = JSON_BODY):
+    async def update_account(
+        account_id: int = Path(ge=1),
+        payload: dict[str, object] = JSON_BODY,
+        user: dict = Depends(require_user),
+    ):
         display_name = payload.get("display_name")
         show_crypto = payload.get("show_crypto")
         dashboard_preferences = _public_dashboard_preferences_patch(payload.get("dashboard_preferences"))
@@ -244,11 +233,14 @@ def create_app(
             raise HTTPException(status_code=404, detail="Account not found") from exc
         return {"account": _public_account(account)}
 
-    @app.post("/api/accounts")
-    async def create_account(payload: dict[str, object] = JSON_BODY):
+    async def _link_owlet_account(payload: dict[str, object], user: dict) -> dict:
+        if not app.state.rate_limiter.allow(
+            f"owlet-link:{user['id']}", max_hits=5, window_seconds=3600
+        ):
+            raise HTTPException(status_code=429, detail="Too many link attempts; try again later")
         email = str(payload.get("email") or "").strip()
         password = str(payload.get("password") or "")
-        region = str(payload.get("region") or settings.owlet_region or "world").strip() or "world"
+        region = str(payload.get("region") or "world").strip() or "world"
         display_name = str(payload.get("display_name") or email or "Owlet account").strip()
         if not email or not password:
             raise HTTPException(status_code=400, detail="Owlet email and password are required")
@@ -257,7 +249,6 @@ def create_app(
             client = OwletClient(email=email, password=password, region=region)
             await client.connect()
             client.discard_password()
-            assert client is not None
             account = await store.create_account(
                 email=email,
                 region=region,
@@ -266,6 +257,7 @@ def create_app(
                 api_token_expiry=client.tokens.get("expiry"),
                 refresh_token=client.tokens.get("refresh"),
                 status="active",
+                user_id=user["id"],
             )
             if start_poller:
                 client_for_poller = client
@@ -280,15 +272,45 @@ def create_app(
                 state.setdefault("pollers", []).append(poller)  # type: ignore[union-attr]
                 state.setdefault("clients", []).append(client)  # type: ignore[union-attr]
                 client = None
-            return {"account": _public_account(account)}
+            return account
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(status_code=400, detail="Could not validate Owlet account") from exc
         finally:
             if client is not None:
                 await client.close()
 
+    @app.post("/api/accounts")
+    async def create_account(
+        payload: dict[str, object] = JSON_BODY, user: dict = Depends(require_user)
+    ):
+        account = await _link_owlet_account(payload, user)
+        return {"account": _public_account(account)}
+
+    @app.post("/onboarding/link")
+    async def onboarding_link(
+        email: str = Form(),
+        password: str = Form(),
+        region: str = Form(default="world"),
+        user: dict = Depends(require_user),
+    ):
+        try:
+            await _link_owlet_account({"email": email, "password": password, "region": region}, user)
+        except HTTPException as exc:
+            if exc.status_code == 429:
+                raise
+            return HTMLResponse(
+                auth_pages.onboarding_page(error="Owlet rejected that login - check email/password/region"),
+                status_code=400,
+            )
+        return RedirectResponse("/", status_code=303)
+
     @app.get("/api/devices")
-    async def devices(account: int | None = Query(default=None, ge=1)):
+    async def devices(
+        account: int | None = Query(default=None, ge=1),
+        user: dict = Depends(require_user),
+    ):
         return {"devices": await store.list_devices(account_id=account)}
 
     @app.get("/share/{token}/api/devices")
@@ -303,6 +325,7 @@ def create_app(
         include_raw: bool = Query(default=False),
         device: str | None = Query(default=None),
         account: int | None = Query(default=None, ge=1),
+        user: dict = Depends(require_user),
     ):
         rows = (
             await store.get_readings(hours=hours, limit=limit, device_serial=device, account_id=account)
@@ -327,6 +350,7 @@ def create_app(
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         device: str | None = Query(default=None),
         account: int | None = Query(default=None, ge=1),
+        user: dict = Depends(require_user),
     ):
         return await store.get_summary(hours=hours, device_serial=device, account_id=account)
 
@@ -344,6 +368,7 @@ def create_app(
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         device: str | None = Query(default=None),
         account: int | None = Query(default=None, ge=1),
+        user: dict = Depends(require_user),
     ):
         rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device, account_id=account)
         rows = await store.exclude_challenge_readings(rows, account_id=account)
@@ -366,6 +391,7 @@ def create_app(
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         device: str | None = Query(default=None),
         account: int | None = Query(default=None, ge=1),
+        user: dict = Depends(require_user),
     ):
         rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device, account_id=account)
         rows = await store.exclude_challenge_readings(rows, account_id=account)
@@ -384,7 +410,10 @@ def create_app(
         return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
 
     @app.get("/api/crypto")
-    async def crypto(hours: int = Query(default=24, ge=1, le=24 * 30)):
+    async def crypto(
+        hours: int = Query(default=24, ge=1, le=24 * 30),
+        user: dict = Depends(require_user),
+    ):
         return await get_crypto_prices(hours=hours)
 
     @app.get("/share/{token}/api/crypto")
@@ -402,6 +431,7 @@ def create_app(
         offset: int = Query(default=0, ge=0),
         device: str | None = Query(default=None),
         account: int | None = Query(default=None, ge=1),
+        user: dict = Depends(require_user),
     ):
         return await store.get_notifications(hours=hours, limit=limit, offset=offset, device_serial=device, account_id=account)
 
@@ -423,6 +453,7 @@ def create_app(
         offset: int = Query(default=0, ge=0),
         device: str | None = Query(default=None),
         account: int | None = Query(default=None, ge=1),
+        user: dict = Depends(require_user),
     ):
         return await store.get_oxygen_challenges(hours=hours, limit=limit, offset=offset, device_serial=device, account_id=account)
 
@@ -438,7 +469,10 @@ def create_app(
         return await store.get_oxygen_challenges(hours=hours, limit=limit, offset=offset, device_serial=device)
 
     @app.post("/api/oxygen-challenges")
-    async def create_oxygen_challenge(payload: dict[str, object] = JSON_BODY):
+    async def create_oxygen_challenge(
+        payload: dict[str, object] = JSON_BODY,
+        user: dict = Depends(require_user),
+    ):
         start_time = payload.get("start_time")
         if not isinstance(start_time, str):
             raise HTTPException(status_code=400, detail="start_time is required")
@@ -463,7 +497,10 @@ def create_app(
         )
 
     @app.get("/api/oxygen-challenges/{challenge_id}")
-    async def oxygen_challenge(challenge_id: int = Path(ge=1)):
+    async def oxygen_challenge(
+        challenge_id: int = Path(ge=1),
+        user: dict = Depends(require_user),
+    ):
         try:
             return await store.get_oxygen_challenge(challenge_id)
         except KeyError as exc:
@@ -484,6 +521,7 @@ def create_app(
     async def update_oxygen_challenge(
         challenge_id: int = Path(ge=1),
         payload: dict[str, object] = JSON_BODY,
+        user: dict = Depends(require_user),
     ):
         start_value = payload.get("start_time")
         end_value = payload.get("end_time")
@@ -503,7 +541,10 @@ def create_app(
             raise HTTPException(status_code=404, detail="Challenge not found") from exc
 
     @app.delete("/api/oxygen-challenges/{challenge_id}")
-    async def delete_oxygen_challenge(challenge_id: int = Path(ge=1)):
+    async def delete_oxygen_challenge(
+        challenge_id: int = Path(ge=1),
+        user: dict = Depends(require_user),
+    ):
         await store.delete_oxygen_challenge(challenge_id)
         return {"ok": True}
 
@@ -512,6 +553,7 @@ def create_app(
         hours: int = Query(default=24, ge=1, le=24 * 30),
         device: str | None = Query(default=None),
         account: int | None = Query(default=None, ge=1),
+        user: dict = Depends(require_user),
     ):
         return await _widget_payload(store, hours=hours, device=device, account_id=account)
 
@@ -620,23 +662,3 @@ def _share_path_is_authorized(path: str, token: str | None) -> bool:
 
 
 app = create_app()
-
-
-def _parse_basic_auth(header: str | None) -> tuple[str, str]:
-    if not header or not header.lower().startswith("basic "):
-        return "", ""
-    import base64
-    import binascii
-
-    try:
-        decoded = base64.b64decode(header.split(" ", 1)[1]).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError):
-        return "", ""
-    username, separator, password = decoded.partition(":")
-    if not separator:
-        return "", ""
-    return username, password
-
-
-def _basic_auth_cookie_value(username: str, password: str) -> str:
-    return hashlib.sha256(f"{username}:{password}".encode()).hexdigest()

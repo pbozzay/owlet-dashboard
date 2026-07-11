@@ -1,11 +1,12 @@
 import pytest
-from fastapi.testclient import TestClient
 
 from app import crypto as crypto_module
+from app.auth_store import AuthStore
 from app.config import Settings
 from app.main import create_app
 from app.models import normalize_reading
 from app.store import ReadingStore
+from tests.conftest import client_for, make_user
 
 
 def _test_settings(**kwargs):
@@ -62,9 +63,11 @@ async def test_account_api_is_public_metadata_only_and_scopes_data(tmp_path):
     )
     await _seed_reading(store, "2026-07-02T01:00:00Z", hr=120, spo2=98, device_serial="SAME", account_id=first["id"])
     await _seed_reading(store, "2026-07-02T01:00:00Z", hr=150, spo2=90, device_serial="SAME", account_id=second["id"])
-    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         accounts = client.get("/api/accounts").json()["accounts"]
         first_readings = client.get(f"/api/readings?account={first['id']}&hours=24").json()
         second_readings = client.get(f"/api/readings?account={second['id']}&hours=24").json()
@@ -107,9 +110,11 @@ async def test_summary_excludes_zero_offline_vitals_from_metric_averages(tmp_pat
     await _seed_reading(store, "2026-07-02T01:00:00Z", hr=120, spo2=98, skin_temp=31)
     await _seed_reading(store, "2026-07-02T01:05:00Z", hr=0, spo2=0, sleep_state=0, skin_temp=35)
     await _seed_reading(store, "2026-07-02T01:10:00Z", hr=140, spo2=96, skin_temp=33)
-    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         summary = client.get("/api/summary?hours=24").json()
         rollups = client.get("/api/rollups?bucket=hour&hours=24").json()
 
@@ -146,9 +151,11 @@ async def test_sock_disconnected_nonzero_vitals_are_treated_as_offline(tmp_path)
         account_id=await _default_account_id(store),
     )
     await _seed_reading(store, "2026-07-02T01:10:00Z", hr=130, spo2=97)
-    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         readings = client.get("/api/readings?hours=24").json()
         raw_readings = client.get("/api/readings?hours=24&include_raw=true").json()
         summary = client.get("/api/summary?hours=24").json()
@@ -181,9 +188,11 @@ async def test_oxygen_challenges_are_stored_and_excluded_from_normal_stats(tmp_p
     await _seed_reading(store, "2026-07-02T01:00:00Z", hr=150, spo2=90, sleep_state=15, skin_temp=40)
     await _seed_reading(store, "2026-07-02T01:30:00Z", hr=155, spo2=89, sleep_state=15, skin_temp=41)
     await _seed_reading(store, "2026-07-02T02:00:00Z", hr=126, spo2=97, sleep_state=1, skin_temp=33)
-    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         created = client.post(
             "/api/oxygen-challenges",
             json={
@@ -240,9 +249,11 @@ async def test_oxygen_challenge_list_summaries_honor_device_filter(tmp_path):
     await _seed_reading(store, "2026-07-02T01:30:00Z", hr=122, spo2=92, device_serial="AC123")
     await _seed_reading(store, "2026-07-02T01:00:00Z", hr=150, spo2=70, device_serial="AC999")
     await _seed_reading(store, "2026-07-02T01:30:00Z", hr=152, spo2=72, device_serial="AC999")
-    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         client.post(
             "/api/oxygen-challenges",
             json={
@@ -278,9 +289,11 @@ async def test_notifications_endpoint_extracts_alerts_and_offline_periods(tmp_pa
         ),
         account_id=await _default_account_id(store),
     )
-    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         response = client.get("/api/notifications?hours=24")
 
     assert response.status_code == 200
@@ -306,9 +319,11 @@ async def test_notifications_endpoint_does_not_derive_low_oxygen_from_readings(t
         ("2026-07-02T01:03:00Z", 87),
     ]:
         await _seed_reading(store, timestamp, hr=130, spo2=spo2)
-    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         response = client.get("/api/notifications?hours=24")
 
     assert response.status_code == 200
@@ -327,9 +342,11 @@ async def test_widget_endpoint_returns_compact_status_payload(tmp_path):
     await store.init()
     await _seed_reading(store, "2026-07-02T01:00:00Z", hr=120, spo2=98)
     await _seed_reading(store, "2026-07-02T01:05:00Z", hr=130, spo2=96)
-    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         payload = client.get("/api/widget?hours=24").json()
 
     assert payload["oxygen_now"] == 96
@@ -338,7 +355,8 @@ async def test_widget_endpoint_returns_compact_status_payload(tmp_path):
     assert payload["trend"] in {"improving", "worsening", "stable"}
 
 
-def test_crypto_endpoint_returns_prices_and_btc_series(tmp_path, monkeypatch):
+@pytest.mark.asyncio
+async def test_crypto_endpoint_returns_prices_and_btc_series(tmp_path, monkeypatch):
     crypto_module._CACHE.clear()
 
     def fake_fetch(hours):
@@ -355,9 +373,12 @@ def test_crypto_endpoint_returns_prices_and_btc_series(tmp_path, monkeypatch):
         }
 
     monkeypatch.setattr(crypto_module, "fetch_crypto_payload", fake_fetch)
-    app = create_app(store=ReadingStore(tmp_path / "owlet.sqlite3"), settings=_test_settings(), start_poller=False)
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         payload = client.get("/api/crypto?hours=24").json()
 
     assert payload["available"] is True
@@ -386,9 +407,11 @@ async def test_api_returns_readings_and_summary(tmp_path):
         account_id=await _default_account_id(store),
     )
 
-    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         readings = client.get("/api/readings?hours=24").json()
         summary = client.get("/api/summary?hours=24").json()
 
@@ -399,7 +422,7 @@ async def test_api_returns_readings_and_summary(tmp_path):
     assert summary["count"] == 2
     assert summary["heart_rate"]["trend"] == "up"
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         raw_readings = client.get("/api/readings?hours=24&include_raw=true").json()
 
     assert raw_readings[0]["raw"]["heart_rate"] == 120
@@ -414,9 +437,16 @@ async def test_api_lists_and_filters_devices(tmp_path):
     await _seed_reading(store, "2026-07-02T02:00:00Z", hr=130, spo2=96, device_serial="AC999")
 
     token = "test-share-token-123456"
-    app = create_app(store=store, settings=_test_settings(owlet_share_token=token), start_poller=False)
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(
+        store=store,
+        settings=_test_settings(owlet_share_token=token),
+        start_poller=False,
+        auth_store=auth,
+    )
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         devices = client.get("/api/devices").json()["devices"]
         readings = client.get("/api/readings?device=AC999").json()
         summary = client.get("/api/summary?device=AC999").json()
@@ -455,9 +485,11 @@ async def test_api_defaults_to_all_data_and_still_supports_hours_filter(tmp_path
             account_id=await _default_account_id(store),
         )
 
-    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         all_readings = client.get("/api/readings").json()
         recent_readings = client.get("/api/readings?hours=24").json()
         all_summary = client.get("/api/summary").json()
@@ -478,9 +510,11 @@ async def test_api_exposes_insights_and_rollups(tmp_path):
     await _seed_reading(store, "2026-07-03T11:00:00Z", hr=120, spo2=96, sleep_state=1)
     await _seed_reading(store, "2026-07-03T11:30:00Z", hr=130, spo2=97, sleep_state=1)
 
-    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         insights = client.get("/api/insights").json()
         rollups = client.get("/api/rollups?bucket=hour").json()
 
@@ -490,11 +524,16 @@ async def test_api_exposes_insights_and_rollups(tmp_path):
     assert [row["avg_oxygen_saturation"] for row in rollups["rollups"]] == [92.5, 96.5]
 
 
-def test_dashboard_endpoint_serves_html(tmp_path):
+@pytest.mark.asyncio
+async def test_dashboard_endpoint_serves_html(tmp_path):
     store = ReadingStore(tmp_path / "owlet.sqlite3")
-    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+    await store.init()
+    await store.create_account(email="sock@example.test")  # adopted by the first user below
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         response = client.get("/")
 
     assert response.status_code == 200
@@ -783,11 +822,14 @@ def test_dashboard_endpoint_serves_html(tmp_path):
     assert "state-legend" not in response.text
 
 
-def test_pwa_assets_are_served(tmp_path):
+@pytest.mark.asyncio
+async def test_pwa_assets_are_served(tmp_path):
     store = ReadingStore(tmp_path / "owlet.sqlite3")
-    app = create_app(store=store, settings=_test_settings(), start_poller=False)
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         manifest = client.get("/manifest.webmanifest")
         worker = client.get("/sw.js")
         favicon = client.get("/favicon.ico")
@@ -840,16 +882,19 @@ async def test_share_link_serves_read_only_dashboard_and_api_without_basic_auth(
         owlet_basic_auth_password="secret-pass",
         owlet_share_token=token,
     )
-    app = create_app(store=store, settings=settings, start_poller=False)
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=settings, start_poller=False, auth_store=auth)
 
-    with TestClient(app) as client:
+    with client_for(app, session) as client:
         dashboard = client.get(f"/share/{token}")
         readings = client.get(f"/share/{token}/api/readings?include_raw=true")
         summary = client.get(f"/share/{token}/api/summary?limit=100000&hours=24")
         insights = client.get(f"/share/{token}/api/insights?limit=100000&hours=24")
         rollups = client.get(f"/share/{token}/api/rollups?limit=100000&bucket=hour&hours=24")
         wrong = client.get("/share/wrong-token-with-enough-length")
-        normal_api = client.get("/api/health")
+    with client_for(app) as anonymous:
+        normal_api = anonymous.get("/api/readings")
 
     assert dashboard.status_code == 200
     assert f'const API_BASE = "/share/{token}";' in dashboard.text
@@ -865,22 +910,3 @@ async def test_share_link_serves_read_only_dashboard_and_api_without_basic_auth(
     assert rollups.json()["bucket"] == "hour"
     assert wrong.status_code == 404
     assert normal_api.status_code == 401
-
-
-def test_basic_auth_protects_dashboard_and_api_when_configured(tmp_path):
-    store = ReadingStore(tmp_path / "owlet.sqlite3")
-    settings = _test_settings(
-        owlet_basic_auth_username="parent",
-        owlet_basic_auth_password="secret-pass",
-    )
-    app = create_app(store=store, settings=settings, start_poller=False)
-
-    with TestClient(app) as client:
-        unauthenticated = client.get("/")
-        wrong_password = client.get("/api/health", auth=("parent", "wrong"))
-        authenticated = client.get("/api/health", auth=("parent", "secret-pass"))
-
-    assert unauthenticated.status_code == 401
-    assert unauthenticated.headers["www-authenticate"] == 'Basic realm="Owlet History"'
-    assert wrong_password.status_code == 401
-    assert authenticated.status_code == 200
