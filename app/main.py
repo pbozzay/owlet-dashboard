@@ -76,7 +76,12 @@ def create_app(
                         await store.update_account_status(int(account["id"]), "needs_reauth")
             elif settings.has_owlet_credentials:
                 try:
-                    default_account_id = await store.default_account_id()
+                    accounts_list = await store.list_accounts()
+                    default_account_id = (
+                        int(accounts_list[0]["id"])
+                        if accounts_list
+                        else int((await store.create_account(email=settings.owlet_email or ""))["id"])
+                    )
                     await store.update_account_profile(
                         default_account_id,
                         email=settings.owlet_email or "",
@@ -439,12 +444,22 @@ def create_app(
             raise HTTPException(status_code=400, detail="start_time is required")
         end_time = payload.get("end_time")
         account_id = payload.get("account_id")
+        target_account_id = (
+            int(account_id)
+            if isinstance(account_id, int | str) and str(account_id).isdigit()
+            else None
+        )
+        if target_account_id is None:
+            accounts_list = await store.list_accounts()
+            if not accounts_list:
+                raise HTTPException(status_code=400, detail="Link an Owlet account first")
+            target_account_id = int(accounts_list[0]["id"])
         return await store.create_oxygen_challenge(
             start_time=start_time,
             end_time=end_time if isinstance(end_time, str) else None,
             label=str(payload.get("label") or "Oxygen challenge"),
             notes=str(payload.get("notes") or ""),
-            account_id=int(account_id) if isinstance(account_id, int | str) and str(account_id).isdigit() else None,
+            account_id=target_account_id,
         )
 
     @app.get("/api/oxygen-challenges/{challenge_id}")

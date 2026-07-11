@@ -55,6 +55,7 @@ async def test_store_inserts_and_queries_recent_readings(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)
     await store.init()
+    account = await store.create_account(email="seed@example.test")
 
     first = normalize_reading(
         {"heart_rate": 120, "oxygen_saturation": 98, "last_updated": "2026-07-02T01:00:00Z"},
@@ -65,8 +66,8 @@ async def test_store_inserts_and_queries_recent_readings(tmp_path):
         device_serial="AC123",
     )
 
-    await store.insert_reading(first)
-    await store.insert_reading(second)
+    await store.insert_reading(first, account_id=account["id"])
+    await store.insert_reading(second, account_id=account["id"])
     rows = await store.get_readings(hours=24)
 
     assert [row.heart_rate for row in rows] == [120, 130]
@@ -84,6 +85,7 @@ async def test_store_can_return_all_readings_or_recent_window(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)
     await store.init()
+    account = await store.create_account(email="seed@example.test")
 
     for timestamp, hr in [
         ("2026-06-30T02:00:00Z", 110),
@@ -94,7 +96,8 @@ async def test_store_can_return_all_readings_or_recent_window(tmp_path):
             normalize_reading(
                 {"heart_rate": hr, "oxygen_saturation": 97, "last_updated": timestamp},
                 device_serial="AC123",
-            )
+            ),
+            account_id=account["id"],
         )
 
     all_rows = await store.get_readings(hours=None)
@@ -265,3 +268,61 @@ async def test_store_persists_account_tokens_without_password(tmp_path):
     assert updated["dashboard_preferences"]["chart_visibility"] == {"heartRate": False, "oxygen": True}
     assert updated["dashboard_preferences"]["chart_settings"]["window"] == "72"
     assert updated["dashboard_preferences"]["chart_settings"]["challenge_bands"] is False
+
+
+@pytest.mark.asyncio
+async def test_account_ids_scope_readings_and_devices(tmp_path):
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    a = await store.create_account(email="a@x.y", user_id=1)
+    b = await store.create_account(email="b@x.y", user_id=2)
+    for account, hr in ((a, 100), (b, 150)):
+        await store.insert_reading(
+            normalize_reading(
+                {"heart_rate": hr, "oxygen_saturation": 95, "last_updated": "2026-07-02T01:00:00Z"},
+                f"S{account['id']}",
+            ),
+            account_id=account["id"],
+        )
+    only_a = await store.get_readings(hours=None, account_ids=[a["id"]])
+    both = await store.get_readings(hours=None, account_ids=[a["id"], b["id"]])
+    none = await store.get_readings(hours=None, account_ids=[])
+    assert [r.heart_rate for r in only_a] == [100]
+    assert len(both) == 2
+    assert none == []
+    assert [d["account_id"] for d in await store.list_devices(account_ids=[b["id"]])] == [b["id"]]
+    assert (await store.get_summary(hours=None, account_ids=[a["id"]]))["count"] == 1
+    assert (await store.get_notifications(account_ids=[]))["items"] == []
+    assert (await store.get_oxygen_challenges(account_ids=[]))["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_list_accounts_filters_by_user_and_get_account_enforces_owner(tmp_path):
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    mine = await store.create_account(email="mine@x.y", user_id=7)
+    await store.create_account(email="theirs@x.y", user_id=8)
+    assert [a["id"] for a in await store.list_accounts(user_id=7)] == [mine["id"]]
+    assert (await store.get_account(mine["id"], user_id=7))["id"] == mine["id"]
+    with pytest.raises(KeyError):
+        await store.get_account(mine["id"], user_id=8)
+
+
+@pytest.mark.asyncio
+async def test_fresh_db_creates_no_default_account(tmp_path):
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    assert await store.list_accounts() == []
+
+
+@pytest.mark.asyncio
+async def test_challenge_ownership_scoping(tmp_path):
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    acc = await store.create_account(email="a@x.y", user_id=1)
+    challenge = await store.create_oxygen_challenge("2026-07-02T00:00:00Z", account_id=acc["id"])
+    assert (await store.get_oxygen_challenge(challenge["id"], account_ids=[acc["id"]]))["id"] == challenge["id"]
+    with pytest.raises(KeyError):
+        await store.get_oxygen_challenge(challenge["id"], account_ids=[999])
+    assert await store.delete_oxygen_challenge(challenge["id"], account_ids=[999]) == 0
+    assert await store.delete_oxygen_challenge(challenge["id"], account_ids=[acc["id"]]) == 1

@@ -24,6 +24,7 @@ class ReadingStore:
                 """
                 CREATE TABLE IF NOT EXISTS accounts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
                     email TEXT NOT NULL DEFAULT '',
                     region TEXT NOT NULL DEFAULT 'world',
                     display_name TEXT NOT NULL DEFAULT 'Default account',
@@ -113,8 +114,8 @@ class ReadingStore:
             await db.commit()
 
     async def _ensure_account_schema(self, db: aiosqlite.Connection) -> None:
-        default_account_id = await self._ensure_default_account(db)
         await self._ensure_account_preference_schema(db)
+        default_account_id = await self._legacy_default_account_id(db)
         await self._ensure_readings_account_schema(db, default_account_id)
         await self._ensure_notifications_account_schema(db, default_account_id)
         await self._ensure_challenges_account_schema(db, default_account_id)
@@ -139,18 +140,27 @@ class ReadingStore:
             "ON oxygen_challenges(account_id, start_time)"
         )
 
-    async def _ensure_default_account(self, db: aiosqlite.Connection) -> int:
+    async def _legacy_default_account_id(self, db: aiosqlite.Connection) -> int:
+        """Existing first account, or create one ONLY if legacy rows need an owner."""
         cursor = await db.execute("SELECT id FROM accounts ORDER BY id ASC LIMIT 1")
         row = await cursor.fetchone()
         if row:
             return int(row[0])
-        cursor = await db.execute(
-            """
-            INSERT INTO accounts (email, region, display_name, status, updated_at)
-            VALUES ('', 'world', 'Default account', 'active', CURRENT_TIMESTAMP)
-            """
-        )
-        return int(cursor.lastrowid)
+        for table in ("readings", "notifications", "oxygen_challenges"):
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            )
+            exists_row = await cursor.fetchone()
+            if exists_row and exists_row[0]:
+                cursor = await db.execute(f"SELECT COUNT(*) FROM {table}")
+                count_row = await cursor.fetchone()
+                if count_row and int(count_row[0]) > 0:
+                    insert = await db.execute(
+                        "INSERT INTO accounts (email, region, display_name, status, updated_at) "
+                        "VALUES ('', 'world', 'Default account', 'active', CURRENT_TIMESTAMP)"
+                    )
+                    return int(insert.lastrowid)
+        return 0  # fresh database: no account rows created
 
     async def _ensure_account_preference_schema(self, db: aiosqlite.Connection) -> None:
         columns = await self._table_columns(db, "accounts")
@@ -158,6 +168,8 @@ class ReadingStore:
             await db.execute("ALTER TABLE accounts ADD COLUMN show_crypto INTEGER NOT NULL DEFAULT 0")
         if "dashboard_preferences" not in columns:
             await db.execute("ALTER TABLE accounts ADD COLUMN dashboard_preferences TEXT NOT NULL DEFAULT '{}'")
+        if "user_id" not in columns:
+            await db.execute("ALTER TABLE accounts ADD COLUMN user_id INTEGER")
 
     async def _table_columns(self, db: aiosqlite.Connection, table: str) -> list[str]:
         cursor = await db.execute(f"PRAGMA table_info({table})")
@@ -261,17 +273,21 @@ class ReadingStore:
         await db.execute("ALTER TABLE oxygen_challenges ADD COLUMN account_id INTEGER")
         await db.execute("UPDATE oxygen_challenges SET account_id = ? WHERE account_id IS NULL", (default_account_id,))
 
-    async def list_accounts(self) -> list[dict[str, Any]]:
+    async def list_accounts(self, user_id: int | None = None) -> list[dict[str, Any]]:
         await self.init()
+        where = "WHERE user_id = ?" if user_id is not None else ""
+        params: list[Any] = [user_id] if user_id is not None else []
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
-                """
+                f"""
                 SELECT id, email, region, display_name, api_token, api_token_expiry,
                        refresh_token, status, show_crypto, dashboard_preferences,
-                       created_at, updated_at, last_validated_at
+                       created_at, updated_at, last_validated_at, user_id
                 FROM accounts
+                {where}
                 ORDER BY id ASC
-                """
+                """,
+                params,
             )
             rows = await cursor.fetchall()
         return [self._row_to_account(row) for row in rows]
@@ -280,6 +296,7 @@ class ReadingStore:
         self,
         *,
         email: str,
+        user_id: int | None = None,
         region: str = "world",
         display_name: str | None = None,
         api_token: str | None = None,
@@ -292,11 +309,12 @@ class ReadingStore:
             cursor = await db.execute(
                 """
                 INSERT INTO accounts (
-                    email, region, display_name, api_token, api_token_expiry,
+                    user_id, email, region, display_name, api_token, api_token_expiry,
                     refresh_token, status, updated_at, last_validated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """,
                 (
+                    user_id,
                     email,
                     region or "world",
                     display_name or email or "Owlet account",
@@ -310,28 +328,28 @@ class ReadingStore:
             account_id = int(cursor.lastrowid)
         return await self.get_account(account_id)
 
-    async def get_account(self, account_id: int) -> dict[str, Any]:
+    async def get_account(self, account_id: int, user_id: int | None = None) -> dict[str, Any]:
         await self.init()
+        where = "WHERE id = ?"
+        params: list[Any] = [account_id]
+        if user_id is not None:
+            where += " AND user_id = ?"
+            params.append(user_id)
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
-                """
+                f"""
                 SELECT id, email, region, display_name, api_token, api_token_expiry,
                        refresh_token, status, show_crypto, dashboard_preferences,
-                       created_at, updated_at, last_validated_at
+                       created_at, updated_at, last_validated_at, user_id
                 FROM accounts
-                WHERE id = ?
+                {where}
                 """,
-                (account_id,),
+                params,
             )
             row = await cursor.fetchone()
         if not row:
             raise KeyError(account_id)
         return self._row_to_account(row)
-
-    async def default_account_id(self) -> int:
-        await self.init()
-        async with aiosqlite.connect(self.db_path) as db:
-            return await self._ensure_default_account(db)
 
     async def update_account_profile(
         self,
@@ -423,9 +441,10 @@ class ReadingStore:
             )
             await db.commit()
 
-    async def insert_reading(self, reading: OwletReading, account_id: int | None = None) -> None:
+    async def insert_reading(self, reading: OwletReading, account_id: int) -> None:
         await self.init()
-        account_id = account_id or await self.default_account_id()
+        if not account_id:
+            raise ValueError("account_id is required")
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """
@@ -462,13 +481,20 @@ class ReadingStore:
         self,
         device_serial: str | None = None,
         account_id: int | None = None,
+        account_ids: list[int] | None = None,
     ) -> str | None:
         await self.init()
+        if account_ids is not None and not account_ids:
+            return None
         where_parts: list[str] = []
         params: list[Any] = []
         if account_id is not None:
             where_parts.append("account_id = ?")
             params.append(account_id)
+        elif account_ids is not None:
+            placeholders = ",".join("?" for _ in account_ids)
+            where_parts.append(f"account_id IN ({placeholders})")
+            params.extend(account_ids)
         if device_serial:
             where_parts.append("device_serial = ?")
             params.append(device_serial)
@@ -484,14 +510,23 @@ class ReadingStore:
         limit: int = 5000,
         device_serial: str | None = None,
         account_id: int | None = None,
+        account_ids: list[int] | None = None,
     ) -> list[OwletReading]:
         await self.init()
-        latest = await self._latest_timestamp(device_serial=device_serial, account_id=account_id)
+        if account_ids is not None and not account_ids:
+            return []
+        latest = await self._latest_timestamp(
+            device_serial=device_serial, account_id=account_id, account_ids=account_ids
+        )
         where_parts: list[str] = []
         params: list[Any] = []
         if account_id is not None:
             where_parts.append("account_id = ?")
             params.append(account_id)
+        elif account_ids is not None:
+            placeholders = ",".join("?" for _ in account_ids)
+            where_parts.append(f"account_id IN ({placeholders})")
+            params.extend(account_ids)
         if device_serial:
             where_parts.append("device_serial = ?")
             params.append(device_serial)
@@ -525,16 +560,25 @@ class ReadingStore:
         limit: int = 100_000,
         device_serial: str | None = None,
         account_id: int | None = None,
+        account_ids: list[int] | None = None,
     ) -> list[OwletReading]:
         """Return readings for summaries without materializing large raw payloads."""
 
         await self.init()
-        latest = await self._latest_timestamp(device_serial=device_serial, account_id=account_id)
+        if account_ids is not None and not account_ids:
+            return []
+        latest = await self._latest_timestamp(
+            device_serial=device_serial, account_id=account_id, account_ids=account_ids
+        )
         where_parts: list[str] = []
         params: list[Any] = []
         if account_id is not None:
             where_parts.append("account_id = ?")
             params.append(account_id)
+        elif account_ids is not None:
+            placeholders = ",".join("?" for _ in account_ids)
+            where_parts.append(f"account_id IN ({placeholders})")
+            params.extend(account_ids)
         if device_serial:
             where_parts.append("device_serial = ?")
             params.append(device_serial)
@@ -572,9 +616,14 @@ class ReadingStore:
         hours: int | None = 24,
         device_serial: str | None = None,
         account_id: int | None = None,
+        account_ids: list[int] | None = None,
     ) -> dict[str, Any]:
-        readings = await self.get_analysis_readings(hours=hours, device_serial=device_serial, account_id=account_id)
-        analysis_readings = await self.exclude_challenge_readings(readings, account_id=account_id)
+        readings = await self.get_analysis_readings(
+            hours=hours, device_serial=device_serial, account_id=account_id, account_ids=account_ids
+        )
+        analysis_readings = await self.exclude_challenge_readings(
+            readings, account_id=account_id, account_ids=account_ids
+        )
         valid_readings = [reading for reading in analysis_readings if not is_offline_reading(reading)]
         first_recorded_at = readings[0].recorded_at.isoformat() if readings else None
         last_recorded_at = readings[-1].recorded_at.isoformat() if readings else None
@@ -600,10 +649,23 @@ class ReadingStore:
             ]),
         }
 
-    async def list_devices(self, account_id: int | None = None) -> list[dict[str, Any]]:
+    async def list_devices(
+        self,
+        account_id: int | None = None,
+        account_ids: list[int] | None = None,
+    ) -> list[dict[str, Any]]:
         await self.init()
-        where = "WHERE r.account_id = ?" if account_id is not None else ""
-        params: list[Any] = [account_id] if account_id is not None else []
+        if account_ids is not None and not account_ids:
+            return []
+        where = ""
+        params: list[Any] = []
+        if account_id is not None:
+            where = "WHERE r.account_id = ?"
+            params = [account_id]
+        elif account_ids is not None:
+            placeholders = ",".join("?" for _ in account_ids)
+            where = f"WHERE r.account_id IN ({placeholders})"
+            params = list(account_ids)
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 f"""
@@ -642,7 +704,8 @@ class ReadingStore:
         account_id: int | None = None,
     ) -> dict[str, Any]:
         await self.init()
-        account_id = account_id or await self.default_account_id()
+        if not account_id:
+            raise ValueError("account_id is required")
         start = parse_time(start_time).isoformat()
         end = parse_time(end_time).isoformat() if end_time else None
         async with aiosqlite.connect(self.db_path) as db:
@@ -691,11 +754,24 @@ class ReadingStore:
             await db.commit()
         return await self.get_oxygen_challenge(challenge_id)
 
-    async def delete_oxygen_challenge(self, challenge_id: int) -> None:
+    async def delete_oxygen_challenge(
+        self,
+        challenge_id: int,
+        account_ids: list[int] | None = None,
+    ) -> int:
         await self.init()
+        where = "WHERE id = ?"
+        params: list[Any] = [challenge_id]
+        if account_ids is not None:
+            if not account_ids:
+                return 0
+            placeholders = ",".join("?" for _ in account_ids)
+            where += f" AND account_id IN ({placeholders})"
+            params.extend(account_ids)
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("DELETE FROM oxygen_challenges WHERE id = ?", (challenge_id,))
+            cursor = await db.execute(f"DELETE FROM oxygen_challenges {where}", params)
             await db.commit()
+            return cursor.rowcount or 0
 
     async def get_oxygen_challenges(
         self,
@@ -704,23 +780,36 @@ class ReadingStore:
         offset: int = 0,
         device_serial: str | None = None,
         account_id: int | None = None,
+        account_ids: list[int] | None = None,
     ) -> dict[str, Any]:
         await self.init()
-        rows, total = await self._oxygen_challenge_rows(hours=hours, limit=limit, offset=offset, account_id=account_id)
+        if account_ids is not None and not account_ids:
+            return {"items": [], "total": 0, "limit": limit, "offset": offset}
+        rows, total = await self._oxygen_challenge_rows(
+            hours=hours, limit=limit, offset=offset, account_id=account_id, account_ids=account_ids
+        )
         analysis_hours = None if hours is None else min(24 * 365, max(int(hours) * 2, int(hours) + 24))
         readings = await self.get_analysis_readings(
             hours=analysis_hours,
             limit=100_000,
             device_serial=device_serial,
             account_id=account_id,
+            account_ids=account_ids,
         )
         latest = readings[-1].recorded_at if readings else None
         items = [challenge_analysis(self._row_to_challenge(row), readings, latest) for row in rows]
         return {"items": items, "total": total, "limit": limit, "offset": offset}
 
-    async def get_oxygen_challenge(self, challenge_id: int, account_id: int | None = None) -> dict[str, Any]:
+    async def get_oxygen_challenge(
+        self,
+        challenge_id: int,
+        account_id: int | None = None,
+        account_ids: list[int] | None = None,
+    ) -> dict[str, Any]:
         await self.init()
-        row = await self._get_oxygen_challenge_row(challenge_id, account_id=account_id)
+        row = await self._get_oxygen_challenge_row(
+            challenge_id, account_id=account_id, account_ids=account_ids
+        )
         if not row:
             raise KeyError(challenge_id)
         challenge_account_id = int(row[1])
@@ -747,18 +836,34 @@ class ReadingStore:
         self,
         readings: list[OwletReading],
         account_id: int | None = None,
+        account_ids: list[int] | None = None,
     ) -> list[OwletReading]:
-        intervals = await self.get_oxygen_challenge_intervals(account_id=account_id)
+        intervals = await self.get_oxygen_challenge_intervals(
+            account_id=account_id, account_ids=account_ids
+        )
         if not intervals:
             return readings
         return [reading for reading in readings if not reading_in_any_period(reading, intervals)]
 
-    async def get_oxygen_challenge_intervals(self, account_id: int | None = None) -> list[tuple[datetime, datetime]]:
+    async def get_oxygen_challenge_intervals(
+        self,
+        account_id: int | None = None,
+        account_ids: list[int] | None = None,
+    ) -> list[tuple[datetime, datetime]]:
         await self.init()
-        latest = await self._latest_timestamp(account_id=account_id)
+        if account_ids is not None and not account_ids:
+            return []
+        latest = await self._latest_timestamp(account_id=account_id, account_ids=account_ids)
         fallback_end = parse_time(latest) if latest else datetime.now()
-        where = "WHERE account_id = ?" if account_id is not None else ""
-        params: list[Any] = [account_id] if account_id is not None else []
+        where = ""
+        params: list[Any] = []
+        if account_id is not None:
+            where = "WHERE account_id = ?"
+            params = [account_id]
+        elif account_ids is not None:
+            placeholders = ",".join("?" for _ in account_ids)
+            where = f"WHERE account_id IN ({placeholders})"
+            params = list(account_ids)
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 f"SELECT start_time, end_time FROM oxygen_challenges {where} ORDER BY start_time ASC",
@@ -773,13 +878,20 @@ class ReadingStore:
         limit: int = 100,
         offset: int = 0,
         account_id: int | None = None,
+        account_ids: list[int] | None = None,
     ) -> tuple[list[tuple[Any, ...]], int]:
-        latest = await self._latest_timestamp(account_id=account_id)
+        if account_ids is not None and not account_ids:
+            return [], 0
+        latest = await self._latest_timestamp(account_id=account_id, account_ids=account_ids)
         where_parts: list[str] = []
         params: list[Any] = []
         if account_id is not None:
             where_parts.append("account_id = ?")
             params.append(account_id)
+        elif account_ids is not None:
+            placeholders = ",".join("?" for _ in account_ids)
+            where_parts.append(f"account_id IN ({placeholders})")
+            params.extend(account_ids)
         if latest and hours is not None:
             cutoff = parse_time(latest) - timedelta(hours=int(hours))
             where_parts.append("(end_time IS NULL OR end_time >= ?)")
@@ -805,12 +917,19 @@ class ReadingStore:
         self,
         challenge_id: int,
         account_id: int | None = None,
+        account_ids: list[int] | None = None,
     ) -> tuple[Any, ...] | None:
+        if account_ids is not None and not account_ids:
+            return None
         where = "WHERE id = ?"
         params: list[Any] = [challenge_id]
         if account_id is not None:
             where += " AND account_id = ?"
             params.append(account_id)
+        elif account_ids is not None:
+            placeholders = ",".join("?" for _ in account_ids)
+            where += f" AND account_id IN ({placeholders})"
+            params.extend(account_ids)
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 f"""
@@ -829,14 +948,23 @@ class ReadingStore:
         offset: int = 0,
         device_serial: str | None = None,
         account_id: int | None = None,
+        account_ids: list[int] | None = None,
     ) -> dict[str, Any]:
         await self.init()
-        latest = await self._latest_timestamp(device_serial=device_serial, account_id=account_id)
+        if account_ids is not None and not account_ids:
+            return {"items": [], "total": 0, "limit": limit, "offset": offset}
+        latest = await self._latest_timestamp(
+            device_serial=device_serial, account_id=account_id, account_ids=account_ids
+        )
         where_parts: list[str] = []
         params: list[Any] = []
         if account_id is not None:
             where_parts.append("account_id = ?")
             params.append(account_id)
+        elif account_ids is not None:
+            placeholders = ",".join("?" for _ in account_ids)
+            where_parts.append(f"account_id IN ({placeholders})")
+            params.extend(account_ids)
         if device_serial:
             where_parts.append("device_serial = ?")
             params.append(device_serial)
@@ -992,6 +1120,7 @@ class ReadingStore:
             "created_at": row[10],
             "updated_at": row[11],
             "last_validated_at": row[12],
+            "user_id": int(row[13]) if len(row) > 13 and row[13] is not None else None,
         }
 
     def _row_to_reading(self, row: tuple[Any, ...]) -> OwletReading:

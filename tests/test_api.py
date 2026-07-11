@@ -12,6 +12,13 @@ def _test_settings(**kwargs):
     return Settings(_env_file=None, **kwargs)  # type: ignore[call-arg]
 
 
+async def _default_account_id(store: ReadingStore):
+    accounts = await store.list_accounts()
+    if accounts:
+        return accounts[0]["id"]
+    return (await store.create_account(email="seed@example.test"))["id"]
+
+
 async def _seed_reading(
     store: ReadingStore,
     timestamp: str,
@@ -35,7 +42,7 @@ async def _seed_reading(
             },
             device_serial,
         ),
-        account_id=account_id,
+        account_id=account_id or await _default_account_id(store),
     )
 
 
@@ -44,7 +51,7 @@ async def test_account_api_is_public_metadata_only_and_scopes_data(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)
     await store.init()
-    first = (await store.list_accounts())[0]
+    first = await store.create_account(email="first@example.test")
     second = await store.create_account(
         email="second@example.test",
         region="world",
@@ -135,7 +142,8 @@ async def test_sock_disconnected_nonzero_vitals_are_treated_as_offline(tmp_path)
                 "alerts_mask": 16,
             },
             "AC123",
-        )
+        ),
+        account_id=await _default_account_id(store),
     )
     await _seed_reading(store, "2026-07-02T01:10:00Z", hr=130, spo2=97)
     app = create_app(store=store, settings=_test_settings(), start_poller=False)
@@ -267,7 +275,8 @@ async def test_notifications_endpoint_extracts_alerts_and_offline_periods(tmp_pa
                 "alerts_mask": 16,
             },
             "AC123",
-        )
+        ),
+        account_id=await _default_account_id(store),
     )
     app = create_app(store=store, settings=_test_settings(), start_poller=False)
 
@@ -366,13 +375,15 @@ async def test_api_returns_readings_and_summary(tmp_path):
         normalize_reading(
             {"heart_rate": 120, "oxygen_saturation": 98, "last_updated": "2026-07-02T01:00:00Z"},
             "AC123",
-        )
+        ),
+        account_id=await _default_account_id(store),
     )
     await store.insert_reading(
         normalize_reading(
             {"heart_rate": 130, "oxygen_saturation": 96, "last_updated": "2026-07-02T02:00:00Z"},
             "AC123",
-        )
+        ),
+        account_id=await _default_account_id(store),
     )
 
     app = create_app(store=store, settings=_test_settings(), start_poller=False)
@@ -440,7 +451,8 @@ async def test_api_defaults_to_all_data_and_still_supports_hours_filter(tmp_path
             normalize_reading(
                 {"heart_rate": hr, "oxygen_saturation": 97, "last_updated": timestamp},
                 "AC123",
-            )
+            ),
+            account_id=await _default_account_id(store),
         )
 
     app = create_app(store=store, settings=_test_settings(), start_poller=False)
@@ -819,7 +831,8 @@ async def test_share_link_serves_read_only_dashboard_and_api_without_basic_auth(
                 "raw": {"secretish": "not exposed"},
             },
             "AC123",
-        )
+        ),
+        account_id=await _default_account_id(store),
     )
     token = "share-token-with-enough-length"
     settings = _test_settings(

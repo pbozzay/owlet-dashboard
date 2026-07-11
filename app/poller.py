@@ -116,10 +116,10 @@ async def create_owlet_poller(
     password: str,
     region: str,
     interval_seconds: int,
-    account_id: int | None = None,
+    account_id: int,
 ) -> tuple[Poller, OwletClient]:
     account = {
-        "id": account_id or await store.default_account_id(),
+        "id": account_id,
         "email": email,
         "region": region,
         "api_token": None,

@@ -41,15 +41,14 @@ async def test_sessions_create_expire_revoke(tmp_path):
     assert await auth.get_session_user(hash_token(token)) is None
 
 
-# enabled in Task 2 (needs store.list_accounts(user_id=...))
-# @pytest.mark.asyncio
-# async def test_first_user_adopts_orphan_accounts(tmp_path):
-#     db = tmp_path / "owlet.sqlite3"
-#     store = ReadingStore(db)
-#     await store.init()
-#     orphan = await store.create_account(email="sock@example.com")
-#     auth = AuthStore(db)
-#     first = await auth.create_user("first@example.com", hash_password("hunter22"))
-#     second = await auth.create_user("second@example.com", hash_password("hunter22"))
-#     assert {a["id"] for a in await store.list_accounts(user_id=first["id"])} == {orphan["id"]}
-#     assert await store.list_accounts(user_id=second["id"]) == []
+@pytest.mark.asyncio
+async def test_first_user_adopts_orphan_accounts(tmp_path):
+    db = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db)
+    await store.init()
+    orphan = await store.create_account(email="sock@example.com")
+    auth = AuthStore(db)
+    first = await auth.create_user("first@example.com", hash_password("hunter22"))
+    second = await auth.create_user("second@example.com", hash_password("hunter22"))
+    assert {a["id"] for a in await store.list_accounts(user_id=first["id"])} == {orphan["id"]}
+    assert await store.list_accounts(user_id=second["id"]) == []
