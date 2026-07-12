@@ -61,18 +61,12 @@ DASHBOARD_HTML = r"""
     .profile-toggle small { color: var(--muted); }
     .baby-name { color: var(--text); font-weight: 950; font-size: clamp(1rem, 2.5vw, 1.35rem); background: rgba(255,255,255,.76); border: 1px solid rgba(226,232,240,.9); border-radius: 999px; padding: .38rem .75rem; box-shadow: 0 8px 24px rgba(15,23,42,.08); }
     h1 { margin: 0; letter-spacing: -.045em; font-size: clamp(2.1rem, 5vw, 4.2rem); line-height: .92; }
-    @property --refresh-progress { syntax: '<number>'; inherits: false; initial-value: 0; }
     .title-status-dot { display: inline-block; flex: 0 0 auto; width: 10px; height: 10px;
-      position: relative; margin-left: 10px; vertical-align: middle;
-      transition: --refresh-progress 1s linear; }
-    .title-status-dot::after {
-      content: ''; position: absolute; inset: -5px; border-radius: 50%;
-      background: conic-gradient(rgba(34,197,94,.55) calc(var(--refresh-progress, 0) * 1turn), rgba(148,163,184,.16) 0);
+      position: relative; margin-left: 10px; vertical-align: middle; cursor: pointer; }
+    .dot-ring {
+      position: absolute; inset: -5px; border-radius: 50%; pointer-events: none;
       -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
       mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
-    }
-    .title-status-dot.offline::after {
-      background: conic-gradient(rgba(239,68,68,.55) calc(var(--refresh-progress, 0) * 1turn), rgba(148,163,184,.16) 0);
     }
     .title-status-dot.refreshing { animation: livePulse .9s ease-in-out infinite; }
     @keyframes livePulse { 0%, 100% { box-shadow: 0 0 0 4px rgba(34,197,94,.14); } 50% { box-shadow: 0 0 0 8px rgba(34,197,94,.05); } }
@@ -367,7 +361,8 @@ DASHBOARD_HTML = r"""
   <main class="shell">
     <section class="hero">
       <div>
-        <h1><span>Owlet Dashboard</span><span id="titleStatusDot" class="status-dot title-status-dot" aria-hidden="true"></span></h1>
+        <h1><span>Owlet Dashboard</span><span id="titleStatusDot" class="status-dot title-status-dot"
+          role="button" tabindex="0" aria-label="Refresh now"></span></h1>
         <p class="subtitle">
           Live-updated pulse plus historical drill-downs for breathing, sleep, wake time,
           and raw readings. Retrospective trend viewing only — not a medical monitor or alert replacement.
@@ -433,7 +428,6 @@ DASHBOARD_HTML = r"""
           <span class="battery-shell" aria-hidden="true"><span id="batteryFill" class="battery-fill" style="width: 0%;"></span></span>
           <span id="batteryLabel">—</span>
         </button>
-        <button id="refresh" class="primary">Refresh (15s)</button>
         <div id="challengesPanel" class="challenge-popover hidden" role="dialog" aria-modal="true" aria-label="Oxygen challenges">
           <div class="panel-title">
             <h2>Oxygen challenges</h2>
@@ -1066,6 +1060,7 @@ DASHBOARD_HTML = r"""
 
     function updateRefreshButton(text = null) {
       const button = el('refresh');
+      if (!button) return;
       const mobile = isMobileViewport();
       if (text) {
         button.textContent = mobile ? (text.startsWith('Refreshing') ? '↻' : '!') : text;
@@ -1078,13 +1073,33 @@ DASHBOARD_HTML = r"""
       button.setAttribute('aria-label', button.title);
     }
 
+    let refreshCycleStartedAt = Date.now();
+
+    function titleDotRing() {
+      const dot = el('titleStatusDot');
+      if (!dot) return null;
+      let ring = dot.querySelector('.dot-ring');
+      if (!ring) {
+        ring = document.createElement('span');
+        ring.className = 'dot-ring';
+        ring.setAttribute('aria-hidden', 'true');
+        dot.appendChild(ring);
+      }
+      return ring;
+    }
+
     function updateTitleDotProgress() {
       const dot = el('titleStatusDot');
-      if (!dot) return;
-      const total = refreshSeconds();
-      const progress = total > 0 ? Math.min(1, Math.max(0, 1 - secondsUntilRefresh / total)) : 0;
-      dot.style.setProperty('--refresh-progress', progress.toFixed(3));
+      const ring = titleDotRing();
+      if (!dot || !ring) return;
+      const totalMs = refreshSeconds() * 1000;
+      const progress = refreshInFlight
+        ? 1
+        : Math.min(1, Math.max(0, (Date.now() - refreshCycleStartedAt) / totalMs));
+      const color = dot.classList.contains('offline') ? 'rgba(239,68,68,.55)' : 'rgba(34,197,94,.55)';
+      ring.style.background = `conic-gradient(${color} ${(progress * 360).toFixed(1)}deg, rgba(148,163,184,.16) 0deg)`;
       dot.classList.toggle('refreshing', !!refreshInFlight);
+      dot.title = `Auto-refresh in ${secondsUntilRefresh}s — click to refresh now`;
     }
 
     function setInitialLoading(message, kind = '') {
@@ -1727,6 +1742,7 @@ DASHBOARD_HTML = r"""
 
     async function refresh({ resetZoom = false } = {}) {
       secondsUntilRefresh = refreshSeconds();
+      refreshCycleStartedAt = Date.now();
       setInitialLoading('Loading readings and notifications…');
       updateRefreshButton('Refreshing…');
       const token = ++refreshToken;
@@ -1763,7 +1779,7 @@ DASHBOARD_HTML = r"""
       if (previousLatest && lastLatestTimestamp && lastLatestTimestamp !== previousLatest) showNewDataPulse();
       hydrateSecondaryData({ qs, rollupQs, cryptoHours, token, compareRows: rows }).catch(error => {
         console.error(error);
-        el('refresh').title = 'Some details failed; core readings are still shown.';
+        if (el('refresh')) el('refresh').title = 'Some details failed; core readings are still shown.';
       });
     }
 
@@ -1797,7 +1813,6 @@ DASHBOARD_HTML = r"""
       const dotClass = offlineNow ? 'offline' : (health.collecting ? 'good' : '');
       el('status').innerHTML = `<span class="status-dot ${dotClass}"></span>${label} · ${mode}`;
       el('titleStatusDot').className = `status-dot title-status-dot ${dotClass}`;
-      el('titleStatusDot').title = label;
       renderBatteryStatus(latest);
     }
 
@@ -3369,7 +3384,11 @@ DASHBOARD_HTML = r"""
     el('window').addEventListener('change', () => { notificationPageOffset = 0; readingsTableSignature = ''; persistChartSettings({ window: el('window').value }); safeRefresh({ resetZoom: true, force: true }); });
     el('smoothing').addEventListener('change', () => { persistChartSettings({ smoothing: el('smoothing').value }); renderCharts({ deferTrend: true }); safeRefresh({ resetZoom: false }); });
     el('chartLayout').addEventListener('change', () => { persistChartSettings({ layout: el('chartLayout').value }); renderCharts({ deferTrend: true }); });
-    el('refresh').addEventListener('click', () => safeRefresh());
+    el('refresh')?.addEventListener('click', () => safeRefresh());
+    el('titleStatusDot')?.addEventListener('click', () => safeRefresh({ force: true }));
+    el('titleStatusDot')?.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); safeRefresh({ force: true }); }
+    });
     el('dailyInsightsToggle').addEventListener('click', openDailyInsightsModal);
     el('closeDailyInsights').addEventListener('click', () => el('dailyInsightsModal').classList.add('hidden'));
     el('download').addEventListener('click', downloadCsv);
@@ -3439,6 +3458,7 @@ DASHBOARD_HTML = r"""
     attachReadingsTableSelection();
     loadAccounts().then(loadDevices).then(() => safeRefresh({ resetZoom: true }));
     setInterval(tickCountdown, 1000);
+    setInterval(updateTitleDotProgress, 200);
   </script>
 </body>
 </html>
