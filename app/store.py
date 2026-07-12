@@ -17,9 +17,14 @@ class ReadingStore:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
 
+    def _connect(self):
+        """WAL + busy-timeout on every connection: long analytic reads must not
+        lock out the 5s poller writes (or vice versa)."""
+        return _WALConnection(self.db_path)
+
     async def init(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS accounts (
@@ -283,7 +288,7 @@ class ReadingStore:
         await self.init()
         where = "WHERE user_id = ?" if user_id is not None else ""
         params: list[Any] = [user_id] if user_id is not None else []
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 f"""
                 SELECT id, email, region, display_name, api_token, api_token_expiry,
@@ -313,7 +318,7 @@ class ReadingStore:
         owlet_password: str | None = None,
     ) -> dict[str, Any]:
         await self.init()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 """
                 INSERT INTO accounts (
@@ -344,7 +349,7 @@ class ReadingStore:
         if user_id is not None:
             where += " AND user_id = ?"
             params.append(user_id)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 f"""
                 SELECT id, email, region, display_name, api_token, api_token_expiry,
@@ -370,7 +375,7 @@ class ReadingStore:
         display_name: str | None = None,
     ) -> None:
         await self.init()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 """
                 UPDATE accounts
@@ -416,7 +421,7 @@ class ReadingStore:
             return current
         assignments.append("updated_at = CURRENT_TIMESTAMP")
         values.append(account_id)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 f"UPDATE accounts SET {', '.join(assignments)} WHERE id = ?",
                 values,
@@ -434,7 +439,7 @@ class ReadingStore:
         status: str = "active",
     ) -> None:
         await self.init()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 """
                 UPDATE accounts
@@ -448,7 +453,7 @@ class ReadingStore:
 
     async def update_account_status(self, account_id: int, status: str) -> None:
         await self.init()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "UPDATE accounts SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (status, account_id),
@@ -459,7 +464,7 @@ class ReadingStore:
         await self.init()
         if not account_id:
             raise ValueError("account_id is required")
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 """
                 INSERT INTO readings (
@@ -513,7 +518,7 @@ class ReadingStore:
             where_parts.append("device_serial = ?")
             params.append(device_serial)
         where = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(f"SELECT MAX(recorded_at) FROM readings {where}", params)
             row = await cursor.fetchone()
             return row[0] if row and row[0] else None
@@ -552,7 +557,7 @@ class ReadingStore:
         where = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         params.append(limit)
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 f"""
                 SELECT device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
@@ -604,7 +609,7 @@ class ReadingStore:
         where = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         params.append(limit)
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 f"""
                 SELECT device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
@@ -680,7 +685,7 @@ class ReadingStore:
             placeholders = ",".join("?" for _ in account_ids)
             where = f"WHERE r.account_id IN ({placeholders})"
             params = list(account_ids)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 f"""
                 SELECT r.account_id, r.device_serial, COUNT(*) AS reading_count,
@@ -722,7 +727,7 @@ class ReadingStore:
             raise ValueError("account_id is required")
         start = parse_time(start_time).isoformat()
         end = parse_time(end_time).isoformat() if end_time else None
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 """
                 INSERT INTO oxygen_challenges (account_id, start_time, end_time, label, notes, updated_at)
@@ -750,7 +755,7 @@ class ReadingStore:
             raise KeyError(challenge_id)
         start = parse_time(start_time).isoformat() if start_time else current[2]
         end = None if clear_end_time else (parse_time(end_time).isoformat() if end_time else current[3])
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 """
                 UPDATE oxygen_challenges
@@ -782,7 +787,7 @@ class ReadingStore:
             placeholders = ",".join("?" for _ in account_ids)
             where += f" AND account_id IN ({placeholders})"
             params.extend(account_ids)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(f"DELETE FROM oxygen_challenges {where}", params)
             await db.commit()
             return cursor.rowcount or 0
@@ -878,7 +883,7 @@ class ReadingStore:
             placeholders = ",".join("?" for _ in account_ids)
             where = f"WHERE account_id IN ({placeholders})"
             params = list(account_ids)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 f"SELECT start_time, end_time FROM oxygen_challenges {where} ORDER BY start_time ASC",
                 params,
@@ -911,7 +916,7 @@ class ReadingStore:
             where_parts.append("(end_time IS NULL OR end_time >= ?)")
             params.append(cutoff.isoformat())
         where = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             count_cursor = await db.execute(f"SELECT COUNT(*) FROM oxygen_challenges {where}", params)
             count_row = await count_cursor.fetchone()
             cursor = await db.execute(
@@ -944,7 +949,7 @@ class ReadingStore:
             placeholders = ",".join("?" for _ in account_ids)
             where += f" AND account_id IN ({placeholders})"
             params.extend(account_ids)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 f"""
                 SELECT id, account_id, start_time, end_time, label, notes, created_at, updated_at
@@ -989,7 +994,7 @@ class ReadingStore:
             params.append(cutoff.isoformat())
         where = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             count_cursor = await db.execute(f"SELECT COUNT(*) FROM notifications {where}", params)
             count_row = await count_cursor.fetchone()
             total = int(count_row[0] or 0)
@@ -1299,3 +1304,22 @@ def _raw_metric(raw: dict[str, Any], *keys: str) -> float | None:
         except (TypeError, ValueError):
             continue
     return None
+
+
+class _WALConnection:
+    """Async context manager: aiosqlite connection with WAL + busy timeout."""
+
+    def __init__(self, db_path):
+        self._db_path = db_path
+        self._db = None
+
+    async def __aenter__(self):
+        self._db = await aiosqlite.connect(self._db_path, timeout=15)
+        await self._db.execute("PRAGMA busy_timeout = 15000")
+        await self._db.execute("PRAGMA journal_mode = WAL")
+        await self._db.execute("PRAGMA synchronous = NORMAL")
+        return self._db
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self._db.close()
+        return False

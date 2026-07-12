@@ -17,9 +17,14 @@ class AuthStore:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
 
+    def _connect(self):
+        """WAL + busy-timeout on every connection: long analytic reads must not
+        lock out the 5s poller writes (or vice versa)."""
+        return _WALConnection(self.db_path)
+
     async def init(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS users (
@@ -49,7 +54,7 @@ class AuthStore:
     async def create_user(self, email: str, password_hash: str) -> dict[str, Any]:
         await self.init()
         normalized = email.strip().lower()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             try:
                 cursor = await db.execute(
                     "INSERT INTO users (email, password_hash) VALUES (?, ?)",
@@ -83,7 +88,7 @@ class AuthStore:
 
     async def get_user(self, user_id: int) -> dict[str, Any] | None:
         await self.init()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 "SELECT id, email, password_hash, created_at, updated_at FROM users WHERE id = ?",
                 (user_id,),
@@ -92,7 +97,7 @@ class AuthStore:
 
     async def get_user_by_email(self, email: str) -> dict[str, Any] | None:
         await self.init()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 "SELECT id, email, password_hash, created_at, updated_at FROM users WHERE email = ?",
                 (email.strip().lower(),),
@@ -105,7 +110,7 @@ class AuthStore:
         await self.init()
         now = _now()
         expires = (now + timedelta(days=ttl_days)).isoformat()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "INSERT INTO sessions (token_hash, user_id, expires_at, last_seen_at, user_agent) "
                 "VALUES (?, ?, ?, ?, ?)",
@@ -116,7 +121,7 @@ class AuthStore:
     async def get_session_user(self, token_hash: str) -> dict[str, Any] | None:
         await self.init()
         now = _now()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             cursor = await db.execute(
                 """
                 SELECT u.id, u.email, u.password_hash, u.created_at, u.updated_at,
@@ -139,7 +144,7 @@ class AuthStore:
 
     async def delete_session(self, token_hash: str) -> None:
         await self.init()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
             await db.commit()
 
@@ -154,3 +159,22 @@ def _row_to_user(row: tuple[Any, ...] | None) -> dict[str, Any] | None:
         "created_at": row[3],
         "updated_at": row[4],
     }
+
+
+class _WALConnection:
+    """Async context manager: aiosqlite connection with WAL + busy timeout."""
+
+    def __init__(self, db_path):
+        self._db_path = db_path
+        self._db = None
+
+    async def __aenter__(self):
+        self._db = await aiosqlite.connect(self._db_path, timeout=15)
+        await self._db.execute("PRAGMA busy_timeout = 15000")
+        await self._db.execute("PRAGMA journal_mode = WAL")
+        await self._db.execute("PRAGMA synchronous = NORMAL")
+        return self._db
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self._db.close()
+        return False
