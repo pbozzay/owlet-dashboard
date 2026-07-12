@@ -109,6 +109,19 @@ the app's own auth. Deployment notes live in [`docs/deployment.md`](docs/deploym
 .venv/Scripts/python -m pytest -q   # .venv/bin/... on mac/linux
 ```
 
+## Built with
+
+Credit to the open-source libraries this project stands on:
+
+- [FastAPI](https://fastapi.tiangolo.com/) + [Uvicorn](https://www.uvicorn.org/) — web framework and ASGI server
+- [pyowletapi](https://pypi.org/project/pyowletapi/) — unofficial Owlet cloud client
+- [aiosqlite](https://github.com/omnilib/aiosqlite) — async SQLite storage
+- [Pydantic](https://docs.pydantic.dev/) + [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) — models and configuration
+- [Chart.js](https://www.chartjs.org/) + [chartjs-plugin-zoom](https://www.chartjs.org/chartjs-plugin-zoom/latest/) + [Hammer.js](https://hammerjs.github.io/) — charts with drag/pan/zoom
+- [argon2-cffi](https://argon2-cffi.readthedocs.io/) — password hashing
+- [pytest](https://docs.pytest.org/) + [HTTPX](https://www.python-httpx.org/) + [Ruff](https://docs.astral.sh/ruff/) — tests and linting
+- [CoinGecko API](https://www.coingecko.com/en/api) — the crypto price glance
+
 ## Notes on Owlet API fragility
 
 Owlet has no documented public API for this. This project intentionally isolates the unofficial dependency in `app/owlet_client.py`, so if Owlet changes auth/endpoints, the storage/API/dashboard should remain intact and only the adapter should need updates.

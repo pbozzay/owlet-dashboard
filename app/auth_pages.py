@@ -81,7 +81,9 @@ _LANDING = """<!doctype html>
          margin-bottom:14px; }}
     h1 em {{ font-style:normal; color:var(--purple); }}
     .lede {{ color:var(--muted); font-size:16px; line-height:1.55; max-width:44ch;
-            margin-bottom:26px; }}
+            margin-bottom:14px; }}
+    .oss {{ font-size:13.5px; color:var(--muted); margin-bottom:24px; }}
+    .oss a {{ color:var(--purple); font-weight:600; text-decoration:none; }}
     ul.features {{ list-style:none; display:grid; gap:13px; }}
     ul.features li {{ display:flex; gap:12px; align-items:flex-start; font-size:14.5px;
                      line-height:1.45; }}
@@ -124,6 +126,8 @@ _LANDING = """<!doctype html>
       <p class="lede">Owlet's app only shows a short recent window. Owlet Dashboard quietly
         records your sock's readings around the clock and turns them into history you can
         actually use.</p>
+      <p class="oss">Free and open source —
+        <a href="https://github.com/pbozzay/owlet-dashboard" rel="noopener">view the project on GitHub</a>.</p>
       <ul class="features">
         <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg></span>
           <div><b>Every heartbeat and O₂ reading, kept</b>
@@ -148,7 +152,8 @@ _LANDING = """<!doctype html>
       {error}
       <form method="post" action="/auth/login">
         <label for="email">Email</label>
-        <input id="email" name="email" type="email" required autocomplete="email" />
+        <input id="email" name="email" type="text" inputmode="email" required
+               autocomplete="username" />
         <label for="password">Password</label>
         <input id="password" name="password" type="password" required autocomplete="current-password" />
         <button type="submit">Sign in</button>
