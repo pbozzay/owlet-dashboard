@@ -62,7 +62,7 @@ DASHBOARD_HTML = r"""
     .baby-name { color: var(--text); font-weight: 950; font-size: clamp(1rem, 2.5vw, 1.35rem); background: rgba(255,255,255,.76); border: 1px solid rgba(226,232,240,.9); border-radius: 999px; padding: .38rem .75rem; box-shadow: 0 8px 24px rgba(15,23,42,.08); }
     h1 { margin: 0; letter-spacing: -.045em; font-size: clamp(2.1rem, 5vw, 4.2rem); line-height: .92; }
     /* Sits like the period at the end of "Owlet Dashboard." — bottom on the text baseline. */
-    .status-dot.title-status-dot { display: inline-block; flex: 0 0 auto; width: 17px; height: 17px;
+    .status-dot.title-status-dot { display: inline-block; flex: 0 0 auto; width: 15px; height: 15px;
       margin-left: 4px; vertical-align: baseline; cursor: pointer; position: relative;
       transition: background-color .25s linear; }
     .dot-ping { position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
@@ -405,6 +405,9 @@ DASHBOARD_HTML = r"""
           </label>
           <div class="profile-menu-actions">
             <button id="installApp" class="install-button" type="button" title="Install Owlet as an app">Install app</button>
+            <form method="post" action="/auth/logout" style="margin:0;display:inline">
+              <button type="submit" title="Sign out of Owlet Dashboard">Sign out</button>
+            </form>
             <button id="closeProfileMenu" type="button">Close</button>
           </div>
           <div class="status" id="status"><span class="status-dot"></span>Checking collector…</div>
@@ -1075,19 +1078,26 @@ DASHBOARD_HTML = r"""
     function updateTitleDotProgress() {
       const dot = el('titleStatusDot');
       if (!dot) return;
-      dot.title = `Auto-refresh in ${secondsUntilRefresh}s — click to refresh now`;
       if (dot.classList.contains('offline')) {
         dot.style.backgroundColor = '';
-        dot.style.boxShadow = '';
+        dot.title = 'Device offline / sock off — click to refresh';
         return;
       }
-      // Freshness pulse: the dot's fill is bright green right after data lands and
-      // fades toward grey as readings age (fully grey after ~1.5 missed intervals).
+      // Freshness pulse: bright green when data just landed, fading to grey over
+      // ~1.5 intervals, then on toward red when multiple heartbeats are missed.
       const totalMs = refreshSeconds() * 1000;
       const age = Math.max(0, Date.now() - lastDataAt);
-      const fade = Math.min(1, age / (totalMs * 1.5));
-      const mix = (fresh, stale) => Math.round(fresh + (stale - fresh) * fade);
-      dot.style.backgroundColor = `rgb(${mix(16, 148)}, ${mix(220, 163)}, ${mix(96, 184)})`;
+      const intervals = age / totalMs;
+      const mix = (from, to, fade) => Math.round(from + (to - from) * fade);
+      if (intervals <= 1.5) {
+        const fade = intervals / 1.5;
+        dot.style.backgroundColor = `rgb(${mix(16, 148, fade)}, ${mix(220, 163, fade)}, ${mix(96, 184, fade)})`;
+        dot.title = `Auto-refresh in ${secondsUntilRefresh}s — click to refresh now`;
+      } else {
+        const fade = Math.min(1, (intervals - 1.5) / 2.5); // fully red by ~4 missed intervals
+        dot.style.backgroundColor = `rgb(${mix(148, 239, fade)}, ${mix(163, 68, fade)}, ${mix(184, 68, fade)})`;
+        dot.title = `No new data for ${Math.round(age / 1000)}s — click to retry`;
+      }
     }
 
     function pingTitleDot() {
@@ -3342,18 +3352,6 @@ DASHBOARD_HTML = r"""
       safeRefresh({ resetZoom: true, force: true });
     });
     el('addAccount')?.addEventListener('click', addAccountFromPrompt);
-    (function injectSignOut() {
-      if (SHARE_MODE) return;
-      const wrap = el('profileMenuWrap');
-      if (!wrap) return;
-      const nav = document.createElement('form');
-      nav.method = 'post';
-      nav.action = '/auth/logout';
-      nav.style.cssText = 'margin:0;padding:6px 12px;text-align:right';
-      nav.innerHTML = '<button type="submit" style="all:unset;cursor:pointer;color:inherit;'
-        + 'font-size:12px;text-decoration:underline">Sign out</button>';
-      wrap.appendChild(nav);
-    })();
     (async function desktopModeNotice() {
       if (SHARE_MODE || sessionStorage.getItem('owletDesktopNoticeDismissed')) return;
       try {
