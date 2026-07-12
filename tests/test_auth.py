@@ -70,3 +70,34 @@ def test_login_rate_limited(app_bundle):
             "/auth/login", data={"email": "x@y.z", "password": "wrong"}, follow_redirects=False
         )
         assert response.status_code == 429
+
+
+def test_seed_default_admin_flag(tmp_path):
+    from app.auth_store import AuthStore
+    from app.main import create_app
+    from app.store import ReadingStore
+    from tests.conftest import test_settings
+
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    auth = AuthStore(store.db_path)
+    app = create_app(
+        store=store,
+        settings=test_settings(seed_default_admin=True),
+        start_poller=False,
+        auth_store=auth,
+    )
+    with client_for(app) as client:
+        response = client.post(
+            "/auth/login", data={"email": "admin", "password": "password"}, follow_redirects=False
+        )
+        assert response.status_code == 303 and response.headers["location"] == "/"
+        assert client.get("/api/readings").status_code == 200
+
+
+def test_no_seed_without_flag(app_bundle):
+    app, *_ = app_bundle
+    with client_for(app) as client:
+        response = client.post(
+            "/auth/login", data={"email": "admin", "password": "password"}, follow_redirects=False
+        )
+        assert "error" in response.headers["location"]

@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     owlet_basic_auth_username: str | None = Field(default=None, alias="OWLET_BASIC_AUTH_USERNAME")
     owlet_basic_auth_password: str | None = Field(default=None, alias="OWLET_BASIC_AUTH_PASSWORD")
     owlet_share_token: str | None = Field(default=None, alias="OWLET_SHARE_TOKEN")
+    # Seeds an 'admin'/'password' login at startup. Convenience for local/desktop
+    # use only - NEVER enable on a publicly reachable deployment.
+    seed_default_admin: bool = Field(default=False, alias="SEED_DEFAULT_ADMIN")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 

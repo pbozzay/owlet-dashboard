@@ -23,6 +23,7 @@ from app.poller import Poller, create_account_poller, create_owlet_poller
 from app.pwa import MANIFEST, SERVICE_WORKER_JS
 from app.quality import is_offline_reading
 from app.ratelimit import RateLimiter
+from app.security import hash_password
 from app.store import ReadingStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -62,6 +63,12 @@ def create_app(
     async def lifespan(app: FastAPI):
         await store.init()
         await auth_store.init()
+        if settings.seed_default_admin and await auth_store.get_user_by_email("admin") is None:
+            await auth_store.create_user("admin", hash_password("password"))
+            logger.warning(
+                "Seeded default login admin/password (SEED_DEFAULT_ADMIN=true). "
+                "Do NOT expose this instance publicly with this flag on."
+            )
         pollers: list[Poller] = []
         clients: list[OwletClient] = []
         if start_poller:
