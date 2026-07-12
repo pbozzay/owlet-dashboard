@@ -366,7 +366,7 @@ DASHBOARD_HTML = r"""
         <p class="subtitle">
           Live-updated pulse plus historical drill-downs for breathing, sleep, wake time,
           and raw readings. Retrospective trend viewing only — not a medical monitor or alert replacement.
-          <span class="view-links">Views: <a href="/night">Tonight</a> · <a href="/rhythms">Rhythms</a></span>
+          <span class="view-links">Views: <a href="/">Now</a> · <a href="/night">Tonight</a> · <a href="/rhythms">Rhythms</a></span>
         </p>
       </div>
       <div class="hero-right" id="profileMenuWrap">

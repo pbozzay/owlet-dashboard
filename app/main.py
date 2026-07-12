@@ -19,6 +19,7 @@ from app.config import Settings
 from app.crypto import get_crypto_prices
 from app.dashboard import render_dashboard
 from app.night_page import render_night_page
+from app.now_page import render_now_page
 from app.owlet_client import OwletClient
 from app.poller import Poller, create_account_poller, create_owlet_poller
 from app.pwa import MANIFEST, SERVICE_WORKER_JS
@@ -154,13 +155,23 @@ def create_app(
         return await call_next(request)
 
     @app.get("/")
-    async def dashboard(request: Request):
+    async def home(request: Request):
         user = await current_user(request)
         if user is None:
             return RedirectResponse("/login", status_code=303)
         accounts = await store.list_accounts(user_id=user["id"])
         if not accounts:
             return HTMLResponse(auth_pages.onboarding_page(desktop_mode=settings.desktop_mode))
+        return HTMLResponse(render_now_page())
+
+    @app.get("/data")
+    async def data_workbench(request: Request):
+        user = await current_user(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=303)
+        accounts = await store.list_accounts(user_id=user["id"])
+        if not accounts:
+            return RedirectResponse("/", status_code=303)
         return HTMLResponse(render_dashboard())
 
     @app.get("/night")
@@ -214,6 +225,14 @@ def create_app(
         return FileResponse(
             STATIC_DIR / "theme.css",
             media_type="text/css",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @app.get("/insights.js")
+    async def insights_js() -> FileResponse:
+        return FileResponse(
+            STATIC_DIR / "insights.js",
+            media_type="application/javascript",
             headers={"Cache-Control": "no-cache"},
         )
 

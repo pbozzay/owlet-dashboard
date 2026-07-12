@@ -534,8 +534,12 @@ async def test_dashboard_endpoint_serves_html(tmp_path):
     app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
 
     with client_for(app, session) as client:
-        response = client.get("/")
+        response = client.get("/data")
+        home = client.get("/")
 
+    assert home.status_code == 200
+    assert "status-line" in home.text          # Now page
+    assert "/insights.js" in home.text
     assert response.status_code == 200
     assert "Owlet Dashboard" in response.text
     assert "/api/readings" in response.text
