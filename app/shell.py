@@ -30,40 +30,77 @@ THEME_RESOLVER = """<script>
 
 SHELL_JS = """<script>
 (function () {
-  // ---- theme toggle: auto -> light -> dark -> auto ----
-  var ICONS = { auto: '◐', light: '☀', dark: '☾' };
+  // ---- theme: auto | light | dark, segmented control in the profile menu ----
   function currentSetting() { return localStorage.getItem('owletTheme') || 'auto'; }
   function applyTheme(setting) {
     var mode = setting !== 'auto'
       ? setting
       : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    var changed = document.documentElement.dataset.theme !== mode;
     document.documentElement.dataset.theme = mode;
-    var button = document.getElementById('themeToggle');
-    if (button) {
-      button.textContent = ICONS[setting];
-      button.title = 'Theme: ' + setting + ' — click to change';
-    }
+    document.querySelectorAll('[data-theme-set]').forEach(function (button) {
+      button.classList.toggle('active', button.dataset.themeSet === setting);
+    });
+    // Only pages that need a hard restyle (chart re-init) hook this; fire it
+    // solely on real mode flips so theme sync never causes reload loops.
+    if (changed && typeof window.__onThemeChange === 'function') window.__onThemeChange(mode);
   }
   applyTheme(currentSetting());
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
     applyTheme(currentSetting());
   });
-  var toggle = document.getElementById('themeToggle');
-  if (toggle) toggle.addEventListener('click', function () {
-    var order = ['auto', 'light', 'dark'];
-    var next = order[(order.indexOf(currentSetting()) + 1) % order.length];
-    localStorage.setItem('owletTheme', next);
-    applyTheme(next);
-    // Write-through to the account so other devices follow (best effort).
-    fetch('/api/accounts').then(function (r) { return r.json(); }).then(function (data) {
-      var account = (data.accounts || [])[0];
-      if (!account) return;
-      fetch('/api/accounts/' + account.id, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dashboard_preferences: { chart_settings: {}, theme: next } })
-      });
-    }).catch(function () {});
+  document.querySelectorAll('[data-theme-set]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var next = button.dataset.themeSet;
+      localStorage.setItem('owletTheme', next);
+      applyTheme(next);
+      fetch('/api/accounts').then(function (r) { return r.json(); }).then(function (data) {
+        var account = (data.accounts || [])[0];
+        if (!account) return;
+        fetch('/api/accounts/' + account.id, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dashboard_preferences: { theme: next } })
+        });
+      }).catch(function () {});
+    });
   });
+
+  // ---- profile dropdown ----
+  var profileButton = document.getElementById('profileButton');
+  var profileMenu = document.getElementById('shellProfileMenu');
+  function closeProfile() {
+    if (!profileMenu) return;
+    profileMenu.hidden = true;
+    if (profileButton) profileButton.setAttribute('aria-expanded', 'false');
+  }
+  if (profileButton && profileMenu) {
+    profileButton.addEventListener('click', function (event) {
+      event.stopPropagation();
+      profileMenu.hidden = !profileMenu.hidden;
+      profileButton.setAttribute('aria-expanded', String(!profileMenu.hidden));
+    });
+    document.addEventListener('click', function (event) {
+      if (!profileMenu.hidden && !profileMenu.contains(event.target)) closeProfile();
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') closeProfile();
+    });
+  }
+  fetch('/api/me').then(function (r) { return r.json(); }).then(function (me) {
+    var email = me.email || '';
+    var initials = email.slice(0, 2).toUpperCase() || '·';
+    var node = document.getElementById('ppEmail');
+    if (node) node.textContent = email;
+    ['profileInitials', 'ppAvatar'].forEach(function (id) {
+      var target = document.getElementById(id);
+      if (target) target.textContent = initials;
+    });
+  }).catch(function () {});
+  fetch('/api/devices').then(function (r) { return r.json(); }).then(function (data) {
+    var device = (data.devices || [])[0];
+    var node = document.getElementById('ppDevice');
+    if (node && device) node.textContent = device.baby_name || device.name || '';
+  }).catch(function () {});
 
   // ---- living dot: freshness of the newest reading ----
   var pollInterval = 5;
@@ -111,7 +148,9 @@ SHELL_JS = """<script>
 </script>"""
 
 
-def render_shell(*, view: str, title: str, head: str = "", body: str, scripts: str = "") -> str:
+def render_shell(
+    *, view: str, title: str, head: str = "", body: str, scripts: str = "", wide: bool = False
+) -> str:
     tabs_top = "".join(
         f'<a href="{href}" class="{"active" if key == view else ""}">{label}</a>'
         for key, label, href, _icon in TABS
@@ -126,6 +165,10 @@ def render_shell(*, view: str, title: str, head: str = "", body: str, scripts: s
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#122033" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Owlet" />
   <title>{html.escape(title)} · Owlet Dashboard</title>
   <link rel="icon" href="/favicon.ico" sizes="any" />
   {THEME_RESOLVER}
@@ -138,10 +181,28 @@ def render_shell(*, view: str, title: str, head: str = "", body: str, scripts: s
       role="button" tabindex="0" aria-label="Data freshness — click to refresh"></span></a>
     <nav class="shell-tabs" aria-label="Views">{tabs_top}</nav>
     <span class="shell-side">
-      <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch theme">◐</button>
+      <button id="profileButton" class="profile-chip" type="button" aria-haspopup="menu"
+        aria-expanded="false" aria-label="Account menu"><span id="profileInitials">·</span></button>
+      <div id="shellProfileMenu" class="profile-pop card" role="menu" hidden>
+        <div class="pp-id">
+          <span class="pp-avatar" id="ppAvatar">·</span>
+          <div><b id="ppEmail">…</b><small id="ppDevice"></small></div>
+        </div>
+        <div class="pp-section">
+          <span class="pp-label">Theme</span>
+          <div class="pp-seg" role="group" aria-label="Theme">
+            <button type="button" data-theme-set="auto">Auto</button>
+            <button type="button" data-theme-set="light">Light</button>
+            <button type="button" data-theme-set="dark">Dark</button>
+          </div>
+        </div>
+        <form method="post" action="/auth/logout" class="pp-signout">
+          <button type="submit">Sign out</button>
+        </form>
+      </div>
     </span>
   </header>
-  <main class="shell-main">
+  <main class="shell-main{' wide' if wide else ''}">
 {body}
   </main>
   <footer class="shell-footer">Retrospective trend viewing only — not a medical monitor or alert

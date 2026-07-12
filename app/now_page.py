@@ -12,7 +12,7 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .status-line b { color: var(--ink); font-weight: 600; }
     .hero { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
     @media (max-width: 640px) { .hero { grid-template-columns: 1fr; } }
-    .vital { padding: 22px 22px 16px; position: relative; overflow: hidden; }
+    .vital { padding: 22px 22px 58px; position: relative; overflow: hidden; }
     .vital .label { font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
       color: var(--faint); font-weight: 700; }
     .vital .value { font-size: clamp(56px, 9vw, 84px); line-height: 1.02;
@@ -20,10 +20,13 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .vital .value small { font-size: 22px; color: var(--dim); font-weight: 500;
       letter-spacing: 0; }
     .vital.out .value { color: var(--warn); }
+    .vital.low .value { color: var(--awake); }
+    .vital.critical .value { color: var(--bad); }
     .vital .band { font-size: 12.5px; color: var(--dim); margin-top: 2px; }
     .vital svg { position: absolute; right: 0; bottom: 0; left: 0; width: 100%;
-      height: 46px; opacity: .5; }
-    .vital svg polyline { fill: none; stroke: var(--accent); stroke-width: 2; }
+      height: 42px; opacity: .55; }
+    .vital svg polyline { fill: none; stroke: var(--accent); stroke-width: 1.6;
+      stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
     .session { font-size: 15px; color: var(--dim); margin: 0 0 26px; }
     .session b { color: var(--ink); }
     .strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -71,25 +74,44 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       || (row?.heart_rate != null && row.heart_rate <= 0)
       || (row?.oxygen_saturation != null && row.oxygen_saturation <= 0));
 
-    function sparkline(points, min, max) {
+    function sparkline(points, min, max, zoneOf) {
       if (points.length < 2) return '';
       const t0 = points[0].x, t1 = points[points.length - 1].x;
-      const path = points.map(p => {
+      const coord = p => {
         const x = ((p.x - t0) / Math.max(1, t1 - t0)) * 100;
-        const y = 44 - ((p.y - min) / Math.max(0.001, max - min)) * 40;
+        const y = 40 - ((p.y - min) / Math.max(0.001, max - min)) * 36;
         return `${x.toFixed(1)},${y.toFixed(1)}`;
-      }).join(' ');
-      return `<svg viewBox="0 0 100 46" preserveAspectRatio="none" aria-hidden="true"><polyline points="${path}"/></svg>`;
+      };
+      // Split into contiguous zone runs so dips render amber/red inline.
+      const zone = zoneOf || (() => 'var(--accent)');
+      const segments = [];
+      let run = { color: zone(points[0].y), coords: [coord(points[0])] };
+      for (let i = 1; i < points.length; i++) {
+        const color = zone(points[i].y);
+        run.coords.push(coord(points[i]));
+        if (color !== run.color) {
+          segments.push(run);
+          run = { color, coords: [coord(points[i])] };
+        }
+      }
+      segments.push(run);
+      const lines = segments
+        .filter(seg => seg.coords.length > 1)
+        .map(seg => `<polyline points="${seg.coords.join(' ')}" style="stroke:${seg.color}"/>`)
+        .join('');
+      return `<svg viewBox="0 0 100 42" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>`;
     }
 
-    function heroCard(label, value, unit, band, points, outOfBand) {
+    const o2Zone = value => value < 86 ? 'var(--bad)' : (value < 90 ? 'var(--awake)' : 'var(--accent)');
+
+    function heroCard(label, value, unit, band, points, stateClass, zoneOf) {
       const min = points.length ? Math.min(...points.map(p => p.y)) : 0;
       const max = points.length ? Math.max(...points.map(p => p.y)) : 1;
-      return `<div class="vital card ${outOfBand ? 'out' : ''}">
+      return `<div class="vital card ${stateClass || ''}">
         <span class="label">${label}</span>
         <div class="value">${value}<small> ${unit}</small></div>
         <div class="band">${band}</div>
-        ${sparkline(points, min - (max - min) * 0.1, max + (max - min) * 0.1)}
+        ${sparkline(points, min - (max - min) * 0.1, max + (max - min) * 0.1, zoneOf)}
       </div>`;
     }
 
@@ -193,8 +215,10 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
 
       el('content').innerHTML = `
         <div class="hero">
-          ${heroCard('Oxygen', o2Now != null ? Math.round(o2Now) : '—', '%', bandText(o2Band, '%'), o2Points, o2Out)}
-          ${heroCard('Heart rate', hrNow != null ? Math.round(hrNow) : '—', 'bpm', bandText(hrBand, ''), hrPoints, hrOut)}
+          ${heroCard('Oxygen', o2Now != null ? Math.round(o2Now) : '—', '%', bandText(o2Band, '%'), o2Points,
+            o2Now != null && o2Now < 86 ? 'critical' : (o2Now != null && o2Now < 90 ? 'low' : (o2Out ? 'out' : '')), o2Zone)}
+          ${heroCard('Heart rate', hrNow != null ? Math.round(hrNow) : '—', 'bpm', bandText(hrBand, ''), hrPoints,
+            hrOut ? 'out' : '', null)}
         </div>
         <div class="strip">
           <div class="chip card"><b>${fmtDur(sleepToday)}</b><span>sleep today</span></div>

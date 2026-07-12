@@ -107,14 +107,49 @@ body.themed * { box-sizing: border-box; }
 }
 .shell-tabs a:hover { color: var(--ink); }
 .shell-tabs a.active { background: var(--accent-soft); color: var(--accent); }
-.shell-side { display: flex; align-items: center; gap: 10px; }
-.theme-toggle {
-  all: unset; cursor: pointer; font-size: 15px; padding: 6px 10px;
-  border-radius: var(--radius-control); color: var(--dim); line-height: 1;
+.shell-side { display: flex; align-items: center; gap: 10px; position: relative; }
+.profile-chip {
+  all: unset; cursor: pointer; width: 34px; height: 34px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent); font-weight: 700;
+  font-size: 13px; display: flex; align-items: center; justify-content: center;
+  letter-spacing: .02em;
 }
-.theme-toggle:hover { color: var(--ink); background: var(--accent-soft); }
+.profile-chip:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.profile-pop {
+  position: absolute; top: 44px; right: 0; width: 264px; padding: 18px; z-index: 60;
+}
+.profile-pop[hidden] { display: none; }
+.pp-id { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.pp-avatar {
+  width: 40px; height: 40px; border-radius: 50%; flex: 0 0 auto;
+  background: var(--accent-soft); color: var(--accent); font-weight: 700;
+  display: flex; align-items: center; justify-content: center; font-size: 15px;
+}
+.pp-id b { display: block; font-size: 14px; word-break: break-all; }
+.pp-id small { color: var(--dim); font-size: 12px; }
+.pp-label {
+  display: block; font-size: 11px; letter-spacing: .13em; text-transform: uppercase;
+  color: var(--faint); font-weight: 700; margin-bottom: 8px;
+}
+.pp-section { margin-bottom: 16px; }
+.pp-seg { display: flex; background: var(--accent-soft); border-radius: 999px; padding: 3px; }
+.pp-seg button {
+  all: unset; flex: 1; text-align: center; cursor: pointer; font-size: 12.5px;
+  font-weight: 600; color: var(--dim); padding: 6px 0; border-radius: 999px;
+}
+.pp-seg button.active { background: var(--surface); color: var(--accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .12); }
+.pp-signout { margin: 0; }
+.pp-signout button {
+  all: unset; cursor: pointer; display: block; width: 100%; text-align: center;
+  box-sizing: border-box; padding: 9px 0; border-radius: var(--radius-control);
+  border: 1px solid var(--surface-line); color: var(--dim);
+  font-size: 13.5px; font-weight: 600;
+}
+.pp-signout button:hover { color: var(--bad); border-color: var(--bad); }
 
 .shell-main { max-width: 940px; margin: 0 auto; padding: 30px 20px 90px; }
+.shell-main.wide { max-width: 1540px; padding-top: 18px; }
 .shell-footer {
   text-align: center; font-size: 11px; color: var(--faint);
   padding: 0 20px 90px; margin-top: 10px;

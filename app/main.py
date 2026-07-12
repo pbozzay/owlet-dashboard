@@ -269,6 +269,10 @@ def create_app(
             "database_path": "shared read-only view",
         }
 
+    @app.get("/api/me")
+    async def me(user: dict = Depends(require_user)):
+        return {"email": user["email"]}
+
     @app.get("/api/accounts")
     async def accounts(user: dict = Depends(require_user)):
         return {
