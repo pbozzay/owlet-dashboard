@@ -1,5 +1,6 @@
-"""'Now' — the app's home. The ten-second check: live vitals with personal
-context, today so far, and doors into the deeper views."""
+"""'Today' — the app's home. The ten-second check: live vitals with personal
+context, today so far, and doors into the deeper views. The hero charts are
+touchable: tap or hold to read a value, pull right to scroll back in time."""
 
 from __future__ import annotations
 
@@ -10,9 +11,10 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .status-line { font-size: 17px; color: var(--dim); line-height: 1.5; margin: 0 0 26px;
       max-width: 60ch; }
     .status-line b { color: var(--ink); font-weight: 600; }
-    .hero { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+    .hero { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 8px; }
     @media (max-width: 640px) { .hero { grid-template-columns: 1fr; } }
-    .vital { padding: 22px 22px 58px; position: relative; overflow: hidden; }
+    .vital { padding: 22px 22px 76px; position: relative; overflow: hidden;
+      touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: crosshair; }
     .vital .label { font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
       color: var(--faint); font-weight: 700; }
     .vital .value { font-size: clamp(56px, 9vw, 84px); line-height: 1.02;
@@ -23,10 +25,23 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .vital.low .value { color: var(--awake); }
     .vital.critical .value { color: var(--bad); }
     .vital .band { font-size: 12.5px; color: var(--dim); margin-top: 2px; }
-    .vital svg { position: absolute; right: 0; bottom: 0; left: 0; width: 100%;
-      height: 42px; opacity: .55; }
-    .vital svg polyline { fill: none; stroke: var(--accent); stroke-width: 1.6;
+    .vital.inspecting .band { color: var(--accent); font-weight: 600; }
+    .chartzone { position: absolute; left: 0; right: 0; bottom: 0; height: 60px; }
+    .chartzone svg { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .6; }
+    .chartzone polyline { fill: none; stroke: var(--accent); stroke-width: 1.6;
       stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+    .xline { position: absolute; top: 12px; bottom: 0; width: 1px;
+      background: var(--dim); opacity: .8; pointer-events: none; }
+    .xline::after { content: ''; position: absolute; top: -5px; left: -2.5px;
+      width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+    .timescale { display: flex; justify-content: space-between; align-items: center;
+      gap: 10px; font-size: 11px; color: var(--faint); margin: 0 4px 24px;
+      font-variant-numeric: tabular-nums; }
+    .timescale .live-chip { all: unset; font-size: 11px; color: var(--faint);
+      letter-spacing: .04em; }
+    .timescale .live-chip.paused { cursor: pointer; color: var(--accent);
+      background: var(--accent-soft); padding: 3px 11px; border-radius: 999px;
+      font-weight: 700; }
     .session { font-size: 15px; color: var(--dim); margin: 0 0 26px; }
     .session b { color: var(--ink); }
     .strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -45,10 +60,36 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .door span { font-size: 13px; color: var(--dim); line-height: 1.45; }
     .door:hover { border-color: var(--accent); }
     .empty { text-align: center; color: var(--dim); padding: 80px 20px; font-size: 15px; }
+    @media (prefers-reduced-motion: reduce) { .chartzone svg g { transition: none !important; } }
   </style>"""
 
 NOW_BODY = """<p class="status-line" id="statusLine">Checking in…</p>
-    <div id="content"></div>"""
+    <div class="hero" id="hero">
+      <div class="vital card" id="cardO2" data-metric="o2">
+        <span class="label">Oxygen</span>
+        <div class="value"><span id="o2Value">—</span><small> %</small></div>
+        <div class="band" id="o2Band"></div>
+        <div class="chartzone">
+          <svg viewBox="0 0 100 42" preserveAspectRatio="none" aria-hidden="true"><g id="o2G"></g></svg>
+          <div class="xline" id="o2X" hidden></div>
+        </div>
+      </div>
+      <div class="vital card" id="cardHr" data-metric="hr">
+        <span class="label">Heart rate</span>
+        <div class="value"><span id="hrValue">—</span><small> bpm</small></div>
+        <div class="band" id="hrBand"></div>
+        <div class="chartzone">
+          <svg viewBox="0 0 100 42" preserveAspectRatio="none" aria-hidden="true"><g id="hrG"></g></svg>
+          <div class="xline" id="hrX" hidden></div>
+        </div>
+      </div>
+    </div>
+    <div class="timescale">
+      <span id="tsStart"></span>
+      <button class="live-chip" id="tsLive" type="button">● live</button>
+      <span id="tsEnd"></span>
+    </div>
+    <div id="belowHero"></div>"""
 
 NOW_SCRIPTS = """<script src="/insights.js"></script>
   <script>
@@ -74,45 +115,265 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       || (row?.heart_rate != null && row.heart_rate <= 0)
       || (row?.oxygen_saturation != null && row.oxygen_saturation <= 0));
 
-    function sparkline(points, min, max, zoneOf) {
-      if (points.length < 2) return '';
-      const t0 = points[0].x, t1 = points[points.length - 1].x;
-      const coord = p => {
-        const x = ((p.x - t0) / Math.max(1, t1 - t0)) * 100;
-        const y = 40 - ((p.y - min) / Math.max(0.001, max - min)) * 36;
-        return `${x.toFixed(1)},${y.toFixed(1)}`;
-      };
-      // Split into contiguous zone runs so dips render amber/red inline.
-      const zone = zoneOf || (() => 'var(--accent)');
-      const segments = [];
-      let run = { color: zone(points[0].y), coords: [coord(points[0])] };
-      for (let i = 1; i < points.length; i++) {
-        const color = zone(points[i].y);
-        run.coords.push(coord(points[i]));
-        if (color !== run.color) {
-          segments.push(run);
-          run = { color, coords: [coord(points[i])] };
-        }
-      }
-      segments.push(run);
-      const lines = segments
-        .filter(seg => seg.coords.length > 1)
-        .map(seg => `<polyline points="${seg.coords.join(' ')}" style="stroke:${seg.color}"/>`)
-        .join('');
-      return `<svg viewBox="0 0 100 42" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>`;
-    }
-
     const o2Zone = value => value < 86 ? 'var(--bad)' : (value < 90 ? 'var(--awake)' : 'var(--accent)');
 
-    function heroCard(label, value, unit, band, points, stateClass, zoneOf) {
-      const min = points.length ? Math.min(...points.map(p => p.y)) : 0;
-      const max = points.length ? Math.max(...points.map(p => p.y)) : 1;
-      return `<div class="vital card ${stateClass || ''}">
-        <span class="label">${label}</span>
-        <div class="value">${value}<small> ${unit}</small></div>
-        <div class="band">${band}</div>
-        ${sparkline(points, min - (max - min) * 0.1, max + (max - min) * 0.1, zoneOf)}
-      </div>`;
+    // ---- data buffers ------------------------------------------------------
+    // liveReadings is the always-fresh last hour; histReadings grows on demand
+    // as the user pulls back in time. Points arrays hold only valid vitals, so
+    // collector-off stretches show up as time gaps in the line.
+    const WINDOW_MS = 60 * 60 * 1000;
+    const GAP_MS = 90 * 1000;
+    const HISTORY_STEPS = [3, 6, 12, 24];
+    let liveReadings = [], histReadings = [], loadedHours = 1, loadingHistory = false;
+    let points = { o2: [], hr: [] };
+    let bands = { o2: null, hr: null };
+    let latest = { o2: null, hr: null, offline: true };
+    let baselineState = 'awake';
+
+    function allReadings() {
+      if (!histReadings.length) return liveReadings;
+      const cut = liveReadings.length ? Date.parse(liveReadings[0].recorded_at) : Infinity;
+      return histReadings.filter(r => Date.parse(r.recorded_at) < cut).concat(liveReadings);
+    }
+    function rebuildPoints() {
+      const rows = allReadings();
+      points.hr = rows.filter(r => !isOffline(r) && r.heart_rate > 0)
+        .map(r => ({ x: Date.parse(r.recorded_at), y: r.heart_rate }));
+      points.o2 = rows.filter(r => !isOffline(r) && r.oxygen_saturation > 0)
+        .map(r => ({ x: Date.parse(r.recorded_at), y: r.oxygen_saturation }));
+    }
+    function loadedStart() { return Date.now() - loadedHours * 3600 * 1000; }
+    async function extendHistory() {
+      const next = HISTORY_STEPS.find(h => h > loadedHours);
+      if (!next || loadingHistory) return;
+      loadingHistory = true;
+      try {
+        const rows = await fetch(`/api/readings?hours=${next}&limit=40000`).then(r => r.json());
+        histReadings = rows; loadedHours = next;
+        rebuildPoints();
+        if (!gesture) renderCharts();
+      } catch (error) { /* keep what we have */ }
+      loadingHistory = false;
+    }
+
+    // ---- hero charts: virtualized pan window -------------------------------
+    // viewEnd === null means "live" (window pinned to now). While panned, the
+    // window is anchored to an absolute time so it stays frozen as new data
+    // streams into the buffer behind it.
+    let viewEnd = null;
+    let anchorEnd = 0;   // window end the SVGs were last drawn against
+    const chartEnd = () => viewEnd ?? Date.now();
+
+    function downsample(pts) {
+      if (pts.length <= 1500) return pts;
+      const buckets = 700, out = [];
+      const t0 = pts[0].x, span = pts[pts.length - 1].x - t0 || 1;
+      let b = -1, lo = null, hi = null;
+      for (const p of pts) {
+        const idx = Math.floor(((p.x - t0) / span) * (buckets - 1));
+        if (idx !== b) {
+          if (lo) out.push(...(lo.x <= hi.x ? [lo, hi] : [hi, lo]).filter((v, i, a) => a.indexOf(v) === i));
+          b = idx; lo = hi = p;
+        } else {
+          if (p.y < lo.y) lo = p;
+          if (p.y > hi.y) hi = p;
+        }
+      }
+      if (lo) out.push(...(lo.x <= hi.x ? [lo, hi] : [hi, lo]).filter((v, i, a) => a.indexOf(v) === i));
+      return out;
+    }
+
+    function renderChart(key, zoneOf) {
+      const g = el(key + 'G'); if (!g) return;
+      const end = chartEnd();
+      const renderStart = end - 2 * WINDOW_MS, renderEnd = end + WINDOW_MS / 4;
+      const pts = downsample(points[key].filter(p => p.x >= renderStart && p.x <= renderEnd));
+      if (pts.length < 2) { g.innerHTML = ''; g.removeAttribute('transform'); return; }
+      let min = Infinity, max = -Infinity;
+      for (const p of pts) { if (p.y < min) min = p.y; if (p.y > max) max = p.y; }
+      const padY = Math.max(0.5, (max - min) * 0.1); min -= padY; max += padY;
+      const xOf = t => ((t - (end - WINDOW_MS)) / WINDOW_MS) * 100;
+      const yOf = v => 40 - ((v - min) / (max - min)) * 36;
+      const zone = zoneOf || (() => 'var(--accent)');
+      const segs = [];
+      let run = { color: zone(pts[0].y), coords: [`${xOf(pts[0].x).toFixed(2)},${yOf(pts[0].y).toFixed(2)}`] };
+      for (let i = 1; i < pts.length; i++) {
+        const gap = pts[i].x - pts[i - 1].x > GAP_MS;
+        const color = zone(pts[i].y);
+        const coord = `${xOf(pts[i].x).toFixed(2)},${yOf(pts[i].y).toFixed(2)}`;
+        if (gap) { segs.push(run); run = { color, coords: [coord] }; continue; }
+        run.coords.push(coord);
+        if (color !== run.color) { segs.push(run); run = { color, coords: [coord] }; }
+      }
+      segs.push(run);
+      g.innerHTML = segs.filter(s => s.coords.length > 1)
+        .map(s => `<polyline points="${s.coords.join(' ')}" style="stroke:${s.color}"/>`)
+        .join('');
+      g.removeAttribute('transform');
+    }
+    function renderCharts() {
+      anchorEnd = chartEnd();
+      renderChart('o2', o2Zone);
+      renderChart('hr', null);
+      updateTimescale();
+    }
+    function applyPan() {
+      const shift = ((anchorEnd - chartEnd()) / WINDOW_MS) * 100;
+      if (Math.abs(shift) > 85) { renderCharts(); return; }
+      const t = `translate(${shift.toFixed(3)} 0)`;
+      el('o2G').setAttribute('transform', t);
+      el('hrG').setAttribute('transform', t);
+      updateTimescale();
+    }
+    function updateTimescale() {
+      const end = chartEnd();
+      el('tsStart').textContent = fmtClock(new Date(end - WINDOW_MS));
+      el('tsEnd').textContent = viewEnd == null ? 'now' : fmtClock(new Date(end));
+      const chip = el('tsLive');
+      chip.textContent = viewEnd == null ? '● live' : '⟳ back to now';
+      chip.classList.toggle('paused', viewEnd != null);
+    }
+    el('tsLive').addEventListener('click', () => {
+      if (viewEnd == null) return;
+      viewEnd = null; clearInspect(); renderCharts();
+    });
+
+    // ---- inspect (tap / hold) ----------------------------------------------
+    function nearestPoint(pts, t) {
+      if (!pts.length) return null;
+      let lo = 0, hi = pts.length - 1;
+      while (hi - lo > 1) { const mid = (lo + hi) >> 1; (pts[mid].x < t ? lo = mid : hi = mid); }
+      const best = Math.abs(pts[lo].x - t) <= Math.abs(pts[hi].x - t) ? pts[lo] : pts[hi];
+      return Math.abs(best.x - t) <= GAP_MS ? best : null;
+    }
+    function inspectAt(clientX, card) {
+      const rect = card.getBoundingClientRect();
+      const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      const t = chartEnd() - WINDOW_MS + frac * WINDOW_MS;
+      const o2 = nearestPoint(points.o2, t), hr = nearestPoint(points.hr, t);
+      el('o2Value').textContent = o2 ? Math.round(o2.y) : '—';
+      el('hrValue').textContent = hr ? Math.round(hr.y) : '—';
+      const when = `at ${fmtClock(new Date(t))}`;
+      el('o2Band').textContent = o2 ? when : `no reading ${when}`;
+      el('hrBand').textContent = hr ? when : `no reading ${when}`;
+      [el('cardO2'), el('cardHr')].forEach(c => c.classList.add('inspecting'));
+      [el('o2X'), el('hrX')].forEach(x => { x.hidden = false; x.style.left = (frac * 100) + '%'; });
+    }
+    function clearInspect() {
+      [el('o2X'), el('hrX')].forEach(x => { x.hidden = true; });
+      [el('cardO2'), el('cardHr')].forEach(c => c.classList.remove('inspecting'));
+      updateHeroLive();
+    }
+
+    // ---- gestures: hold to inspect, pull to pan ------------------------------
+    let gesture = null, holdTimer = 0, momentumRaf = 0, inspectFade = 0;
+    function stopMomentum() { if (momentumRaf) cancelAnimationFrame(momentumRaf); momentumRaf = 0; }
+
+    function onDown(event, card) {
+      if (event.button != null && event.button !== 0) return;
+      stopMomentum(); clearTimeout(inspectFade);
+      try { card.setPointerCapture(event.pointerId); } catch (error) { /* keep the gesture even if capture fails */ }
+      gesture = {
+        mode: 'pending', card,
+        x0: event.clientX, y0: event.clientY,
+        end0: chartEnd(),
+        msPerPx: WINDOW_MS / card.getBoundingClientRect().width,
+        hist: [{ x: event.clientX, t: performance.now() }],
+      };
+      inspectAt(event.clientX, card);   // respond on pointer-down, not release
+      holdTimer = setTimeout(() => { if (gesture && gesture.mode === 'pending') gesture.mode = 'scrub'; }, 220);
+    }
+    function onMove(event) {
+      if (!gesture) return;
+      const dx = event.clientX - gesture.x0, dy = event.clientY - gesture.y0;
+      const now = performance.now();
+      gesture.hist.push({ x: event.clientX, t: now });
+      while (gesture.hist.length > 2 && now - gesture.hist[0].t > 120) gesture.hist.shift();
+      if (gesture.mode === 'pending') {
+        if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+          gesture.mode = 'pan'; clearTimeout(holdTimer); clearInspect();
+        } else if (Math.abs(dy) > 16) {   // vertical intent: hand back to the page
+          clearTimeout(holdTimer); clearInspect(); gesture = null; return;
+        }
+      }
+      if (gesture.mode === 'scrub') { inspectAt(event.clientX, gesture.card); return; }
+      if (gesture.mode === 'pan') {
+        let end = gesture.end0 - dx * gesture.msPerPx;   // pull right → back in time
+        const nowMs = Date.now();
+        const minEnd = loadedStart() + WINDOW_MS;
+        if (end > nowMs) end = nowMs + (end - nowMs) / 3;             // rubber-band at "now"
+        if (end < minEnd) { end = minEnd + (end - minEnd) / 3; extendHistory(); }
+        else if (end - WINDOW_MS < loadedStart() + WINDOW_MS / 4) extendHistory();
+        viewEnd = end;
+        applyPan();
+      }
+    }
+    function onUp(event) {
+      clearTimeout(holdTimer);
+      if (!gesture) return;
+      const mode = gesture.mode, hist = gesture.hist, msPerPx = gesture.msPerPx;
+      gesture = null;
+      if (mode === 'pending') {           // plain tap: linger, then return to live
+        inspectFade = setTimeout(clearInspect, 2500);
+        return;
+      }
+      if (mode === 'scrub') { clearInspect(); return; }
+      // pan: hand the finger's velocity to a decaying glide
+      let vPx = 0;
+      if (hist.length > 1) {
+        const a = hist[0], b = hist[hist.length - 1];
+        if (b.t > a.t) vPx = ((b.x - a.x) / (b.t - a.t)) * 1000;
+      }
+      startGlide(-vPx * msPerPx);
+    }
+    function startGlide(vMs) {   // velocity in window-ms per second
+      const settle = () => {
+        const nowMs = Date.now();
+        let target = viewEnd;
+        if (target != null && nowMs - target < 5000) target = null;
+        if (target != null && target < loadedStart() + WINDOW_MS) target = loadedStart() + WINDOW_MS;
+        viewEnd = target === null ? null : target;
+        renderCharts();
+      };
+      if (Math.abs(vMs) < WINDOW_MS * 0.02) { settle(); return; }
+      let last = performance.now();
+      const step = t => {
+        const dt = Math.min(64, t - last); last = t;
+        vMs *= Math.pow(0.998, dt);
+        let end = chartEnd() + vMs * (dt / 1000);
+        const nowMs = Date.now(), minEnd = loadedStart() + WINDOW_MS;
+        if (end >= nowMs) { viewEnd = null; settle(); return; }
+        if (end <= minEnd) { viewEnd = minEnd; extendHistory(); settle(); return; }
+        viewEnd = end;
+        applyPan();
+        if (Math.abs(vMs) > WINDOW_MS * 0.01) momentumRaf = requestAnimationFrame(step);
+        else settle();
+      };
+      momentumRaf = requestAnimationFrame(step);
+    }
+    [el('cardO2'), el('cardHr')].forEach(card => {
+      card.addEventListener('pointerdown', e => onDown(e, card));
+      card.addEventListener('pointermove', onMove);
+      card.addEventListener('pointerup', onUp);
+      card.addEventListener('pointercancel', onUp);
+    });
+
+    // ---- live vitals + narrative --------------------------------------------
+    const bandText = (band, unit) => band
+      ? `typical ${baselineState} range ${Math.round(band.low)}–${Math.round(band.high)}${unit}`
+      : 'building her baseline — needs a couple of days';
+
+    function updateHeroLive() {
+      if (el('cardO2').classList.contains('inspecting')) return;
+      el('o2Value').textContent = latest.o2 != null ? Math.round(latest.o2) : '—';
+      el('hrValue').textContent = latest.hr != null ? Math.round(latest.hr) : '—';
+      el('o2Band').textContent = bandText(bands.o2, '%');
+      el('hrBand').textContent = bandText(bands.hr, '');
+      const o2Out = bands.o2 && latest.o2 != null && (latest.o2 < bands.o2.low || latest.o2 > bands.o2.high);
+      const hrOut = bands.hr && latest.hr != null && (latest.hr < bands.hr.low || latest.hr > bands.hr.high);
+      el('cardO2').className = 'vital card' +
+        (latest.o2 != null && latest.o2 < 86 ? ' critical' : latest.o2 != null && latest.o2 < 90 ? ' low' : o2Out ? ' out' : '');
+      el('cardHr').className = 'vital card' + (hrOut ? ' out' : '');
     }
 
     function todayWindow() {
@@ -120,10 +381,11 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       return { start, end: new Date() };
     }
 
-    function render(readings, widget) {
-      const latest = readings[readings.length - 1] || null;
-      const offline = latest ? isOffline(latest) : true;
-      const stateText = latest && !offline ? stateLabel(latest.sleep_state) : null;
+    function render(widget) {
+      const readings = liveReadings;
+      const latestRow = readings[readings.length - 1] || null;
+      const offline = latestRow ? isOffline(latestRow) : true;
+      const stateText = latestRow && !offline ? stateLabel(latestRow.sleep_state) : null;
 
       // --- current sleep/wake session ------------------------------------
       const today = todayWindow();
@@ -133,21 +395,13 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         .filter(run => run.state === 'asleep' && run.buckets >= 2).length;
 
       // --- baselines -------------------------------------------------------
-      const state = currentRun && currentRun.state === 'asleep' ? 'asleep' : 'awake';
-      const hrBand = I.baselineBand(rollups, 'hr', state);
-      const o2Band = I.baselineBand(rollups, 'o2', state);
-      const hrNow = latest && !offline ? latest.heart_rate : null;
-      const o2Now = latest && !offline ? latest.oxygen_saturation : null;
-      const hrOut = hrBand && hrNow != null && (hrNow < hrBand.low || hrNow > hrBand.high);
-      const o2Out = o2Band && o2Now != null && (o2Now < o2Band.low || o2Now > o2Band.high);
-      const bandText = (band, unit) => band
-        ? `typical ${state} range ${Math.round(band.low)}–${Math.round(band.high)}${unit}`
-        : `building her baseline — needs a couple of days`;
-
-      const hrPoints = readings.filter(r => !isOffline(r) && r.heart_rate > 0)
-        .map(r => ({ x: Date.parse(r.recorded_at), y: r.heart_rate }));
-      const o2Points = readings.filter(r => !isOffline(r) && r.oxygen_saturation > 0)
-        .map(r => ({ x: Date.parse(r.recorded_at), y: r.oxygen_saturation }));
+      baselineState = currentRun && currentRun.state === 'asleep' ? 'asleep' : 'awake';
+      bands.hr = I.baselineBand(rollups, 'hr', baselineState);
+      bands.o2 = I.baselineBand(rollups, 'o2', baselineState);
+      latest.hr = latestRow && !offline ? latestRow.heart_rate : null;
+      latest.o2 = latestRow && !offline ? latestRow.oxygen_saturation : null;
+      latest.offline = offline;
+      updateHeroLive();
 
       // --- today so far ----------------------------------------------------
       let sleepToday = 0, dipsToday = 0, inDip = false;
@@ -211,15 +465,9 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const moveAvg = recent.length ? recent.reduce((a, r) => a + (r.movement || 0), 0) / recent.length : 0;
       const moveText = offline ? '—' : (moveAvg < 4 ? 'calm' : moveAvg < 20 ? 'stirring' : 'active');
       const temps = rollups.map(r => r.avg_skin_temperature).filter(v => v != null);
-      const tempNow = latest && latest.skin_temperature > 0 ? latest.skin_temperature : null;
+      const tempNow = latestRow && latestRow.skin_temperature > 0 ? latestRow.skin_temperature : null;
 
-      el('content').innerHTML = `
-        <div class="hero">
-          ${heroCard('Oxygen', o2Now != null ? Math.round(o2Now) : '—', '%', bandText(o2Band, '%'), o2Points,
-            o2Now != null && o2Now < 86 ? 'critical' : (o2Now != null && o2Now < 90 ? 'low' : (o2Out ? 'out' : '')), o2Zone)}
-          ${heroCard('Heart rate', hrNow != null ? Math.round(hrNow) : '—', 'bpm', bandText(hrBand, ''), hrPoints,
-            hrOut ? 'out' : '', null)}
-        </div>
+      el('belowHero').innerHTML = `
         <div class="strip">
           <div class="chip card"><b>${fmtDur(sleepToday)}</b><span>sleep today</span></div>
           <div class="chip card ${dipsToday ? 'warn' : 'good'}"><b>${dipsToday}</b><span>O₂ dips today</span></div>
@@ -242,7 +490,11 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           fetch('/api/readings?hours=1&limit=2000').then(r => r.json()),
           fetch('/api/widget?hours=24').then(r => r.json())
         ]);
-        render(readings, widget);
+        liveReadings = readings;
+        rebuildPoints();
+        render(widget);
+        // a panned window stays frozen; live windows track the newest data
+        if (!gesture && !momentumRaf && viewEnd == null) renderCharts();
       } catch (error) { /* keep last render */ }
     }
 
@@ -281,7 +533,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
 def render_now_page() -> str:
     return render_shell(
         view="now",
-        title="Now",
+        title="Today",
         head=NOW_HEAD,
         body=NOW_BODY,
         scripts=NOW_SCRIPTS,

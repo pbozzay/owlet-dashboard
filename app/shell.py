@@ -9,7 +9,7 @@ from __future__ import annotations
 import html
 
 TABS = [
-    ("now", "Now", "/", "•"),
+    ("now", "Today", "/", "•"),
     ("night", "Tonight", "/night", "☾"),
     ("rhythms", "Rhythms", "/rhythms", "▦"),
     ("data", "Data", "/data", "≡"),
