@@ -61,9 +61,10 @@ DASHBOARD_HTML = r"""
     .profile-toggle small { color: var(--muted); }
     .baby-name { color: var(--text); font-weight: 950; font-size: clamp(1rem, 2.5vw, 1.35rem); background: rgba(255,255,255,.76); border: 1px solid rgba(226,232,240,.9); border-radius: 999px; padding: .38rem .75rem; box-shadow: 0 8px 24px rgba(15,23,42,.08); }
     h1 { margin: 0; letter-spacing: -.045em; font-size: clamp(2.1rem, 5vw, 4.2rem); line-height: .92; }
-    .title-status-dot { display: inline-block; flex: 0 0 auto; width: 10px; height: 10px;
-      position: relative; margin-left: 10px; vertical-align: middle; cursor: pointer;
-      transition: background-color .25s linear, box-shadow .25s linear; }
+    /* Sits like the period at the end of "Owlet Dashboard." — bottom on the text baseline. */
+    .status-dot.title-status-dot { display: inline-block; flex: 0 0 auto; width: 14px; height: 14px;
+      margin-left: 3px; vertical-align: baseline; cursor: pointer;
+      transition: background-color .25s linear; }
     h2 { margin: 0; font-size: 1.03rem; letter-spacing: -.02em; }
     h3 { margin: 0 0 8px; font-size: .84rem; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
     .subtitle { color: var(--muted); max-width: 760px; margin: 10px 0 0; font-size: 1rem; }
@@ -277,8 +278,7 @@ DASHBOARD_HTML = r"""
       .shell { width: min(100% - 14px, 1500px); padding: 10px 0 24px; }
       .hero { gap: 8px; margin-bottom: 6px; align-items: center; flex-direction: row; }
       .hero > div:first-child { min-width: 0; }
-      h1 { display: flex; align-items: center; gap: 8px; font-size: clamp(1.55rem, 10vw, 2.3rem); }
-      .title-status-dot { width: 11px; height: 11px; }
+      h1 { display: flex; align-items: baseline; gap: 3px; font-size: clamp(1.55rem, 10vw, 2.3rem); }
       .subtitle { display: none; }
       .toolbar, .panel, .card { border-radius: 16px; box-shadow: 0 10px 26px rgba(15, 23, 42, .08); }
       .toolbar { flex-wrap: nowrap; justify-content: flex-start; align-items: center; padding: 6px; gap: 4px; margin: 6px 0 8px; backdrop-filter: none; overflow: visible; }
@@ -1078,17 +1078,13 @@ DASHBOARD_HTML = r"""
         dot.style.boxShadow = '';
         return;
       }
-      // Freshness pulse: full green with a soft glow right after data lands,
-      // fading toward grey as the data ages (fully grey after ~2 intervals).
+      // Freshness pulse: the dot's fill is vivid green right after data lands and
+      // fades toward grey as readings age (fully grey after ~1.5 missed intervals).
       const totalMs = refreshSeconds() * 1000;
       const age = Math.max(0, Date.now() - lastDataAt);
-      const fade = Math.min(1, age / (totalMs * 2));
-      const glow = Math.max(0, 1 - age / totalMs);
+      const fade = Math.min(1, age / (totalMs * 1.5));
       const mix = (fresh, stale) => Math.round(fresh + (stale - fresh) * fade);
       dot.style.backgroundColor = `rgb(${mix(34, 148)}, ${mix(197, 163)}, ${mix(94, 184)})`;
-      dot.style.boxShadow = glow > 0.02
-        ? `0 0 0 ${(4 * glow).toFixed(1)}px rgba(34,197,94,${(0.30 * glow).toFixed(3)})`
-        : '';
     }
 
     function setInitialLoading(message, kind = '') {
