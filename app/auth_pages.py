@@ -123,11 +123,12 @@ _LANDING = """<!doctype html>
     <section>
       <div class="brand"><img src="/logo.svg" alt="" /><span>Owlet Dashboard</span></div>
       <h1>The Owlet app forgets.<br /><em>This remembers every night.</em></h1>
-      <p class="lede">Owlet's app only shows a short recent window. Owlet Dashboard quietly
-        records your sock's readings around the clock and turns them into history you can
-        actually use.</p>
-      <p class="oss">Free and open source —
-        <a href="https://github.com/pbozzay/owlet-dashboard" rel="noopener">view the project on GitHub</a>.</p>
+      <p class="lede">Owlet's phone app only shows a short recent window — and there's no
+        desktop app at all. Owlet Dashboard fills that gap: it quietly records your sock's
+        readings around the clock and turns them into history you can actually use.</p>
+      <p class="oss">Free, open source, and unofficial — provided as-is, not affiliated with
+        Owlet Baby Care. <a href="https://github.com/pbozzay/owlet-dashboard"
+        rel="noopener">View the project on GitHub</a>.</p>
       <ul class="features">
         <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg></span>
           <div><b>Every heartbeat and O₂ reading, kept</b>

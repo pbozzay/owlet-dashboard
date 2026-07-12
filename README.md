@@ -1,6 +1,8 @@
 # Owlet Dashboard
 
-Local FastAPI + SQLite history collector and dashboard for Owlet Dream Sock / Smart Sock data.
+The missing Owlet desktop app — an **unofficial**, open-source, provided-as-is history
+collector and dashboard for Owlet Dream Sock / Smart Sock data. Not affiliated with or
+endorsed by Owlet Baby Care.
 
 Owlet Dashboard stores local historical vitals from the unofficial Owlet cloud API and shows oxygen, heart-rate, movement, and sleep/wake trends in a private web dashboard. It is designed for parents who want retrospective history beyond the short recent window shown in the Owlet app.
 
