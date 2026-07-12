@@ -344,57 +344,7 @@ DATA_BODY = r"""
     </div>
   </div>
   <main class="shell">
-    <section class="hero">
-      <div></div>
-      <div class="hero-right" id="profileMenuWrap">
-        <button id="profileMenuToggle" class="profile-button" type="button" aria-expanded="false" aria-haspopup="menu" title="Account and dashboard settings">
-          <span id="profileAvatar" class="profile-avatar" aria-hidden="true">O</span>
-          <span class="profile-label">
-            <span id="profileAccountName" class="profile-account">Owlet profile</span>
-            <span id="profileDeviceName" class="profile-device">Owlet sock</span>
-          </span>
-          <span class="profile-caret" aria-hidden="true">▾</span>
-        </button>
-        <div id="profileMenu" class="profile-menu hidden" role="menu" aria-label="Account and dashboard settings">
-          <div class="profile-menu-header">
-            <span id="profileMenuAvatar" class="profile-avatar" aria-hidden="true">O</span>
-            <span>
-              <span id="profileMenuTitle" class="profile-menu-title">Owlet profile</span>
-              <span id="profileMenuSubtitle" class="profile-menu-subtitle">Owlet sock</span>
-            </span>
-          </div>
-          <div id="accountCluster" class="profile-menu-row account-cluster">
-            <label for="accountSelect">Owlet account</label>
-            <div class="profile-account-row">
-              <select id="accountSelect"><option value="">Default</option></select>
-              <button id="addAccount" class="account-add-button" type="button" title="Link another Owlet account">Link</button>
-            </div>
-          </div>
-          <label class="profile-toggle" for="showCryptoSetting">
-            <span><b>Crypto widget</b><br><small>BTC card + optional chart line</small></span>
-            <input id="showCryptoSetting" type="checkbox" />
-          </label>
-          <label class="profile-toggle" for="pollIntervalSetting">
-            <span><b>Update every</b><br><small>How often readings are pulled from Owlet</small></span>
-            <select id="pollIntervalSetting">
-              <option selected value="5">5 sec</option>
-              <option value="10">10 sec</option>
-              <option value="30">30 sec</option>
-              <option value="60">1 min</option>
-              <option value="300">5 min</option>
-            </select>
-          </label>
-          <div class="profile-menu-actions">
-            <button id="installApp" class="install-button" type="button" title="Install Owlet as an app">Install app</button>
-            <form method="post" action="/auth/logout" style="margin:0;display:inline">
-              <button type="submit" title="Sign out of Owlet Dashboard">Sign out</button>
-            </form>
-            <button id="closeProfileMenu" type="button">Close</button>
-          </div>
-          <div class="status" id="status"><span class="status-dot"></span>Checking collector…</div>
-        </div>
-      </div>
-    </section>
+    
 
     <section class="toolbar" aria-label="Date and data controls">
       <div class="control-group filter-cluster">
@@ -637,6 +587,7 @@ DATA_BODY = r"""
       }
       window.__onThemeChange = () => window.location.reload();
     })();
+    window.__pageOwnsAccountSelect = true;
     const API_BASE = "__API_BASE__";
     const SHARE_MODE = __SHARE_MODE__;
     // Dashboard refresh follows the account's poll interval (capped to a sane floor).
@@ -1522,6 +1473,7 @@ DATA_BODY = r"""
     }
 
     function renderProfileMenu() {
+      if (!el('profileMenuTitle')) return;
       const account = currentAccount();
       const device = currentDevice();
       const deviceName = device?.baby_name || device?.name || 'Owlet sock';
@@ -1809,7 +1761,6 @@ DATA_BODY = r"""
       const offlineNow = latest && isOffline(latest);
       const label = offlineNow ? 'Device offline / sock off' : (health.collecting ? 'Collecting live' : 'Stored data only');
       const dotClass = offlineNow ? 'offline' : (health.collecting ? 'good' : '');
-      el('status').innerHTML = `<span class="status-dot ${dotClass}"></span>${label} · ${mode}`;
       const titleDot = el('titleStatusDot');
       if (titleDot) titleDot.className = `status-dot title-status-dot ${dotClass}`;
       renderBatteryStatus(latest);
@@ -3225,7 +3176,6 @@ DATA_BODY = r"""
           console.error(error);
           if (!firstLoadComplete) setInitialLoading('Could not load dashboard data. Retrying soon…', 'error');
           updateRefreshButton('Refresh failed');
-          el('status').innerHTML = '<span class="status-dot offline"></span>Refresh failed · keeping last loaded data';
           setTimeout(() => updateRefreshButton(), 1500);
         }
       })();
@@ -3245,13 +3195,8 @@ DATA_BODY = r"""
     }
 
     function updateInstallButton() {
-      const button = el('installApp');
-      if (SHARE_MODE || window.matchMedia('(display-mode: standalone)').matches) {
-        button.classList.remove('show');
-        return;
-      }
-      button.classList.add('show');
-      button.textContent = deferredInstallPrompt ? 'Install app' : 'Install help';
+      // The shell owns the install button now; kept as a no-op because the
+      // service-worker registration callback still references it.
     }
 
     function closeProfileMenu() {
@@ -3281,54 +3226,8 @@ DATA_BODY = r"""
       el('o2AddMenuToggle').title = 'Open the full dashboard to add O₂ challenges';
     }
 
-    window.addEventListener('beforeinstallprompt', event => {
-      event.preventDefault();
-      deferredInstallPrompt = event;
-      updateInstallButton();
-    });
 
-    window.addEventListener('appinstalled', () => {
-      deferredInstallPrompt = null;
-      el('installApp').classList.remove('show');
-    });
 
-    el('profileMenuToggle')?.addEventListener('click', event => {
-      event.stopPropagation();
-      toggleProfileMenu();
-    });
-    el('closeProfileMenu')?.addEventListener('click', closeProfileMenu);
-    el('pollIntervalSetting')?.addEventListener('change', async event => {
-      try {
-        await updateCurrentAccountPreference({ poll_interval_seconds: Number(event.target.value) });
-        secondsUntilRefresh = Math.min(secondsUntilRefresh, refreshSeconds());
-        updateRefreshButton();
-      } catch (error) {
-        console.error(error);
-      }
-    });
-    el('showCryptoSetting')?.addEventListener('change', async event => {
-      const checked = event.target.checked;
-      try {
-        await updateCurrentAccountPreference({ show_crypto: checked });
-        renderCryptoVisibility();
-        renderCharts({ deferTrend: true });
-        if (checked) safeRefresh({ force: true });
-      } catch (error) {
-        console.error(error);
-        event.target.checked = !checked;
-        alert('Could not save that dashboard setting.');
-      }
-    });
-    el('installApp').addEventListener('click', async () => {
-      if (deferredInstallPrompt) {
-        deferredInstallPrompt.prompt();
-        await deferredInstallPrompt.userChoice.catch(() => null);
-        deferredInstallPrompt = null;
-        updateInstallButton();
-        return;
-      }
-      alert('Chrome may hide the install shortcut after the app is already installed, before the page finishes loading, or behind Cloudflare Access until you are logged in. Use Chrome menu → Cast, save, and share → Install page as app.');
-    });
     el('batteryStatus').addEventListener('click', () => alert(el('batteryStatus').dataset.detail || 'Battery unavailable'));
 
     el('accountSelect')?.addEventListener('change', async event => {
@@ -3347,7 +3246,6 @@ DATA_BODY = r"""
       readingsTableSignature = '';
       safeRefresh({ resetZoom: true, force: true });
     });
-    el('addAccount')?.addEventListener('click', addAccountFromPrompt);
     (async function desktopModeNotice() {
       if (SHARE_MODE || sessionStorage.getItem('owletDesktopNoticeDismissed')) return;
       try {
@@ -3439,7 +3337,6 @@ DATA_BODY = r"""
     el('notificationsNext').addEventListener('click', () => { notificationPageOffset += NOTIFICATION_PAGE_SIZE; renderNotifications(); });
     document.addEventListener('click', event => {
       if (!el('o2AddWrap').contains(event.target)) closeO2AddMenu();
-      if (!el('profileMenuWrap')?.contains(event.target)) closeProfileMenu();
     });
     ['vitalsChart', 'hrPanelChart', 'spo2PanelChart', 'movePanelChart', 'oxygenTrendChart'].forEach(id => {
       el(id)?.addEventListener('dblclick', resetZoom);
@@ -3467,12 +3364,41 @@ DATA_BODY = r"""
         select.value = String(window.__focusFit);
       }
     }
+    document.addEventListener('owlet:prefs-changed', async () => {
+      await loadAccounts();
+      renderCryptoVisibility();
+      renderCharts({ deferTrend: true });
+      secondsUntilRefresh = Math.min(secondsUntilRefresh, refreshSeconds());
+    });
+    document.addEventListener('owlet:account-added', async event => {
+      event.preventDefault();
+      await loadAccounts();
+      const accountId = event.detail?.id ? String(event.detail.id) : selectedAccount();
+      if (accountId) setUrlAccount(accountId);
+      await loadDevices();
+      notificationPageOffset = 0;
+      loadedHours = null;
+      readingsTableSignature = '';
+      safeRefresh({ resetZoom: true, force: true });
+    });
     updateInstallButton();
     attachReadingsTableSelection();
-    loadAccounts().then(loadDevices).then(() => {
-      applyFocusFitToWindowSelect();  // focus deep-links out-rank the saved range
-      return safeRefresh({ resetZoom: true });
-    });
+    (async function bootWorkbench() {
+      // Resilient boot: transient failures (server warming, brief 500s) retry
+      // instead of leaving the workbench stuck on the loading overlay.
+      for (let attempt = 0; attempt < 20; attempt++) {
+        try {
+          await loadAccounts();
+          await loadDevices();
+          applyFocusFitToWindowSelect();  // focus deep-links out-rank the saved range
+          await safeRefresh({ resetZoom: true, force: true });
+          if (firstLoadComplete) return;
+        } catch (error) {
+          console.error('workbench boot retry', error);
+        }
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      }
+    })();
     setInterval(tickCountdown, 1000);
     setInterval(updateTitleDotProgress, 200);
   </script>

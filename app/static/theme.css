@@ -109,17 +109,29 @@ body.themed * { box-sizing: border-box; }
 .shell-tabs a.active { background: var(--accent-soft); color: var(--accent); }
 .shell-side { display: flex; align-items: center; gap: 10px; position: relative; }
 .profile-chip {
-  all: unset; cursor: pointer; width: 34px; height: 34px; border-radius: 50%;
-  background: var(--accent-soft); color: var(--accent); font-weight: 700;
-  font-size: 13px; display: flex; align-items: center; justify-content: center;
-  letter-spacing: .02em;
+  all: unset; cursor: pointer; display: flex; align-items: center; gap: 9px;
+  padding: 4px 10px 4px 5px; border-radius: 999px;
+  background: var(--accent-soft);
 }
 .profile-chip:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.profile-chip .pc-avatar {
+  width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto;
+  background: var(--accent); color: #fff; font-weight: 700; font-size: 12px;
+  display: flex; align-items: center; justify-content: center; letter-spacing: .01em;
+}
+.profile-chip .pc-labels { display: grid; line-height: 1.15; text-align: left; }
+.profile-chip .pc-name { font-size: 12.5px; font-weight: 700; color: var(--ink);
+  max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-chip .pc-device { font-size: 10.5px; color: var(--dim); }
+.profile-chip .pc-caret { color: var(--dim); font-size: 10px; margin-left: 2px; }
+@media (max-width: 760px) { .profile-chip .pc-labels, .profile-chip .pc-caret { display: none; } }
 .profile-pop {
-  position: absolute; top: 44px; right: 0; width: 264px; padding: 18px; z-index: 60;
+  position: absolute; top: 46px; right: 0; width: min(320px, calc(100vw - 28px));
+  padding: 18px; z-index: 60;
 }
 .profile-pop[hidden] { display: none; }
-.pp-id { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.pp-id { display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+  padding-bottom: 14px; border-bottom: 1px solid var(--surface-line); }
 .pp-avatar {
   width: 40px; height: 40px; border-radius: 50%; flex: 0 0 auto;
   background: var(--accent-soft); color: var(--accent); font-weight: 700;
@@ -127,11 +139,42 @@ body.themed * { box-sizing: border-box; }
 }
 .pp-id b { display: block; font-size: 14px; word-break: break-all; }
 .pp-id small { color: var(--dim); font-size: 12px; }
+.pp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px;
+  align-items: center; }
+.pp-section select {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--surface-line);
+  border-radius: var(--radius-control); background: var(--surface); color: var(--ink);
+  font-size: 13.5px;
+}
+.pp-link-btn {
+  all: unset; cursor: pointer; padding: 8px 13px; border-radius: var(--radius-control);
+  background: var(--accent); color: #fff; font-size: 12.5px; font-weight: 700;
+}
+.pp-toggle { display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 10px 12px; border: 1px solid var(--surface-line);
+  border-radius: var(--radius-control); font-size: 13px; }
+.pp-toggle small { display: block; color: var(--dim); font-size: 11px; }
+.pp-toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
+.pp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pp-actions .pp-install {
+  all: unset; cursor: pointer; text-align: center; box-sizing: border-box;
+  padding: 9px 0; border-radius: var(--radius-control);
+  border: 1px solid var(--surface-line); color: var(--dim);
+  font-size: 13px; font-weight: 600;
+}
+.pp-actions .pp-install:hover { color: var(--accent); border-color: var(--accent); }
+.pp-status { margin-top: 14px; font-size: 11.5px; color: var(--faint);
+  display: flex; align-items: center; gap: 7px; }
+.pp-status .status-dot { width: 8px; height: 8px; border-radius: 50%;
+  background: var(--faint); display: inline-block; flex: 0 0 auto; }
+.pp-status .status-dot.good { background: var(--good); }
+.pp-status .status-dot.offline { background: var(--bad); }
 .pp-label {
   display: block; font-size: 11px; letter-spacing: .13em; text-transform: uppercase;
   color: var(--faint); font-weight: 700; margin-bottom: 8px;
 }
 .pp-section { margin-bottom: 16px; }
+.pp-section.hidden { display: none; }
 .pp-seg { display: flex; background: var(--accent-soft); border-radius: 999px; padding: 3px; }
 .pp-seg button {
   all: unset; flex: 1; text-align: center; cursor: pointer; font-size: 12.5px;
