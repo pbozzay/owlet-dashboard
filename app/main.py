@@ -73,7 +73,12 @@ def create_app(
         clients: list[OwletClient] = []
         if start_poller:
             accounts = await store.list_accounts()
-            token_accounts = [account for account in accounts if account.get("refresh_token") and account.get("status") == "active"]
+            token_accounts = [
+                account
+                for account in accounts
+                if (account.get("refresh_token") and account.get("status") == "active")
+                or account.get("owlet_password")
+            ]
             if token_accounts:
                 for account in token_accounts:
                     try:
@@ -83,6 +88,7 @@ def create_app(
                             interval_seconds=int(
                                 account.get("poll_interval_seconds") or settings.poll_interval_seconds
                             ),
+                            password=account.get("owlet_password"),
                         )
                         poller.start()
                         pollers.append(poller)
@@ -132,6 +138,7 @@ def create_app(
 
     app = FastAPI(title="Owlet History Server", lifespan=lifespan)
     app.state.owlet_state = state
+    app.state.settings = settings
     app.state.auth_store = auth_store
     app.state.rate_limiter = RateLimiter()
     app.include_router(auth_router)
@@ -151,7 +158,7 @@ def create_app(
             return RedirectResponse("/login", status_code=303)
         accounts = await store.list_accounts(user_id=user["id"])
         if not accounts:
-            return HTMLResponse(auth_pages.onboarding_page())
+            return HTMLResponse(auth_pages.onboarding_page(desktop_mode=settings.desktop_mode))
         return HTMLResponse(render_dashboard())
 
     @app.get("/manifest.webmanifest")
@@ -293,6 +300,9 @@ def create_app(
                 refresh_token=client.tokens.get("refresh"),
                 status="active",
                 user_id=user["id"],
+                # Desktop installs keep the Owlet login locally so a dead refresh
+                # token (e.g. after weeks powered off) never strands collection.
+                owlet_password=password if settings.desktop_mode else None,
             )
             if start_poller:
                 client_for_poller = client
@@ -336,7 +346,10 @@ def create_app(
             if exc.status_code == 429:
                 raise
             return HTMLResponse(
-                auth_pages.onboarding_page(error="Owlet rejected that login - check email/password/region"),
+                auth_pages.onboarding_page(
+                    error="Owlet rejected that login - check email/password/region",
+                    desktop_mode=settings.desktop_mode,
+                ),
                 status_code=400,
             )
         return RedirectResponse("/", status_code=303)

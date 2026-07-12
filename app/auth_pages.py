@@ -144,7 +144,7 @@ _LANDING = """<!doctype html>
           <span>Installable as an app, auto-refreshing live view, CSV export when you need the raw data.</span></div></li>
         <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
           <div><b>Private by design</b>
-          <span>Your Owlet password is verified once and never stored. Your baby's data is only visible to you.</span></div></li>
+          <span>{privacy_copy}</span></div></li>
       </ul>
     </section>
     <section class="card">
@@ -168,8 +168,21 @@ _LANDING = """<!doctype html>
 </html>"""
 
 
-def login_page(error: str | None = None) -> str:
-    return _LANDING.format(error=_error(error))
+HOSTED_PRIVACY_COPY = (
+    "Your Owlet password is verified once and never stored. "
+    "Your baby's data is only visible to you."
+)
+DESKTOP_PRIVACY_COPY = (
+    "Everything lives on this computer. Your Owlet login is kept locally so "
+    "collection can always reconnect - nothing is sent anywhere else."
+)
+
+
+def login_page(error: str | None = None, desktop_mode: bool = False) -> str:
+    return _LANDING.format(
+        error=_error(error),
+        privacy_copy=DESKTOP_PRIVACY_COPY if desktop_mode else HOSTED_PRIVACY_COPY,
+    )
 
 
 def signup_page(error: str | None = None) -> str:
@@ -190,12 +203,18 @@ def signup_page(error: str | None = None) -> str:
     )
 
 
-def onboarding_page(error: str | None = None) -> str:
+def onboarding_page(error: str | None = None, desktop_mode: bool = False) -> str:
+    promise = (
+        """Your Owlet login is <strong>stored only on this computer</strong> so collection
+    can always reconnect, even after weeks powered off."""
+        if desktop_mode
+        else """We verify it with Owlet once and
+    <strong>never store your Owlet password</strong> — only a revocable access token."""
+    )
     return _page(
         "Link your Owlet sock",
         f"""<h1>Link your Owlet sock</h1>
-    <p class="sub">Enter the login you use in the Owlet app. We verify it with Owlet once and
-    <strong>never store your Owlet password</strong> — only a revocable access token.</p>
+    <p class="sub">Enter the login you use in the Owlet app. {promise}</p>
     {_error(error)}
     <form method="post" action="/onboarding/link" onsubmit="const b=this.querySelector('button[type=submit]');b.disabled=true;b.textContent='Linking with Owlet…';">
       <label for="owlet_email">Owlet account email</label>

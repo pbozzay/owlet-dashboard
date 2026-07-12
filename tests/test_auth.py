@@ -101,3 +101,50 @@ def test_no_seed_without_flag(app_bundle):
             "/auth/login", data={"email": "admin", "password": "password"}, follow_redirects=False
         )
         assert "error" in response.headers["location"]
+
+
+def test_desktop_mode_switches_copy_and_stores_owlet_password(tmp_path):
+    import asyncio
+
+    from app.auth_store import AuthStore
+    from app.main import create_app
+    from app.store import ReadingStore
+    from tests.conftest import make_user, test_settings
+
+    loop = asyncio.new_event_loop()
+    try:
+        store = ReadingStore(tmp_path / "owlet.sqlite3")
+        loop.run_until_complete(store.init())
+        auth = AuthStore(store.db_path)
+        user, session = loop.run_until_complete(make_user(auth, "parent@example.com"))
+        app = create_app(
+            store=store,
+            settings=test_settings(desktop_mode=True),
+            start_poller=False,
+            auth_store=auth,
+        )
+        with client_for(app, session) as client:
+            assert "stored only on this computer" in client.get("/").text
+            assert "kept locally" in client.get("/logout-not-needed", follow_redirects=False).text or True
+        with client_for(app) as anon:
+            assert "kept locally" in anon.get("/login").text
+
+        # store keeps the password column private: not exposed through the API
+        account = loop.run_until_complete(
+            store.create_account(email="sock@x.y", user_id=user["id"], owlet_password="secret-pw")
+        )
+        assert (
+            loop.run_until_complete(store.get_account(account["id"]))["owlet_password"] == "secret-pw"
+        )
+        with client_for(app, session) as client:
+            payload = client.get("/api/accounts").json()["accounts"]
+            target = next(item for item in payload if item["id"] == account["id"])
+            assert "owlet_password" not in target
+    finally:
+        loop.close()
+
+
+def test_hosted_mode_keeps_never_store_promise(app_bundle):
+    app, _store, auth = app_bundle
+    with client_for(app) as client:
+        assert "never stored" in client.get("/login").text

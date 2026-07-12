@@ -172,6 +172,10 @@ class ReadingStore:
             await db.execute("ALTER TABLE accounts ADD COLUMN user_id INTEGER")
         if "poll_interval_seconds" not in columns:
             await db.execute("ALTER TABLE accounts ADD COLUMN poll_interval_seconds INTEGER")
+        if "owlet_password" not in columns:
+            # Only populated in desktop mode, so a dead refresh token never
+            # strands a single-user local install. Never exposed via the API.
+            await db.execute("ALTER TABLE accounts ADD COLUMN owlet_password TEXT")
 
     async def _table_columns(self, db: aiosqlite.Connection, table: str) -> list[str]:
         cursor = await db.execute(f"PRAGMA table_info({table})")
@@ -284,7 +288,8 @@ class ReadingStore:
                 f"""
                 SELECT id, email, region, display_name, api_token, api_token_expiry,
                        refresh_token, status, show_crypto, dashboard_preferences,
-                       created_at, updated_at, last_validated_at, user_id, poll_interval_seconds
+                       created_at, updated_at, last_validated_at, user_id, poll_interval_seconds,
+                       owlet_password
                 FROM accounts
                 {where}
                 ORDER BY id ASC
@@ -305,6 +310,7 @@ class ReadingStore:
         api_token_expiry: float | None = None,
         refresh_token: str | None = None,
         status: str = "active",
+        owlet_password: str | None = None,
     ) -> dict[str, Any]:
         await self.init()
         async with aiosqlite.connect(self.db_path) as db:
@@ -312,8 +318,8 @@ class ReadingStore:
                 """
                 INSERT INTO accounts (
                     user_id, email, region, display_name, api_token, api_token_expiry,
-                    refresh_token, status, updated_at, last_validated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    refresh_token, status, owlet_password, updated_at, last_validated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """,
                 (
                     user_id,
@@ -324,6 +330,7 @@ class ReadingStore:
                     api_token_expiry,
                     refresh_token,
                     status,
+                    owlet_password,
                 ),
             )
             await db.commit()
@@ -342,7 +349,8 @@ class ReadingStore:
                 f"""
                 SELECT id, email, region, display_name, api_token, api_token_expiry,
                        refresh_token, status, show_crypto, dashboard_preferences,
-                       created_at, updated_at, last_validated_at, user_id, poll_interval_seconds
+                       created_at, updated_at, last_validated_at, user_id, poll_interval_seconds,
+                       owlet_password
                 FROM accounts
                 {where}
                 """,
@@ -1128,6 +1136,7 @@ class ReadingStore:
             "last_validated_at": row[12],
             "user_id": int(row[13]) if len(row) > 13 and row[13] is not None else None,
             "poll_interval_seconds": int(row[14]) if len(row) > 14 and row[14] is not None else None,
+            "owlet_password": row[15] if len(row) > 15 else None,
         }
 
     def _row_to_reading(self, row: tuple[Any, ...]) -> OwletReading:

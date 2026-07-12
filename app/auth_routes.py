@@ -20,6 +20,10 @@ def _limiter(request: Request):
     return request.app.state.rate_limiter
 
 
+def _settings(request: Request):
+    return request.app.state.settings
+
+
 def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
@@ -64,7 +68,7 @@ async def _start_session(request: Request, user_id: int) -> Response:
 async def login_form(request: Request, error: str | None = None):
     if await current_user(request):
         return RedirectResponse("/", status_code=303)
-    return auth_pages.login_page(error=error)
+    return auth_pages.login_page(error=error, desktop_mode=_settings(request).desktop_mode)
 
 
 @router.get("/signup", response_class=HTMLResponse)

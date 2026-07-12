@@ -4,6 +4,11 @@ A native Windows shell around the same app: a frozen `owlet-server.exe` sidecar
 (FastAPI + SQLite, data in `%LOCALAPPDATA%\owlet-dashboard\`) plus a Tauri window
 pointed at it. Login is preseeded as `admin` / `password` (local machine only).
 
+Unlike the hosted version, desktop mode **stores your Owlet login locally**
+(in the SQLite file under `%LOCALAPPDATA%`). That way a refresh token that died
+while the PC was off never strands collection — the app just signs in again.
+Nothing leaves your machine.
+
 > **Important limitation — read before relying on it**
 > The desktop app only collects readings **while it is running**. If you close it
 > or your PC sleeps overnight, those readings are gone for good (Owlet's API has no
