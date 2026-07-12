@@ -1,44 +1,29 @@
-DASHBOARD_HTML = r"""
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#122033" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-title" content="Owlet" />
+"""The Data workbench: full charts, tables, exports. Rendered through the shared
+app shell for signed-in users; share links get a standalone themed page."""
+
+from app.shell import THEME_RESOLVER, render_shell
+
+DATA_HEAD = r"""  <meta name="theme-color" content="#122033" />
   __PWA_HEAD__
-  <title>Owlet Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
-  <style>
+<style>
     :root {
-      --bg: #f5f7fb;
-      --panel: rgba(255, 255, 255, .95);
-      --text: #122033;
-      --muted: #64748b;
-      --line: #e2e8f0;
+      /* Legacy palette names mapped onto the shared app tokens (theme.css). */
+      --panel: var(--surface);
+      --text: var(--ink);
+      --muted: var(--dim);
+      --line: var(--surface-line);
       --red: #dc2626;
       --blue: #2563eb;
       --green: #059669;
-      --amber: #b45309;
-      --purple: #7c3aed;
-      --dark: #0f172a;
-      --shadow: 0 18px 50px rgba(15, 23, 42, .10);
+      --amber: var(--warn);
+      --purple: var(--accent);
+      --dark: var(--ink);
     }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      color: var(--text);
-      background:
-        radial-gradient(circle at top left, rgba(37, 99, 235, .16), transparent 34rem),
-        radial-gradient(circle at top right, rgba(168, 85, 247, .12), transparent 32rem),
-        var(--bg);
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-    .shell { width: min(1500px, calc(100% - 32px)); margin: 0 auto; padding: 24px 0 48px; }
+    .shell { width: 100%; margin: 0 auto; padding: 0 0 32px; }
     .hero { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
     .hero-right { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
     .profile-button { display: inline-flex; align-items: center; gap: 10px; border-radius: 999px; padding: .32rem .44rem .32rem .36rem; background: rgba(255,255,255,.82); box-shadow: 0 8px 24px rgba(15,23,42,.08); }
@@ -346,9 +331,9 @@ DASHBOARD_HTML = r"""
       .mini { min-width: 0; flex: 1 1 30%; padding: 7px; }
       th, td { padding: 8px 7px; }
     }
-  </style>
-</head>
-<body>
+  </style>"""
+
+DATA_BODY = r"""
   <div id="initialLoading" class="initial-loading" role="status" aria-live="polite">
     <div class="loading-card">
       <span class="loading-spinner" aria-hidden="true"></span>
@@ -360,15 +345,7 @@ DASHBOARD_HTML = r"""
   </div>
   <main class="shell">
     <section class="hero">
-      <div>
-        <h1><span>Owlet Dashboard</span><span id="titleStatusDot" class="status-dot title-status-dot"
-          role="button" tabindex="0" aria-label="Refresh now"></span></h1>
-        <p class="subtitle">
-          Live-updated pulse plus historical drill-downs for breathing, sleep, wake time,
-          and raw readings. Retrospective trend viewing only — not a medical monitor or alert replacement.
-          <span class="view-links">Views: <a href="/">Now</a> · <a href="/night">Tonight</a> · <a href="/rhythms">Rhythms</a></span>
-        </p>
-      </div>
+      <div></div>
       <div class="hero-right" id="profileMenuWrap">
         <button id="profileMenuToggle" class="profile-button" type="button" aria-expanded="false" aria-haspopup="menu" title="Account and dashboard settings">
           <span id="profileAvatar" class="profile-avatar" aria-hidden="true">O</span>
@@ -650,6 +627,16 @@ DASHBOARD_HTML = r"""
   </div>
 
   <script>
+    (function themeCharts() {
+      const styles = getComputedStyle(document.documentElement);
+      const ink = styles.getPropertyValue('--ink').trim() || '#122033';
+      const line = styles.getPropertyValue('--surface-line').trim() || '#e2e8f0';
+      if (window.Chart) {
+        Chart.defaults.color = ink;
+        Chart.defaults.borderColor = line;
+      }
+      window.__onThemeChange = () => window.location.reload();
+    })();
     const API_BASE = "__API_BASE__";
     const SHARE_MODE = __SHARE_MODE__;
     // Dashboard refresh follows the account's poll interval (capped to a sane floor).
@@ -1823,7 +1810,8 @@ DASHBOARD_HTML = r"""
       const label = offlineNow ? 'Device offline / sock off' : (health.collecting ? 'Collecting live' : 'Stored data only');
       const dotClass = offlineNow ? 'offline' : (health.collecting ? 'good' : '');
       el('status').innerHTML = `<span class="status-dot ${dotClass}"></span>${label} · ${mode}`;
-      el('titleStatusDot').className = `status-dot title-status-dot ${dotClass}`;
+      const titleDot = el('titleStatusDot');
+      if (titleDot) titleDot.className = `status-dot title-status-dot ${dotClass}`;
       renderBatteryStatus(latest);
     }
 
@@ -3488,25 +3476,41 @@ DASHBOARD_HTML = r"""
     setInterval(tickCountdown, 1000);
     setInterval(updateTitleDotProgress, 200);
   </script>
-</body>
-</html>
 """
 
 
 def render_dashboard(api_base: str = "", *, share_mode: bool = False) -> str:
-    pwa_head = (
-        ""
-        if share_mode
-        else (
-            '<link rel="manifest" href="/manifest.webmanifest" />\n'
-            '  <link rel="icon" href="/favicon.ico" sizes="any" />\n'
-            '  <link rel="icon" type="image/svg+xml" href="/logo.svg" />\n'
-            '  <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png" />\n'
-            '  <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png" />'
-        )
-    )
+    newline = chr(10)
+    pwa_links = [
+        '<link rel="manifest" href="/manifest.webmanifest" />',
+        '<link rel="icon" href="/favicon.ico" sizes="any" />',
+        '<link rel="icon" type="image/svg+xml" href="/logo.svg" />',
+        '<link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png" />',
+        '<link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png" />',
+    ]
+    pwa_head = "" if share_mode else ("  " + (newline + "  ").join(pwa_links))
+    head = DATA_HEAD.replace("__PWA_HEAD__", pwa_head)
+    if share_mode:
+        parts = [
+            "<!doctype html>",
+            '<html lang="en">',
+            "<head>",
+            '  <meta charset="utf-8" />',
+            '  <meta name="viewport" content="width=device-width, initial-scale=1" />',
+            "  <title>Owlet Dashboard - shared view</title>",
+            THEME_RESOLVER,
+            '  <link rel="stylesheet" href="/theme.css" />',
+            head,
+            "</head>",
+            '<body class="themed">',
+            DATA_BODY,
+            "</body>",
+            "</html>",
+        ]
+        page = newline.join(parts)
+    else:
+        page = render_shell(view="data", title="Data", head=head, body=DATA_BODY, wide=True)
     return (
-        DASHBOARD_HTML.replace("__API_BASE__", api_base)
+        page.replace("__API_BASE__", api_base)
         .replace("__SHARE_MODE__", "true" if share_mode else "false")
-        .replace("__PWA_HEAD__", pwa_head)
     )

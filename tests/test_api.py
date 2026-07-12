@@ -781,8 +781,9 @@ async def test_dashboard_endpoint_serves_html(tmp_path):
     assert "closeNotificationsPanel" in response.text
     assert "closeChallengesPanel" in response.text
     assert "safeRefresh" in response.text
-    assert 'id="refresh"' not in response.text  # replaced by the clickable title dot
-    assert 'aria-label="Refresh now"' in response.text
+    assert 'id="refresh"' not in response.text  # refresh lives on the shell's living dot
+    assert 'id="shellDot"' in response.text
+    assert 'class="shell-tabs"' in response.text  # unified top bar
     assert "initialLoading" in response.text
     assert "Loading Owlet data" in response.text
     assert "setInitialLoading('Loading readings and notifications" in response.text
