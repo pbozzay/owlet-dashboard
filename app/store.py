@@ -40,7 +40,6 @@ class ReadingStore:
                     api_token_expiry REAL,
                     refresh_token TEXT,
                     status TEXT NOT NULL DEFAULT 'active',
-                    show_crypto INTEGER NOT NULL DEFAULT 0,
                     dashboard_preferences TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -173,8 +172,6 @@ class ReadingStore:
 
     async def _ensure_account_preference_schema(self, db: aiosqlite.Connection) -> None:
         columns = await self._table_columns(db, "accounts")
-        if "show_crypto" not in columns:
-            await db.execute("ALTER TABLE accounts ADD COLUMN show_crypto INTEGER NOT NULL DEFAULT 0")
         if "dashboard_preferences" not in columns:
             await db.execute("ALTER TABLE accounts ADD COLUMN dashboard_preferences TEXT NOT NULL DEFAULT '{}'")
         if "user_id" not in columns:
@@ -296,7 +293,7 @@ class ReadingStore:
             cursor = await db.execute(
                 f"""
                 SELECT id, email, region, display_name, api_token, api_token_expiry,
-                       refresh_token, status, show_crypto, dashboard_preferences,
+                       refresh_token, status, dashboard_preferences,
                        created_at, updated_at, last_validated_at, user_id, poll_interval_seconds,
                        owlet_password
                 FROM accounts
@@ -357,7 +354,7 @@ class ReadingStore:
             cursor = await db.execute(
                 f"""
                 SELECT id, email, region, display_name, api_token, api_token_expiry,
-                       refresh_token, status, show_crypto, dashboard_preferences,
+                       refresh_token, status, dashboard_preferences,
                        created_at, updated_at, last_validated_at, user_id, poll_interval_seconds,
                        owlet_password
                 FROM accounts
@@ -395,7 +392,6 @@ class ReadingStore:
         account_id: int,
         *,
         display_name: str | None = None,
-        show_crypto: bool | None = None,
         dashboard_preferences: dict[str, Any] | None = None,
         poll_interval_seconds: int | None = None,
     ) -> dict[str, Any]:
@@ -408,9 +404,6 @@ class ReadingStore:
             if cleaned:
                 assignments.append("display_name = ?")
                 values.append(cleaned)
-        if show_crypto is not None:
-            assignments.append("show_crypto = ?")
-            values.append(1 if show_crypto else 0)
         if poll_interval_seconds is not None:
             assignments.append("poll_interval_seconds = ?")
             values.append(int(poll_interval_seconds))
@@ -1138,14 +1131,13 @@ class ReadingStore:
             "api_token_expiry": row[5],
             "refresh_token": row[6],
             "status": row[7],
-            "show_crypto": _sqlite_bool(row[8]),
-            "dashboard_preferences": _sqlite_json_object(row[9]),
-            "created_at": row[10],
-            "updated_at": row[11],
-            "last_validated_at": row[12],
-            "user_id": int(row[13]) if len(row) > 13 and row[13] is not None else None,
-            "poll_interval_seconds": int(row[14]) if len(row) > 14 and row[14] is not None else None,
-            "owlet_password": row[15] if len(row) > 15 else None,
+            "dashboard_preferences": _sqlite_json_object(row[8]),
+            "created_at": row[9],
+            "updated_at": row[10],
+            "last_validated_at": row[11],
+            "user_id": int(row[12]) if len(row) > 12 and row[12] is not None else None,
+            "poll_interval_seconds": int(row[13]) if len(row) > 13 and row[13] is not None else None,
+            "owlet_password": row[14] if len(row) > 14 else None,
         }
 
     def _row_to_reading(self, row: tuple[Any, ...]) -> OwletReading:

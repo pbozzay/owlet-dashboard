@@ -142,24 +142,19 @@ DATA_HEAD = r"""  <meta name="theme-color" content="#122033" />
     .initial-loading.error .loading-spinner { animation: none; border-color: #fecdd3; border-top-color: var(--red); }
     @keyframes loadingSpin { to { transform: rotate(360deg); } }
     .glance-strip { display: grid; grid-template-columns: 1.05fr 1.05fr 1.2fr .9fr; gap: 10px; margin: 10px 0 14px; }
-    .glance-strip.crypto-hidden { grid-template-columns: 1.05fr 1.05fr 1.2fr; }
+    
     .glance-card { min-height: 92px; padding: 12px 13px; }
     .glance-card strong { display: block; font-size: clamp(1.45rem, 3vw, 2.25rem); line-height: 1; letter-spacing: -.045em; margin: 4px 0; }
     .glance-card small { display: block; color: var(--muted); line-height: 1.25; }
     .glance-card .inline-stat { color: var(--text); font-weight: 850; }
-    .glance-card .inline-stat.up, .crypto-change.up { color: var(--green); }
-    .glance-card .inline-stat.down, .crypto-change.down { color: var(--red); }
-    .glance-card .inline-stat.flat, .crypto-change.flat { color: var(--blue); }
+    .glance-card .inline-stat.up { color: var(--green); }
+    .glance-card .inline-stat.down { color: var(--red); }
+    .glance-card .inline-stat.flat { color: var(--blue); }
     .oxygen-value { font-weight: 950; }
     .oxygen-value.good { color: var(--green); }
     .oxygen-value.caution { color: var(--amber); }
     .oxygen-value.danger { color: var(--red); }
     .glance-progress { height: 7px; margin-top: 7px; }
-    .crypto-lines { display: grid; gap: 2px; margin-top: 5px; }
-    .crypto-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: var(--muted); font-size: .82rem; }
-    .crypto-line b { color: var(--text); }
-    .crypto-card.hidden { display: none; }
-    .crypto-change { font-weight: 900; }
     .notification-button { position: relative; }
     .account-cluster.hidden { display: none; }
     .account-add-button { padding-inline: .65rem; }
@@ -386,7 +381,7 @@ DATA_BODY = r"""
       </div>
     </section>
 
-    <section id="glanceStrip" class="glance-strip crypto-hidden" aria-label="At a glance">
+    <section id="glanceStrip" class="glance-strip" aria-label="At a glance">
       <article class="card glance-card">
         <span class="eyebrow">O₂ now + today</span>
         <strong id="latestOxygen">—</strong>
@@ -407,13 +402,6 @@ DATA_BODY = r"""
           <span id="lightBar"></span><span id="deepBar"></span><span id="awakeBar"></span>
         </div>
         <small>Light <span class="inline-stat" id="lightSleep">—</span> · Deep <span class="inline-stat" id="deepSleep">—</span> · Awake <span class="inline-stat" id="awakeTime">—</span></small>
-      </article>
-      <article id="cryptoCard" class="card glance-card crypto-card hidden">
-        <span class="eyebrow">Crypto</span>
-        <strong id="cryptoHeadline">BTC —</strong>
-        <div class="crypto-lines" id="cryptoLines">
-          <small>Loading BTC / ETH / XMR…</small>
-        </div>
       </article>
     </section>
 
@@ -608,7 +596,6 @@ DATA_BODY = r"""
     let comparisonRows = [];
     let notifications = { items: [], total: 0, limit: 500, offset: 0 };
     let challenges = { items: [], total: 0, limit: 100, offset: 0 };
-    let crypto = { available: false, prices: {}, series: { bitcoin: [] } };
     let notificationPageOffset = 0;
     const NOTIFICATION_PAGE_SIZE = 10;
     const TREND_MAX_SAMPLE_GAP_MS = 5 * 60 * 1000;
@@ -1455,23 +1442,6 @@ DATA_BODY = r"""
       return initials.toUpperCase();
     }
 
-    function showCryptoEnabled() {
-      return !SHARE_MODE && Boolean(currentAccount()?.show_crypto);
-    }
-
-    function renderCryptoVisibility() {
-      const enabled = showCryptoEnabled();
-      el('cryptoCard')?.classList.toggle('hidden', !enabled);
-      el('glanceStrip')?.classList.toggle('crypto-hidden', !enabled);
-      const toggle = el('showCryptoSetting');
-      if (toggle) toggle.checked = enabled;
-      if (!enabled) {
-        crypto = { available: false, prices: {}, series: { bitcoin: [] } };
-        el('cryptoHeadline').textContent = 'BTC —';
-        el('cryptoLines').innerHTML = '<small>Disabled in profile settings.</small>';
-      }
-    }
-
     function renderProfileMenu() {
       if (!el('profileMenuTitle')) return;
       const account = currentAccount();
@@ -1487,7 +1457,6 @@ DATA_BODY = r"""
       if (intervalSelect) intervalSelect.value = String(account?.poll_interval_seconds || 5);
       el('profileMenuSubtitle').textContent = `${deviceName}${account?.status && account.status !== 'active' ? ` · ${account.status.replace('_', ' ')}` : ''}`;
       el('profileMenuWrap')?.classList.toggle('share-only-hidden', SHARE_MODE);
-      renderCryptoVisibility();
     }
 
     function setUrlAccount(account) {
@@ -1704,8 +1673,6 @@ DATA_BODY = r"""
       const rollupQs = queryParams({ bucket: rollupBucket() }, { hoursOverride: loadedHours });
       const notificationQs = queryParams({ limit: '500', offset: '0' }, { hoursOverride: loadedHours });
       const challengeQs = queryParams({ limit: '100', offset: '0' }, { hoursOverride: loadedHours });
-      const cryptoHours = selectedHours() || 720;
-      renderCryptoVisibility();
       const [health, rows, notificationData, challengeData] = await Promise.all([
         fetchJson(`${API_BASE}/api/health`),
         fetchJson(`${API_BASE}/api/readings?${dataQs}`),
@@ -1727,32 +1694,24 @@ DATA_BODY = r"""
       updateRefreshButton();
       hideInitialLoading();
       if (previousLatest && lastLatestTimestamp && lastLatestTimestamp !== previousLatest) showNewDataPulse();
-      hydrateSecondaryData({ qs, rollupQs, cryptoHours, token, compareRows: rows }).catch(error => {
+      hydrateSecondaryData({ qs, rollupQs, token, compareRows: rows }).catch(error => {
         console.error(error);
         if (el('refresh')) el('refresh').title = 'Some details failed; core readings are still shown.';
       });
     }
 
-    async function hydrateSecondaryData({ qs, rollupQs, cryptoHours, token, compareRows }) {
-      const cryptoPromise = showCryptoEnabled()
-        ? fetchJson(`${API_BASE}/api/crypto?hours=${cryptoHours}`)
-        : Promise.resolve({ available: false, prices: {}, series: { bitcoin: [] } });
-      const [stats, insightData, rollupData, cryptoData] = await Promise.all([
+    async function hydrateSecondaryData({ qs, rollupQs, token, compareRows }) {
+      const [stats, insightData, rollupData] = await Promise.all([
         fetchJson(`${API_BASE}/api/summary?${qs}`),
         fetchJson(`${API_BASE}/api/insights?${qs}`),
-        fetchJson(`${API_BASE}/api/rollups?${rollupQs}`),
-        cryptoPromise
+        fetchJson(`${API_BASE}/api/rollups?${rollupQs}`)
       ]);
       if (token !== refreshToken) return;
-      comparisonRows = compareRows || readings;
       summary = stats;
       insights = insightData;
       rollups = rollupData.rollups || [];
-      crypto = cryptoData;
       renderInsights();
-      renderCrypto();
       renderRollups();
-      syncCryptoChartDataset();
     }
 
     function renderStatus(health) {
@@ -1824,24 +1783,6 @@ DATA_BODY = r"""
         title: `${name} (${duration})`,
         detail: `current ${name.toLowerCase()}`,
       };
-    }
-
-    function renderCrypto() {
-      renderCryptoVisibility();
-      if (!showCryptoEnabled()) return;
-      if (!crypto.available) {
-        el('cryptoHeadline').textContent = 'Crypto —';
-        el('cryptoLines').innerHTML = `<small>${crypto.error ? 'Price feed unavailable' : 'Loading BTC / ETH / XMR…'}</small>`;
-        return;
-      }
-      const entries = ['bitcoin', 'ethereum', 'monero'].map(id => crypto.prices?.[id]).filter(Boolean);
-      const btc = crypto.prices?.bitcoin;
-      el('cryptoHeadline').textContent = btc ? `BTC ${money(btc.usd)}` : 'BTC —';
-      el('cryptoLines').innerHTML = entries.map(coin => `
-        <div class="crypto-line">
-          <span><b>${coin.symbol}</b> ${money(coin.usd)}</span>
-          <span class="crypto-change ${changeClass(coin.usd_24h_change, .05)}">${pct(coin.usd_24h_change)}</span>
-        </div>`).join('') || '<small>Price feed unavailable</small>';
     }
 
     function chartPoints(points) {
@@ -2034,25 +1975,6 @@ DATA_BODY = r"""
       return readings.slice(Math.max(0, index - 1), Math.min(readings.length, index + 2)).map(row => `${localTime(row.recorded_at, true)} · O₂ ${fmt(row.oxygen_saturation, '%')} · HR ${fmt(row.heart_rate, ' bpm')}`);
     }
 
-    function cryptoBitcoinPoints() {
-      return (crypto.series?.bitcoin || []).map(point => ({ x: point.x, y: point.y }));
-    }
-
-    function syncCryptoChartDataset() {
-      if (!vitalsChart) return;
-      const index = vitalsChart.data.datasets.findIndex(dataset => dataset.id === 'btcPrice');
-      if (!showCryptoEnabled()) {
-        vitalsChart.update('none');
-        return;
-      }
-      if (index < 0) {
-        renderCharts({ deferTrend: true });
-        return;
-      }
-      vitalsChart.data.datasets[index].data = cryptoBitcoinPoints();
-      vitalsChart.update('none');
-    }
-
     function notificationPoints() {
       return (notifications.items || []).slice().reverse().map(item => {
         const timestamp = Date.parse(item.recorded_at);
@@ -2081,7 +2003,6 @@ DATA_BODY = r"""
 
     function tooltipLabel(context) {
       if (context.dataset.id === 'notifications') return context.raw.tooltipLines;
-      if (context.dataset.id === 'btcPrice') return `BTC price: ${money(context.parsed.y)}`;
       if (context.chart?.canvas?.id === 'stateChart') {
         const stage = sleepStageInfo(context.dataset.label);
         const value = context.parsed?.y;
@@ -2399,9 +2320,6 @@ DATA_BODY = r"""
         { ...readingLineDataset('movement', 'Movement', 'movement', '#059669', 'move', false), tension: .2 },
         { ...readingLineDataset('skinTemperature', 'Skin temp °C', 'skin_temperature', '#0f766e', 'temp', true), hidden: skinTempHidden }
       ];
-      if (showCryptoEnabled()) {
-        datasets.push({ id: 'btcPrice', label: 'BTC price', data: cryptoBitcoinPoints(), borderColor: '#f97316', backgroundColor: '#f9731620', yAxisID: 'btc', hidden: preferredDatasetHidden('btcPrice', true), spanGaps: true, pointRadius: 0, tension: .25 });
-      }
       datasets.push(notificationsDataset());
       vitalsChart = upsertChart(vitalsChart, 'vitalsChart', {
         type: 'line',
@@ -2410,7 +2328,6 @@ DATA_BODY = r"""
           hr: { type: 'linear', position: 'left', min: 0, title: { display: true, text: 'BPM' } },
           spo2: { type: 'linear', position: 'right', min: 0, suggestedMax: 100, grid: { drawOnChartArea: false }, title: { display: true, text: 'SpO₂' } },
           temp: { type: 'linear', position: 'right', display: false, suggestedMin: 28, suggestedMax: 38, grid: { drawOnChartArea: false } },
-          btc: { type: 'linear', position: 'right', min: 0, display: false, grid: { drawOnChartArea: false } },
           move: { min: 0, display: false }
         }, { hideXTicks: true, legend: { position: 'top', align: 'end' } })
       });
@@ -3366,7 +3283,6 @@ DATA_BODY = r"""
     }
     document.addEventListener('owlet:prefs-changed', async () => {
       await loadAccounts();
-      renderCryptoVisibility();
       renderCharts({ deferTrend: true });
       secondsUntilRefresh = Math.min(secondsUntilRefresh, refreshSeconds());
     });

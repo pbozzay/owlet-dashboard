@@ -17,7 +17,6 @@ from app.auth_routes import current_user, require_user
 from app.auth_routes import router as auth_router
 from app.auth_store import AuthStore
 from app.config import Settings
-from app.crypto import get_crypto_prices
 from app.dashboard import render_dashboard
 from app.night_page import render_night_page
 from app.now_page import render_now_page
@@ -291,7 +290,6 @@ def create_app(
         user: dict = Depends(require_user),
     ):
         display_name = payload.get("display_name")
-        show_crypto = payload.get("show_crypto")
         dashboard_preferences = _public_dashboard_preferences_patch(payload.get("dashboard_preferences"))
         interval_raw = payload.get("poll_interval_seconds")
         poll_interval = (
@@ -304,7 +302,6 @@ def create_app(
             account = await store.update_account_preferences(
                 account_id,
                 display_name=str(display_name).strip() if isinstance(display_name, str) else None,
-                show_crypto=bool(show_crypto) if isinstance(show_crypto, bool) else None,
                 dashboard_preferences=dashboard_preferences,
                 poll_interval_seconds=poll_interval,
             )
@@ -525,20 +522,6 @@ def create_app(
         rows = await store.exclude_challenge_readings(rows)
         return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
 
-    @app.get("/api/crypto")
-    async def crypto(
-        hours: int = Query(default=24, ge=1, le=24 * 30),
-        user: dict = Depends(require_user),
-    ):
-        return await get_crypto_prices(hours=hours)
-
-    @app.get("/share/{token}/api/crypto")
-    async def shared_crypto(
-        token: str = Path(min_length=20),
-        hours: int = Query(default=24, ge=1, le=24 * 30),
-    ):
-        _require_share_token(token, settings)
-        return await get_crypto_prices(hours=hours)
 
     @app.get("/api/notifications")
     async def notifications(
@@ -750,7 +733,7 @@ def _public_dashboard_preferences_patch(value: object) -> dict[str, object] | No
         allowed["chart_visibility"] = {
             str(key): bool(setting)
             for key, setting in chart_visibility.items()
-            if str(key) in {"heartRate", "oxygen", "movement", "skinTemperature", "btcPrice", "notifications", "o2Trailing30", "o2Baseline4h", "o2TrendSignal"}
+            if str(key) in {"heartRate", "oxygen", "movement", "skinTemperature", "notifications", "o2Trailing30", "o2Baseline4h", "o2TrendSignal"}
             and isinstance(setting, bool)
         }
     chart_settings = value.get("chart_settings")
@@ -782,7 +765,6 @@ def _public_account(account: dict[str, object]) -> dict[str, object]:
         "region": account.get("region"),
         "display_name": account.get("display_name"),
         "status": account.get("status"),
-        "show_crypto": bool(account.get("show_crypto")),
         "poll_interval_seconds": account.get("poll_interval_seconds"),
         "dashboard_preferences": account.get("dashboard_preferences") if isinstance(account.get("dashboard_preferences"), dict) else {},
         "last_validated_at": account.get("last_validated_at"),

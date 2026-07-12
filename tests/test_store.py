@@ -248,11 +248,9 @@ async def test_store_persists_account_tokens_without_password(tmp_path):
     assert saved["api_token_expiry"] == 1784000000.0
     assert saved["refresh_token"] == "refresh-two"
     assert saved["status"] == "active"
-    assert saved["show_crypto"] is False
 
     updated = await store.update_account_preferences(
         account["id"],
-        show_crypto=True,
         display_name="Night profile",
         dashboard_preferences={
             "chart_visibility": {"heartRate": False},
@@ -263,7 +261,6 @@ async def test_store_persists_account_tokens_without_password(tmp_path):
         account["id"],
         dashboard_preferences={"chart_visibility": {"oxygen": True}},
     )
-    assert updated["show_crypto"] is True
     assert updated["display_name"] == "Night profile"
     assert updated["dashboard_preferences"]["chart_visibility"] == {"heartRate": False, "oxygen": True}
     assert updated["dashboard_preferences"]["chart_settings"]["window"] == "72"

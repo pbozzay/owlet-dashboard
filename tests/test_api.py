@@ -1,6 +1,5 @@
 import pytest
 
-from app import crypto as crypto_module
 from app.auth_store import AuthStore
 from app.config import Settings
 from app.main import create_app
@@ -75,10 +74,9 @@ async def test_account_api_is_public_metadata_only_and_scopes_data(tmp_path):
         updated = client.patch(
             f"/api/accounts/{second['id']}",
             json={
-                "show_crypto": True,
                 "display_name": "Second profile",
                 "dashboard_preferences": {
-                    "chart_visibility": {"btcPrice": False, "heartRate": True},
+                    "chart_visibility": {"heartRate": True},
                     "chart_settings": {"window": "72", "smoothing": "15", "challenge_bands": False},
                     "secret": "ignored",
                 },
@@ -89,10 +87,8 @@ async def test_account_api_is_public_metadata_only_and_scopes_data(tmp_path):
     second_payload = next(account for account in accounts if account["id"] == second["id"])
     assert second_payload["display_name"] == "Second baby"
     assert second_payload["has_refresh_token"] is True
-    assert second_payload["show_crypto"] is False
     assert updated["display_name"] == "Second profile"
-    assert updated["show_crypto"] is True
-    assert updated["dashboard_preferences"]["chart_visibility"] == {"btcPrice": False, "heartRate": True}
+    assert updated["dashboard_preferences"]["chart_visibility"] == {"heartRate": True}
     assert updated["dashboard_preferences"]["chart_settings"]["window"] == "72"
     assert "secret" not in updated["dashboard_preferences"]
     assert "refresh_token" not in second_payload
@@ -356,38 +352,6 @@ async def test_widget_endpoint_returns_compact_status_payload(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_crypto_endpoint_returns_prices_and_btc_series(tmp_path, monkeypatch):
-    crypto_module._CACHE.clear()
-
-    def fake_fetch(hours):
-        return {
-            "available": True,
-            "source": "coingecko",
-            "window_hours": hours,
-            "prices": {
-                "bitcoin": {"symbol": "BTC", "usd": 100000, "usd_24h_change": 1.5},
-                "ethereum": {"symbol": "ETH", "usd": 4000, "usd_24h_change": -0.5},
-                "monero": {"symbol": "XMR", "usd": 300, "usd_24h_change": 0.1},
-            },
-            "series": {"bitcoin": [{"x": 1, "y": 99000}, {"x": 2, "y": 100000}]},
-        }
-
-    monkeypatch.setattr(crypto_module, "fetch_crypto_payload", fake_fetch)
-    store = ReadingStore(tmp_path / "owlet.sqlite3")
-    auth = AuthStore(store.db_path)
-    user, session = await make_user(auth, "owner@example.test")
-    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
-
-    with client_for(app, session) as client:
-        payload = client.get("/api/crypto?hours=24").json()
-
-    assert payload["available"] is True
-    assert payload["prices"]["bitcoin"]["symbol"] == "BTC"
-    assert payload["prices"]["ethereum"]["usd_24h_change"] == -0.5
-    assert payload["series"]["bitcoin"][-1]["y"] == 100000
-
-
-@pytest.mark.asyncio
 async def test_api_returns_readings_and_summary(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)
@@ -551,9 +515,8 @@ async def test_dashboard_endpoint_serves_html(tmp_path):
     assert 'id="profileMenuToggle"' in response.text
     assert 'id="profileAvatar"' in response.text
     assert 'id="profileMenu"' in response.text
-    assert 'id="showCryptoSetting"' in response.text
-    assert "Crypto widget" in response.text
-    assert "BTC card + optional chart line" in response.text
+    assert 'id="showCryptoSetting"' not in response.text
+    assert "Crypto widget" not in response.text
     assert 'id="profileCurrentName"' not in response.text
     assert "Current profile" not in response.text
     assert "Switch profile" not in response.text
@@ -563,9 +526,9 @@ async def test_dashboard_endpoint_serves_html(tmp_path):
     assert 'id="addAccount"' in response.text
     assert "Link another Owlet account" in response.text
     assert "renderProfileMenu" in response.text
-    assert "showCryptoEnabled" in response.text
+    assert "showCryptoEnabled" not in response.text
     assert "updateCurrentAccountPreference" in response.text
-    assert "show_crypto" in response.text
+    assert "show_crypto" not in response.text
     assert "el('profileMenuWrap')?.classList.toggle('share-only-hidden', SHARE_MODE);" in response.text
     assert "cluster.classList.toggle('hidden', SHARE_MODE);" in response.text
     assert "/api/accounts" in response.text
@@ -630,17 +593,9 @@ async def test_dashboard_endpoint_serves_html(tmp_path):
     assert "O₂ sleep" in response.text
     assert "HR wake" in response.text
     assert "offline/sock-off and O₂ challenge samples excluded" in response.text
-    assert "/api/crypto" in response.text
-    assert 'id="cryptoCard" class="card glance-card crypto-card hidden"' in response.text
-    assert 'id="glanceStrip" class="glance-strip crypto-hidden"' in response.text
-    assert "showCryptoEnabled()\n        ? fetchJson(`${API_BASE}/api/crypto?hours=${cryptoHours}`)" in response.text
-    assert "if (showCryptoEnabled())" in response.text
-    assert "id: 'btcPrice'" in response.text
-    assert "hidden: preferredDatasetHidden('btcPrice', true)" in response.text
-    assert "function syncCryptoChartDataset()" in response.text
-    assert "vitalsChart.data.datasets[index].data = cryptoBitcoinPoints()" in response.text
-    assert "syncCryptoChartDataset();" in response.text
-    assert "BTC price: ${money(context.parsed.y)}" in response.text
+    assert "/api/crypto" not in response.text
+    assert "cryptoCard" not in response.text
+    assert "btcPrice" not in response.text
     assert "O₂ trend companion" in response.text
     assert "How to read the O₂ trend companion" in response.text
     assert "MACD-style oxygen view" in response.text
@@ -818,7 +773,7 @@ async def test_dashboard_endpoint_serves_html(tmp_path):
     assert "click any row on the left" in response.text
     assert "selected-row" in response.text
     assert "O₂ now + today" in response.text
-    assert "Crypto" in response.text
+    assert "Crypto" not in response.text
     assert 'id="installApp"' in response.text
     assert response.text.index("aria-label=\"At a glance\"") < response.text.index("id=\"vitalsChart\"")
     assert 'id="rollupChart"' not in response.text
@@ -826,9 +781,8 @@ async def test_dashboard_endpoint_serves_html(tmp_path):
     assert response.text.index("Readings table") < response.text.index("Selected reading")
     assert "O₂ now + today" in response.text
     assert "Heart rate" in response.text
-    assert response.text.index('id="latestOxygen"') < response.text.index('id="sleepTotal"') < response.text.index('id="cryptoCard"')
+    assert response.text.index('id="latestOxygen"') < response.text.index('id="sleepTotal"')
     assert "sleepTotal" in response.text
-    assert "Crypto" in response.text
     assert "state-legend" not in response.text
 
 

@@ -107,7 +107,6 @@ SHELL_JS = """<script>
     if (byId('profileMenuTitle')) byId('profileMenuTitle').textContent = name;
     if (byId('profileDeviceName')) byId('profileDeviceName').textContent = deviceName;
     if (byId('profileMenuSubtitle')) byId('profileMenuSubtitle').textContent = deviceName;
-    if (byId('showCryptoSetting')) byId('showCryptoSetting').checked = !!(account && account.show_crypto);
     if (byId('pollIntervalSetting')) byId('pollIntervalSetting').value = String((account && account.poll_interval_seconds) || 5);
   }
   function loadShellAccounts() {
@@ -148,9 +147,6 @@ SHELL_JS = """<script>
       return data.account;
     }).catch(function () { return null; });
   }
-  if (byId('showCryptoSetting')) byId('showCryptoSetting').addEventListener('change', function (event) {
-    patchSelectedAccount({ show_crypto: event.target.checked });
-  });
   if (byId('pollIntervalSetting')) byId('pollIntervalSetting').addEventListener('change', function (event) {
     patchSelectedAccount({ poll_interval_seconds: Number(event.target.value) }).then(function (account) {
       if (account && account.poll_interval_seconds) pollInterval = account.poll_interval_seconds;
@@ -303,12 +299,6 @@ def render_shell(
             <button id="addAccount" class="pp-link-btn" type="button"
               title="Link another Owlet account">Link</button>
           </div>
-        </div>
-        <div class="pp-section">
-          <label class="pp-toggle" for="showCryptoSetting">
-            <span><b>Crypto widget</b><small>BTC card + optional chart line</small></span>
-            <input id="showCryptoSetting" type="checkbox" />
-          </label>
         </div>
         <div class="pp-section">
           <span class="pp-label">Update every</span>

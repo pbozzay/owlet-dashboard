@@ -107,7 +107,6 @@ Analytics endpoints:
 - Daily rollups: <http://127.0.0.1:8888/api/rollups?bucket=day&hours=168>
 - Notifications: <http://127.0.0.1:8888/api/notifications?hours=24>
 - Oxygen challenges: <http://127.0.0.1:8888/api/oxygen-challenges?hours=24>
-- Crypto prices: <http://127.0.0.1:8888/api/crypto?hours=24>
 - Compact widget JSON: <http://127.0.0.1:8888/api/widget?hours=24>
 
 The same compact widget payload is available on the tokenized share path at `/share/<token>/api/widget?hours=24`. iOS PWAs cannot create native Home Screen or Lock Screen widgets, but apps like Widgy or Scriptable can poll this JSON URL for a private glanceable widget.
@@ -134,7 +133,6 @@ Credit to the open-source libraries this project stands on:
 - [Chart.js](https://www.chartjs.org/) + [chartjs-plugin-zoom](https://www.chartjs.org/chartjs-plugin-zoom/latest/) + [Hammer.js](https://hammerjs.github.io/) — charts with drag/pan/zoom
 - [argon2-cffi](https://argon2-cffi.readthedocs.io/) — password hashing
 - [pytest](https://docs.pytest.org/) + [HTTPX](https://www.python-httpx.org/) + [Ruff](https://docs.astral.sh/ruff/) — tests and linting
-- [CoinGecko API](https://www.coingecko.com/en/api) — the crypto price glance
 
 ## Notes on Owlet API fragility
 
