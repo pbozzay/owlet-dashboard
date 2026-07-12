@@ -61,7 +61,21 @@ DASHBOARD_HTML = r"""
     .profile-toggle small { color: var(--muted); }
     .baby-name { color: var(--text); font-weight: 950; font-size: clamp(1rem, 2.5vw, 1.35rem); background: rgba(255,255,255,.76); border: 1px solid rgba(226,232,240,.9); border-radius: 999px; padding: .38rem .75rem; box-shadow: 0 8px 24px rgba(15,23,42,.08); }
     h1 { margin: 0; letter-spacing: -.045em; font-size: clamp(2.1rem, 5vw, 4.2rem); line-height: .92; }
-    .title-status-dot { display: none; }
+    @property --refresh-progress { syntax: '<number>'; inherits: false; initial-value: 0; }
+    .title-status-dot { display: inline-block; flex: 0 0 auto; width: 10px; height: 10px;
+      position: relative; margin-left: 10px; vertical-align: middle;
+      transition: --refresh-progress 1s linear; }
+    .title-status-dot::after {
+      content: ''; position: absolute; inset: -5px; border-radius: 50%;
+      background: conic-gradient(rgba(34,197,94,.55) calc(var(--refresh-progress, 0) * 1turn), rgba(148,163,184,.16) 0);
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+      mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+    }
+    .title-status-dot.offline::after {
+      background: conic-gradient(rgba(239,68,68,.55) calc(var(--refresh-progress, 0) * 1turn), rgba(148,163,184,.16) 0);
+    }
+    .title-status-dot.refreshing { animation: livePulse .9s ease-in-out infinite; }
+    @keyframes livePulse { 0%, 100% { box-shadow: 0 0 0 4px rgba(34,197,94,.14); } 50% { box-shadow: 0 0 0 8px rgba(34,197,94,.05); } }
     h2 { margin: 0; font-size: 1.03rem; letter-spacing: -.02em; }
     h3 { margin: 0 0 8px; font-size: .84rem; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
     .subtitle { color: var(--muted); max-width: 760px; margin: 10px 0 0; font-size: 1rem; }
@@ -276,9 +290,7 @@ DASHBOARD_HTML = r"""
       .hero { gap: 8px; margin-bottom: 6px; align-items: center; flex-direction: row; }
       .hero > div:first-child { min-width: 0; }
       h1 { display: flex; align-items: center; gap: 8px; font-size: clamp(1.55rem, 10vw, 2.3rem); }
-      .title-status-dot { display: inline-block; flex: 0 0 auto; width: 11px; height: 11px; box-shadow: 0 0 0 5px rgba(34,197,94,.13); }
-      .title-status-dot.good { animation: livePulse 1.8s ease-in-out infinite; }
-      @keyframes livePulse { 0%, 100% { box-shadow: 0 0 0 4px rgba(34,197,94,.14); } 50% { box-shadow: 0 0 0 8px rgba(34,197,94,.05); } }
+      .title-status-dot { width: 11px; height: 11px; }
       .subtitle { display: none; }
       .toolbar, .panel, .card { border-radius: 16px; box-shadow: 0 10px 26px rgba(15, 23, 42, .08); }
       .toolbar { flex-wrap: nowrap; justify-content: flex-start; align-items: center; padding: 6px; gap: 4px; margin: 6px 0 8px; backdrop-filter: none; overflow: visible; }
@@ -1061,9 +1073,18 @@ DASHBOARD_HTML = r"""
         button.setAttribute('aria-label', text);
         return;
       }
-      button.textContent = mobile ? `↻ ${secondsUntilRefresh}` : `Refresh (${secondsUntilRefresh}s)`;
-      button.title = `Refresh (${secondsUntilRefresh}s)`;
+      button.textContent = mobile ? '↻' : 'Refresh';
+      button.title = `Auto-refresh in ${secondsUntilRefresh}s`;
       button.setAttribute('aria-label', button.title);
+    }
+
+    function updateTitleDotProgress() {
+      const dot = el('titleStatusDot');
+      if (!dot) return;
+      const total = refreshSeconds();
+      const progress = total > 0 ? Math.min(1, Math.max(0, 1 - secondsUntilRefresh / total)) : 0;
+      dot.style.setProperty('--refresh-progress', progress.toFixed(3));
+      dot.classList.toggle('refreshing', !!refreshInFlight);
     }
 
     function setInitialLoading(message, kind = '') {
@@ -3198,6 +3219,7 @@ DASHBOARD_HTML = r"""
     function tickCountdown() {
       secondsUntilRefresh = Math.max(0, secondsUntilRefresh - 1);
       updateRefreshButton();
+      updateTitleDotProgress();
       if (secondsUntilRefresh === 0) safeRefresh();
     }
 

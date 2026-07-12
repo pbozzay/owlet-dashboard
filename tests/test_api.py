@@ -788,7 +788,9 @@ async def test_dashboard_endpoint_serves_html(tmp_path):
     assert "O₂ Ch." in response.text
     assert "compactDeviceName" in response.text
     assert "Sock ${digits}" in response.text
-    assert "↻ ${secondsUntilRefresh}" in response.text
+    assert "Auto-refresh in ${secondsUntilRefresh}s" in response.text
+    assert "updateTitleDotProgress" in response.text
+    assert "--refresh-progress" in response.text
     assert "barThickness: isMobileViewport() ? 3 : 4" in response.text
     assert "minBarLength: 2" in response.text
     assert '<span class="control-section-title">View</span>' not in response.text
