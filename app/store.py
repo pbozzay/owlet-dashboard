@@ -16,6 +16,7 @@ from app.quality import is_offline_reading
 class ReadingStore:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
+        self._schema_ready = False
 
     def _connect(self):
         """WAL + busy-timeout on every connection: long analytic reads must not
@@ -23,6 +24,8 @@ class ReadingStore:
         return _WALConnection(self.db_path)
 
     async def init(self) -> None:
+        if self._schema_ready:
+            return
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         async with self._connect() as db:
             await db.execute(
@@ -117,6 +120,7 @@ class ReadingStore:
             await self._ensure_account_schema(db)
             await self._ensure_notification_backfill(db)
             await db.commit()
+        self._schema_ready = True
 
     async def _ensure_account_schema(self, db: aiosqlite.Connection) -> None:
         await self._ensure_account_preference_schema(db)
@@ -1163,9 +1167,11 @@ class ReadingStore:
 
     def _row_to_analysis_reading(self, row: tuple[Any, ...]) -> OwletReading:
         alerts_mask = _sqlite_float(row[12])
-        return OwletReading(
+        # model_construct skips validation: these rows were validated on insert,
+        # and this path materializes ~100k rows for analytics queries.
+        return OwletReading.model_construct(
             device_serial=row[0],
-            recorded_at=row[1],
+            recorded_at=datetime.fromisoformat(row[1]),
             heart_rate=row[2],
             oxygen_saturation=row[3],
             battery=row[4],
@@ -1174,6 +1180,7 @@ class ReadingStore:
             sock_disconnected=_sqlite_bool(row[8]) or _sqlite_bool(row[9]) or _mask_has(alerts_mask, 16),
             sock_off=_sqlite_bool(row[10]) or _sqlite_bool(row[11]) or _mask_has(alerts_mask, 64),
             skin_temperature=row[7],
+            battery_minutes=None,
             raw={},
         )
 

@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path as FilePath
 from typing import Literal
 
 from fastapi import Body, Depends, FastAPI, Form, HTTPException, Path, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from app import auth_pages
 from app.analytics import build_insights, build_rollups
@@ -61,6 +62,7 @@ def create_app(
     store = store or ReadingStore(settings.database_path)
     auth_store = auth_store or AuthStore(settings.database_path)
     state: dict[str, object] = {"store": store}
+    rollup_cache: dict[tuple, tuple[float, dict]] = {}
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -493,9 +495,23 @@ def create_app(
         user: dict = Depends(require_user),
     ):
         ids = await _scope(user, account)
-        rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device, account_ids=ids)
-        rows = await store.exclude_challenge_readings(rows, account_ids=ids)
-        return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
+        # History is immutable; only the newest bucket moves. A short server-side
+        # cache turns repeat loads (every page needs rollups) into instant hits.
+        key = (tuple(ids), bucket, hours, device)
+        cached = rollup_cache.get(key)
+        now_monotonic = time.monotonic()
+        if cached and now_monotonic - cached[0] < 45:
+            payload = cached[1]
+        else:
+            rows = await store.get_analysis_readings(
+                hours=hours, limit=100_000, device_serial=device, account_ids=ids
+            )
+            rows = await store.exclude_challenge_readings(rows, account_ids=ids)
+            payload = {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
+            rollup_cache[key] = (now_monotonic, payload)
+            while len(rollup_cache) > 64:
+                rollup_cache.pop(next(iter(rollup_cache)))
+        return JSONResponse(payload, headers={"Cache-Control": "private, max-age=30"})
 
     @app.get("/share/{token}/api/rollups")
     async def shared_rollups(
@@ -697,7 +713,7 @@ async def _widget_payload(
     device: str | None = None,
     account_ids: list[int] | None = None,
 ) -> dict[str, object]:
-    readings = await store.get_readings(hours=hours, limit=100_000, device_serial=device, account_ids=account_ids)
+    readings = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device, account_ids=account_ids)
     summary = await store.get_summary(hours=hours, device_serial=device, account_ids=account_ids)
     insights = build_insights(await store.exclude_challenge_readings(readings, account_ids=account_ids))
     notifications = await store.get_notifications(

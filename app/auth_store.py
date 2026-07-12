@@ -16,6 +16,7 @@ class AuthStore:
 
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
+        self._schema_ready = False
 
     def _connect(self):
         """WAL + busy-timeout on every connection: long analytic reads must not
@@ -23,6 +24,8 @@ class AuthStore:
         return _WALConnection(self.db_path)
 
     async def init(self) -> None:
+        if self._schema_ready:
+            return
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         async with self._connect() as db:
             await db.execute(
@@ -50,6 +53,7 @@ class AuthStore:
             )
             await db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
             await db.commit()
+        self._schema_ready = True
 
     async def create_user(self, email: str, password_hash: str) -> dict[str, Any]:
         await self.init()

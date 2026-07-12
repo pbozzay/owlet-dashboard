@@ -293,10 +293,10 @@ NIGHT_SCRIPTS = """<script>
       el('prevNight').addEventListener('click', () => { nightOffset = Math.min(6, nightOffset + 1); render(); });
       el('nextNight').addEventListener('click', () => { nightOffset = Math.max(0, nightOffset - 1); render(); });
       setInterval(async () => {   // keep "still collecting" nights fresh
-        if (nightOffset !== 0) return;
+        if (nightOffset !== 0 || document.hidden) return;
         const data = await fetch('/api/rollups?bucket=5m&hours=192&limit=100000').then(r => r.json()).catch(() => null);
         if (data) { rollups = data.rollups || rollups; render(); }
-      }, 60000);
+      }, 300000);
     }
     boot();
   </script>"""
