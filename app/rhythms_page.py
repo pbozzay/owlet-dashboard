@@ -1,42 +1,19 @@
-"""'Rhythms' — a 14-day actogram and pattern reader. Light, editorial, built for
-the slower question: "is a schedule forming?" Same data, longer lens."""
+"""'Rhythms' — a 14-day actogram and pattern reader, rendered through the shared
+app shell. Editorial in light theme; the same structure holds up in dark."""
 
 from __future__ import annotations
 
-RHYTHMS_HTML = """<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Rhythms · Owlet Dashboard</title>
-  <link rel="icon" href="/favicon.ico" sizes="any" />
-  <style>
-    :root {
-      --paper: #faf7f2; --ink: #1c1917; --dim: #78716c; --faint: #a8a29e;
-      --sleep-1: #ede9fe; --sleep-2: #c4b5fd; --sleep-3: #8b5cf6; --sleep-4: #5b21b6;
-      --awake: #fbbf24; --nodata: #f0ece5; --line: #e7e0d5; --accent: #5b21b6;
-    }
-    * { box-sizing: border-box; margin: 0; }
-    body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-      background: var(--paper); color: var(--ink); min-height: 100vh; padding: 28px 20px 60px; }
-    .wrap { max-width: 940px; margin: 0 auto; }
-    nav { display: flex; justify-content: space-between; align-items: center;
-      font-size: 13px; color: var(--dim); margin-bottom: 40px; }
-    nav .links a { color: var(--dim); text-decoration: none; margin-left: 18px; }
-    nav .links a:hover { color: var(--ink); }
-    nav .brand { font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
-      font-size: 11px; color: var(--faint); }
+from app.shell import render_shell
+
+RHYTHMS_HEAD = """<style>
     h1 { font-family: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
       font-size: clamp(34px, 5.4vw, 54px); line-height: 1.06; letter-spacing: -0.015em;
-      font-weight: 600; max-width: 18ch; }
+      font-weight: 600; max-width: 18ch; margin: 0; }
     h1 em { font-style: italic; color: var(--accent); }
     .lede { font-size: 16.5px; line-height: 1.6; color: var(--dim); max-width: 58ch;
       margin: 18px 0 40px; }
     section { margin-bottom: 44px; }
-    section > h2 { font-size: 12px; letter-spacing: .15em; text-transform: uppercase;
-      color: var(--faint); font-weight: 700; margin-bottom: 16px; }
-    .acto-card { background: #fff; border: 1px solid var(--line); border-radius: 18px;
-      padding: 22px; box-shadow: 0 12px 34px rgba(28, 25, 23, .05); overflow-x: auto; }
+    .acto-card { padding: 22px; overflow-x: auto; }
     table.acto { border-collapse: collapse; width: 100%; min-width: 680px; }
     table.acto th { font-size: 9.5px; font-weight: 500; color: var(--faint);
       padding: 0 0 8px; text-align: left; }
@@ -53,34 +30,26 @@ RHYTHMS_HTML = """<!doctype html>
     .grad i:first-child { border-radius: 3px 0 0 3px; }
     .grad i:last-child { border-radius: 0 3px 3px 0; }
     .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
-    .tile { background: #fff; border: 1px solid var(--line); border-radius: 18px;
-      padding: 20px; box-shadow: 0 12px 34px rgba(28, 25, 23, .05); }
+    .tile { padding: 20px; }
     .tile h3 { font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
-      color: var(--faint); font-weight: 700; margin-bottom: 10px; }
+      color: var(--faint); font-weight: 700; margin: 0 0 10px; }
     .tile b { font-size: 27px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
     .tile b small { font-size: 14px; color: var(--dim); font-weight: 500; }
     .tile p { font-size: 13px; color: var(--dim); line-height: 1.5; margin-top: 8px; }
     .tile .delta { font-size: 13px; font-weight: 600; margin-left: 8px; }
-    .delta.up { color: #15803d; } .delta.down { color: #b45309; } .delta.flat { color: var(--faint); }
+    .delta.up { color: var(--good); } .delta.down { color: var(--warn); } .delta.flat { color: var(--faint); }
     .empty { text-align: center; color: var(--dim); padding: 60px 20px; font-size: 15px;
-      background: #fff; border: 1px dashed var(--line); border-radius: 18px; }
-    footer { margin-top: 48px; text-align: center; font-size: 11px; color: var(--faint); }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <nav>
-      <span class="brand">Owlet · Rhythms</span>
-      <span class="links"><a href="/">Dashboard</a><a href="/night">Tonight</a></span>
-    </nav>
-    <h1 id="title">The shape of <em>the days</em></h1>
+      border: 1px dashed var(--surface-line); border-radius: var(--radius-card); }
+    /* sleep scale + cell colors come straight from theme tokens */
+  </style>"""
+
+RHYTHMS_BODY = """<h1 id="title">The shape of <em>the days</em></h1>
     <p class="lede" id="lede">Every row is a day, every column a half-hour. Purple is sleep
       (darker = deeper), amber is awake, blank is no signal. Over weeks, a rhythm emerges —
       this page is where you watch it happen.</p>
-    <div id="content"></div>
-    <footer>Retrospective trend viewing only — not a medical monitor or alert replacement.</footer>
-  </div>
-  <script>
+    <div id="content"></div>"""
+
+RHYTHMS_SCRIPTS = """<script>
     const BUCKET_MIN = 30;
     const BUCKET_SEC = BUCKET_MIN * 60;
     const COLS = 48;
@@ -115,10 +84,10 @@ RHYTHMS_HTML = """<!doctype html>
       if (!sleep && !awake) return 'var(--nodata)';
       if (awake > sleep) return 'var(--awake)';
       const fraction = sleep / BUCKET_SEC;
-      if (fraction > .85) return 'var(--sleep-4)';
-      if (fraction > .6) return 'var(--sleep-3)';
-      if (fraction > .3) return 'var(--sleep-2)';
-      return 'var(--sleep-1)';
+      if (fraction > .85) return 'var(--sleep-deep)';
+      if (fraction > .6) return 'var(--accent)';
+      if (fraction > .3) return 'var(--sleep-light)';
+      return 'var(--accent-soft)';
     }
 
     function cellTitle(day, col, row) {
@@ -141,11 +110,11 @@ RHYTHMS_HTML = """<!doctype html>
         const label = day.date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
         return `<tr><td class="day">${label}</td>${cells}</tr>`;
       }).join('');
-      return `<section><h2>Two weeks, half-hour by half-hour</h2>
-        <div class="acto-card"><table class="acto">
+      return `<section><h2 class="section-title">Two weeks, half-hour by half-hour</h2>
+        <div class="acto-card card"><table class="acto">
           <tr>${headers.join('')}</tr>${rows}</table>
         <div class="acto-legend">
-          <span><span class="grad"><i style="background:var(--sleep-1)"></i><i style="background:var(--sleep-2)"></i><i style="background:var(--sleep-3)"></i><i style="background:var(--sleep-4)"></i></span>Sleep (light → deep)</span>
+          <span><span class="grad"><i style="background:var(--accent-soft)"></i><i style="background:var(--sleep-light)"></i><i style="background:var(--accent)"></i><i style="background:var(--sleep-deep)"></i></span>Sleep (light → deep)</span>
           <span><i style="background:var(--awake)"></i>Awake</span>
           <span><i style="background:var(--nodata)"></i>No signal</span>
         </div></div></section>`;
@@ -218,22 +187,22 @@ RHYTHMS_HTML = """<!doctype html>
       };
 
       const tiles = [];
-      tiles.push(`<div class="tile"><h3>Sleep per night</h3>
+      tiles.push(`<div class="tile card"><h3>Sleep per night</h3>
         <b>${sleepNow != null ? fmtDur(sleepNow) : '—'}</b>${deltaBadge(sleepDelta, sleepDelta != null ? fmtDur(Math.abs(sleepDelta)) + ' vs last week' : '')}
         <p>Average over the last ${week.length} night${week.length === 1 ? '' : 's'}${prior.length ? ', compared with the week before' : ''}.</p></div>`);
-      tiles.push(`<div class="tile"><h3>Typical bedtime</h3>
+      tiles.push(`<div class="tile card"><h3>Typical bedtime</h3>
         <b>${bedAvg != null ? fmtClock(bedAvg % (24 * 60)) : '—'}</b>
         <p>${bedSpread != null ? (bedSpread <= 30
           ? `Remarkably consistent — within ±${Math.round(bedSpread)} minutes. A rhythm is forming.`
           : `Still drifting by about ±${Math.round(bedSpread)} minutes night to night.`)
           : 'First sustained sleep after 6 PM.'}</p></div>`);
-      tiles.push(`<div class="tile"><h3>Longest stretch</h3>
+      tiles.push(`<div class="tile card"><h3>Longest stretch</h3>
         <b>${longest ? fmtDur(longest) : '—'}</b>
         <p>${longestNight && longest ? `Best unbroken sleep this week, on ${longestNight.date.toLocaleDateString([], { weekday: 'long' })} night.` : 'Longest unbroken sleep this week.'}</p></div>`);
-      tiles.push(`<div class="tile"><h3>Oxygen baseline</h3>
+      tiles.push(`<div class="tile card"><h3>Oxygen baseline</h3>
         <b>${o2Week != null ? o2Week.toFixed(1) + '<small>%</small>' : '—'}</b>${o2Prior != null && o2Week != null ? deltaBadge(o2Week - o2Prior, Math.abs(o2Week - o2Prior).toFixed(1) + ' pts vs last week') : ''}
         <p>Average SpO₂ across the whole week, day and night.</p></div>`);
-      return `<section><h2>What the pattern says</h2><div class="tiles">${tiles.join('')}</div></section>`;
+      return `<section><h2 class="section-title">What the pattern says</h2><div class="tiles">${tiles.join('')}</div></section>`;
     }
 
     async function boot() {
@@ -260,10 +229,14 @@ RHYTHMS_HTML = """<!doctype html>
       el('content').innerHTML = renderActogram(days) + renderTiles(days, rollups);
     }
     boot();
-  </script>
-</body>
-</html>"""
+  </script>"""
 
 
 def render_rhythms_page() -> str:
-    return RHYTHMS_HTML
+    return render_shell(
+        view="rhythms",
+        title="Rhythms",
+        head=RHYTHMS_HEAD,
+        body=RHYTHMS_BODY,
+        scripts=RHYTHMS_SCRIPTS,
+    )

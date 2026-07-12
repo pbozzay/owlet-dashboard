@@ -1,0 +1,139 @@
+/* Owlet Dashboard design tokens — one sheet, two skins.
+   Light = the Rhythms paper palette; Dark = the Tonight night palette. */
+
+:root,
+:root[data-theme="light"] {
+  --bg: #faf7f2;
+  --bg-accent-1: #f3ede2;
+  --bg-accent-2: #ece4f7;
+  --surface: #ffffff;
+  --surface-line: #e7e0d5;
+  --ink: #1c1917;
+  --dim: #78716c;
+  --faint: #a8a29e;
+  --accent: #6d28d9;
+  --accent-soft: #ede9fe;
+  --good: #15803d;
+  --warn: #b45309;
+  --bad: #b91c1c;
+  --sleep-deep: #5b21b6;
+  --sleep-light: #a78bfa;
+  --awake: #f59e0b;
+  --nodata: #f0ece5;
+  --shadow: 0 12px 34px rgba(28, 25, 23, .05);
+  --radius-card: 18px;
+  --radius-control: 10px;
+  --nav-bg: rgba(250, 247, 242, .82);
+}
+
+:root[data-theme="dark"] {
+  --bg: #0b1023;
+  --bg-accent-1: #1a2150;
+  --bg-accent-2: #232b5c;
+  --surface: rgba(30, 38, 74, .5);
+  --surface-line: rgba(139, 148, 184, .18);
+  --ink: #e8ecf8;
+  --dim: #8b94b8;
+  --faint: #4a5378;
+  --accent: #818cf8;
+  --accent-soft: rgba(129, 140, 248, .16);
+  --good: #34d399;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --sleep-deep: #6366f1;
+  --sleep-light: #a78bfa;
+  --awake: #f59e0b;
+  --nodata: rgba(15, 20, 45, .8);
+  --shadow: 0 12px 34px rgba(0, 0, 0, .3);
+  --nav-bg: rgba(11, 16, 35, .78);
+}
+
+/* ---- base ------------------------------------------------------------- */
+body.themed {
+  margin: 0;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--ink);
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 600px at 80% -20%, var(--bg-accent-2) 0%, transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, var(--bg-accent-1) 0%, transparent 55%),
+    var(--bg);
+}
+body.themed * { box-sizing: border-box; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--surface-line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+}
+:root[data-theme="dark"] .card { backdrop-filter: blur(14px); }
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme="dark"] .card { backdrop-filter: none; background: #171d3d; }
+}
+
+.numeric { font-variant-numeric: tabular-nums; }
+.section-title {
+  font-size: 12px; letter-spacing: .15em; text-transform: uppercase;
+  color: var(--faint); font-weight: 700; margin: 0 0 14px;
+}
+
+/* ---- app shell --------------------------------------------------------- */
+.shell-top {
+  position: sticky; top: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 20px;
+  background: var(--nav-bg);
+  backdrop-filter: blur(18px) saturate(160%);
+  border-bottom: 1px solid var(--surface-line);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .shell-top { backdrop-filter: none; background: var(--bg); }
+}
+.shell-brand {
+  display: flex; align-items: baseline; gap: 2px;
+  font-weight: 700; letter-spacing: -0.01em; font-size: 15px;
+  color: var(--ink); text-decoration: none; white-space: nowrap;
+}
+.shell-dot {
+  width: 9px; height: 9px; border-radius: 50%; display: inline-block;
+  margin-left: 4px; background: var(--faint); cursor: pointer;
+  transition: background-color .25s linear;
+}
+.shell-tabs { display: flex; gap: 4px; }
+.shell-tabs a {
+  padding: 7px 15px; border-radius: 999px; font-size: 13.5px; font-weight: 600;
+  color: var(--dim); text-decoration: none;
+}
+.shell-tabs a:hover { color: var(--ink); }
+.shell-tabs a.active { background: var(--accent-soft); color: var(--accent); }
+.shell-side { display: flex; align-items: center; gap: 10px; }
+.theme-toggle {
+  all: unset; cursor: pointer; font-size: 15px; padding: 6px 10px;
+  border-radius: var(--radius-control); color: var(--dim); line-height: 1;
+}
+.theme-toggle:hover { color: var(--ink); background: var(--accent-soft); }
+
+.shell-main { max-width: 940px; margin: 0 auto; padding: 30px 20px 90px; }
+.shell-footer {
+  text-align: center; font-size: 11px; color: var(--faint);
+  padding: 0 20px 90px; margin-top: 10px;
+}
+
+/* bottom tab bar on phones */
+.shell-bottom { display: none; }
+@media (max-width: 640px) {
+  .shell-tabs { display: none; }
+  .shell-bottom {
+    display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
+    background: var(--nav-bg); backdrop-filter: blur(18px) saturate(160%);
+    border-top: 1px solid var(--surface-line);
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  }
+  .shell-bottom a {
+    flex: 1; text-align: center; text-decoration: none; color: var(--dim);
+    font-size: 10.5px; font-weight: 600; padding: 5px 0; border-radius: 12px;
+  }
+  .shell-bottom a span { display: block; font-size: 19px; line-height: 1.25; }
+  .shell-bottom a.active { color: var(--accent); background: var(--accent-soft); }
+}

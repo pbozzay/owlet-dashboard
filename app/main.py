@@ -209,6 +209,14 @@ def create_app(
             headers={"Cache-Control": "public, max-age=86400"},
         )
 
+    @app.get("/theme.css")
+    async def theme_css() -> FileResponse:
+        return FileResponse(
+            STATIC_DIR / "theme.css",
+            media_type="text/css",
+            headers={"Cache-Control": "no-cache"},
+        )
+
     @app.get("/logo.svg")
     async def logo() -> FileResponse:
         return FileResponse(
@@ -722,6 +730,9 @@ def _public_dashboard_preferences_patch(value: object) -> dict[str, object] | No
             if isinstance(chart_settings.get(key), bool):
                 safe_settings[key] = bool(chart_settings[key])
         allowed["chart_settings"] = safe_settings
+    theme_value = value.get("theme")
+    if str(theme_value) in {"auto", "light", "dark"}:
+        allowed["theme"] = str(theme_value)
     return allowed
 
 
