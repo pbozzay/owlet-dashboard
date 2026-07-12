@@ -20,7 +20,8 @@ _BASE = """<!doctype html>
     h1 {{ margin:0 0 4px; font-size:24px; }}
     p.sub {{ margin:0 0 20px; color:var(--muted); font-size:14px; }}
     label {{ display:block; font-size:13px; font-weight:600; margin:14px 0 4px; }}
-    input, select {{ width:100%; padding:10px 12px; border:1px solid #d6dee9; border-radius:10px; font-size:15px; }}
+    /* 16px minimum stops mobile Safari's forced zoom-on-focus */
+    input, select {{ width:100%; padding:10px 12px; border:1px solid #d6dee9; border-radius:10px; font-size:16px; }}
     button {{ margin-top:18px; width:100%; padding:11px; border:0; border-radius:10px;
              background:var(--purple); color:#fff; font-size:15px; font-weight:600; cursor:pointer; }}
     .links {{ margin-top:16px; font-size:13px; color:var(--muted); display:flex; justify-content:space-between; }}
@@ -43,7 +44,8 @@ def _page(title: str, body: str) -> str:
 
 
 def _error(error: str | None) -> str:
-    return f'<div class="notice">{html.escape(error)}</div>' if error else ""
+    # role="alert" makes screen readers announce the failure on page load
+    return f'<div class="notice" role="alert">{html.escape(error)}</div>' if error else ""
 
 
 _LANDING = """<!doctype html>
@@ -94,8 +96,9 @@ _LANDING = """<!doctype html>
     .card h2 {{ font-size:19px; margin-bottom:4px; }}
     .card p.sub {{ color:var(--muted); font-size:13.5px; margin-bottom:14px; }}
     label {{ display:block; font-size:13px; font-weight:600; margin:14px 0 5px; }}
+    /* 16px minimum stops mobile Safari's forced zoom-on-focus */
     input {{ width:100%; padding:11px 12px; border:1px solid #d6dee9; border-radius:10px;
-            font-size:15px; background:#fbfcfe; }}
+            font-size:16px; background:#fbfcfe; }}
     input:focus {{ outline:2px solid var(--purple); outline-offset:1px; border-color:transparent; }}
     button {{ margin-top:18px; width:100%; padding:12px; border:0; border-radius:10px;
              background:var(--purple); color:#fff; font-size:15px; font-weight:600;
@@ -122,19 +125,19 @@ _LANDING = """<!doctype html>
         records your sock's readings around the clock and turns them into history you can
         actually use.</p>
       <ul class="features">
-        <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg></span>
+        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg></span>
           <div><b>Every heartbeat and O₂ reading, kept</b>
           <span>Vitals recorded every 30 seconds and stored for good — zoom from minutes to months.</span></div></li>
-        <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></span>
+        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></span>
           <div><b>Sleep patterns across nights</b>
           <span>Light, deep, and awake time tracked and compared — see the trend, not one bad night.</span></div></li>
-        <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span>
+        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span>
           <div><b>Oxygen challenges, measured</b>
           <span>Mark off-oxygen windows and get real numbers against baseline — useful for the pediatrician conversation.</span></div></li>
-        <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M12 18h.01"/></svg></span>
+        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M12 18h.01"/></svg></span>
           <div><b>Lives on your phone</b>
           <span>Installable as an app, auto-refreshing live view, CSV export when you need the raw data.</span></div></li>
-        <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
+        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
           <div><b>Private by design</b>
           <span>Your Owlet password is verified once and never stored. Your baby's data is only visible to you.</span></div></li>
       </ul>
@@ -188,7 +191,7 @@ def onboarding_page(error: str | None = None) -> str:
     <p class="sub">Enter the login you use in the Owlet app. We verify it with Owlet once and
     <strong>never store your Owlet password</strong> — only a revocable access token.</p>
     {_error(error)}
-    <form method="post" action="/onboarding/link">
+    <form method="post" action="/onboarding/link" onsubmit="const b=this.querySelector('button[type=submit]');b.disabled=true;b.textContent='Linking with Owlet…';">
       <label for="owlet_email">Owlet account email</label>
       <input id="owlet_email" name="email" type="email" required />
       <label for="owlet_password">Owlet account password</label>
@@ -201,6 +204,6 @@ def onboarding_page(error: str | None = None) -> str:
       <button type="submit">Link sock and start collecting</button>
     </form>
     <div class="links"><span></span><form method="post" action="/auth/logout" style="margin:0">
-      <button type="submit" style="background:none;color:#5b6b80;margin:0;padding:0;width:auto;font-size:13px">
+      <button type="submit" style="background:none;color:#5b6b80;margin:0;padding:12px 10px;width:auto;min-height:44px;font-size:13px">
         Sign out</button></form></div>""",
     )
