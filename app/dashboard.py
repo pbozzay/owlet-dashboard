@@ -116,6 +116,7 @@ DASHBOARD_HTML = r"""
     .chart-frame.companion { height: 190px; }
     .chart-frame.secondary { height: 240px; }
     .chart-frame.split-panel { height: 165px; margin-top: 6px; }
+    .chart-frame.hidden { display: none; }
     .chart-frame canvas { display: block; width: 100% !important; height: 100% !important; touch-action: pan-y; }
     .companion-chart { margin-top: 2px; padding-top: 0; background: transparent; }
     .info-popover-wrap { position: relative; display: inline-flex; align-items: center; }
@@ -544,8 +545,8 @@ DASHBOARD_HTML = r"""
           </div>
         </div>
         <div class="chart-frame main" id="combinedFrame"><canvas id="vitalsChart"></canvas></div>
-        <div class="chart-frame split-panel hidden" id="hrFrame"><canvas id="hrPanelChart"></canvas></div>
         <div class="chart-frame split-panel hidden" id="spo2Frame"><canvas id="spo2PanelChart"></canvas></div>
+        <div class="chart-frame split-panel hidden" id="hrFrame"><canvas id="hrPanelChart"></canvas></div>
         <div class="chart-frame split-panel hidden" id="moveFrame"><canvas id="movePanelChart"></canvas></div>
         <div id="stateStripWrap" class="state-strip-wrap" title="Sleep/wake/offline state across the visible vitals window">
           <div id="stateStrip" class="state-strip"></div>
