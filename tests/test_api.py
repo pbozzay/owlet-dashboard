@@ -943,3 +943,27 @@ async def test_poll_interval_preference_updates_account_and_live_poller(tmp_path
         ).json()["account"]
         assert rejected["poll_interval_seconds"] == 10
         assert fake_poller.interval_seconds == 10
+
+
+@pytest.mark.asyncio
+async def test_night_and_rhythms_pages_are_session_gated(tmp_path):
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+
+    with client_for(app) as anon:
+        for path in ("/night", "/rhythms"):
+            response = anon.get(path, follow_redirects=False)
+            assert response.status_code == 303 and response.headers["location"] == "/login"
+
+    with client_for(app, session) as client:
+        night = client.get("/night")
+        assert night.status_code == 200
+        assert "The night, minute by minute" in night.text
+        assert "/api/rollups?bucket=5m" in night.text
+        rhythms = client.get("/rhythms")
+        assert rhythms.status_code == 200
+        assert "Two weeks, half-hour by half-hour" in rhythms.text
+        assert "/api/rollups?bucket=30m" in rhythms.text

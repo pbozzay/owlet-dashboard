@@ -18,11 +18,13 @@ from app.auth_store import AuthStore
 from app.config import Settings
 from app.crypto import get_crypto_prices
 from app.dashboard import render_dashboard
+from app.night_page import render_night_page
 from app.owlet_client import OwletClient
 from app.poller import Poller, create_account_poller, create_owlet_poller
 from app.pwa import MANIFEST, SERVICE_WORKER_JS
 from app.quality import is_offline_reading
 from app.ratelimit import RateLimiter
+from app.rhythms_page import render_rhythms_page
 from app.security import hash_password
 from app.store import ReadingStore
 
@@ -160,6 +162,20 @@ def create_app(
         if not accounts:
             return HTMLResponse(auth_pages.onboarding_page(desktop_mode=settings.desktop_mode))
         return HTMLResponse(render_dashboard())
+
+    @app.get("/night")
+    async def night_report(request: Request):
+        user = await current_user(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=303)
+        return HTMLResponse(render_night_page())
+
+    @app.get("/rhythms")
+    async def rhythms_report(request: Request):
+        user = await current_user(request)
+        if user is None:
+            return RedirectResponse("/login", status_code=303)
+        return HTMLResponse(render_rhythms_page())
 
     @app.get("/manifest.webmanifest")
     async def manifest() -> Response:

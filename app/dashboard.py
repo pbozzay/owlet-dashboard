@@ -117,6 +117,8 @@ DASHBOARD_HTML = r"""
     .chart-frame.secondary { height: 240px; }
     .chart-frame.split-panel { height: 165px; margin-top: 6px; }
     .chart-frame.hidden { display: none; }
+    .view-links { display: block; margin-top: 4px; }
+    .view-links a { color: #6d28d9; text-decoration: none; font-weight: 600; }
     .chart-frame canvas { display: block; width: 100% !important; height: 100% !important; touch-action: pan-y; }
     .companion-chart { margin-top: 2px; padding-top: 0; background: transparent; }
     .info-popover-wrap { position: relative; display: inline-flex; align-items: center; }
@@ -364,6 +366,7 @@ DASHBOARD_HTML = r"""
         <p class="subtitle">
           Live-updated pulse plus historical drill-downs for breathing, sleep, wake time,
           and raw readings. Retrospective trend viewing only — not a medical monitor or alert replacement.
+          <span class="view-links">Views: <a href="/night">Tonight</a> · <a href="/rhythms">Rhythms</a></span>
         </p>
       </div>
       <div class="hero-right" id="profileMenuWrap">
