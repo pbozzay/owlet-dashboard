@@ -56,7 +56,8 @@ RHYTHMS_SCRIPTS = """<script>
     const el = id => document.getElementById(id);
     const pad = n => String(n).padStart(2, '0');
     const fmtDur = seconds => {
-      const h = Math.floor(seconds / 3600), m = Math.round((seconds % 3600) / 60);
+      const totalMinutes = Math.round(seconds / 60);
+      const h = Math.floor(totalMinutes / 60), m = totalMinutes % 60;
       return h ? `${h}h ${pad(m)}m` : `${m}m`;
     };
     const fmtClock = minutesFromMidnight => {
@@ -105,8 +106,10 @@ RHYTHMS_SCRIPTS = """<script>
       const headers = ['<th></th>'];
       for (let h = 0; h < 24; h += 3) headers.push(`<th colspan="6">${fmtClock(h * 60)}</th>`);
       const rows = days.map(day => {
-        const cells = day.cells.map((row, col) =>
-          `<td class="cell"><i style="background:${cellColor(row)}" title="${cellTitle(day, col, row)}"></i></td>`).join('');
+        const cells = day.cells.map((row, col) => {
+          const focus = encodeURIComponent(new Date(day.date.getTime() + col * BUCKET_SEC * 1000).toISOString());
+          return `<td class="cell"><a href="/data?focus=${focus}&span=120" style="display:block;height:100%"><i style="background:${cellColor(row)}" title="${cellTitle(day, col, row)}"></i></a></td>`;
+        }).join('');
         const label = day.date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
         return `<tr><td class="day">${label}</td>${cells}</tr>`;
       }).join('');

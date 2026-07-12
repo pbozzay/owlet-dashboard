@@ -53,7 +53,8 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     const el = id => document.getElementById(id);
     const pad = n => String(n).padStart(2, '0');
     const fmtDur = seconds => {
-      const h = Math.floor(seconds / 3600), m = Math.round((seconds % 3600) / 60);
+      const totalMinutes = Math.round(seconds / 60);
+      const h = Math.floor(totalMinutes / 60), m = totalMinutes % 60;
       return h ? `${h}h ${pad(m)}m` : `${m}m`;
     };
     const fmtClock = date => {

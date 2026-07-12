@@ -93,15 +93,17 @@ NIGHT_SCRIPTS = """<script>
       return `${h}:${m} ${ap}`;
     };
     const fmtDur = seconds => {
-      const h = Math.floor(seconds / 3600), m = Math.round((seconds % 3600) / 60);
+      const totalMinutes = Math.round(seconds / 60);
+      const h = Math.floor(totalMinutes / 60), m = totalMinutes % 60;
       return h ? `${h}h ${pad(m)}m` : `${m}m`;
     };
 
     function nightWindow(offset) {
-      // A "night" runs 6 PM -> noon the next day, local time.
+      // A "night" runs 6 PM -> noon the next day, local time. The most recent
+      // night stays current until the next one begins at 6 PM.
       const now = new Date();
       const anchor = new Date(now);
-      if (now.getHours() < 12) anchor.setDate(anchor.getDate() - 1);
+      if (now.getHours() < 18) anchor.setDate(anchor.getDate() - 1);
       anchor.setDate(anchor.getDate() - offset);
       const start = new Date(anchor); start.setHours(18, 0, 0, 0);
       const end = new Date(start); end.setDate(end.getDate() + 1); end.setHours(12, 0, 0, 0);
@@ -188,7 +190,10 @@ NIGHT_SCRIPTS = """<script>
         const d = new Date(window.start); d.setHours(h, 0, 0, 0);
         axis.push(`<span>${fmtClock(d)}</span>`);
       }
-      return `<div class="timeline-card card"><h2 class="section-title">The night, minute by minute</h2>
+      const nightFocus = encodeURIComponent(window.start.toISOString());
+      const nightSpan = Math.round((window.end - window.start) / 60000);
+      return `<div class="timeline-card card"><h2 class="section-title">The night, minute by minute
+        <a href="/data?focus=${nightFocus}&span=${nightSpan}" style="float:right;color:var(--accent);text-decoration:none;text-transform:none;letter-spacing:0">raw trace →</a></h2>
         <div class="timeline">${spans}</div>
         <div class="tl-axis">${axis.join('')}</div>
         <div class="legend">
@@ -218,10 +223,14 @@ NIGHT_SCRIPTS = """<script>
           <div class="event card fine"><span class="tick">✓</span>No dips below 90% — nothing to review.</div>
         </div></section>`;
       }
-      const items = dips.map(dip => `<div class="event card">
+      const items = dips.map(dip => {
+        const focus = new Date(dip.start.getTime() - 15 * 60000).toISOString();
+        return `<a class="event card" href="/data?focus=${encodeURIComponent(focus)}&span=45"
+          title="Open the raw trace around this dip" style="text-decoration:none;color:inherit">
         <time>${fmtClock(dip.start)}</time>
         <span>Dip lasting about ${fmtDur(Math.max(60, (dip.end - dip.start) / 1000))}</span>
-        <span class="depth">↓ ${Math.round(dip.min)}%</span></div>`).join('');
+        <span class="depth">↓ ${Math.round(dip.min)}% →</span></a>`;
+      }).join('');
       return `<section><h2 class="section-title">Oxygen events</h2><div class="events">${items}</div></section>`;
     }
 

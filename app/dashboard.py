@@ -3229,6 +3229,10 @@ DASHBOARD_HTML = r"""
           lastDataAt = Date.now();
           updateTitleDotProgress();
           pingTitleDot();
+          if (window.__focusWindow) {
+            applyVisibleWindow(window.__focusWindow);
+            window.__focusWindow = null;
+          }
         } catch (error) {
           console.error(error);
           if (!firstLoadComplete) setInitialLoading('Could not load dashboard data. Retrying soon…', 'error');
@@ -3456,9 +3460,31 @@ DASHBOARD_HTML = r"""
     if ('serviceWorker' in navigator && !SHARE_MODE) {
       window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').then(updateInstallButton).catch(updateInstallButton));
     }
+    (function applyFocusParam() {
+      // Deep-link contract: /data?focus=<ISO>&span=<minutes> zooms to that window.
+      const params = new URLSearchParams(window.location.search);
+      const focus = params.get('focus');
+      if (!focus) return;
+      const start = Date.parse(focus);
+      if (!Number.isFinite(start)) return;
+      const spanMinutes = Math.max(10, Number(params.get('span') || 60));
+      window.__focusWindow = { min: start, max: start + spanMinutes * 60000 };
+      const ageHours = (Date.now() - start) / 3600000;
+      window.__focusFit = [6, 12, 24, 72, 168, 720].find(h => h >= ageHours + spanMinutes / 60) || 720;
+    })();
+    function applyFocusFitToWindowSelect() {
+      if (!window.__focusFit) return;
+      const select = el('window');
+      if (select && (select.value === 'all' || Number(select.value) < window.__focusFit)) {
+        select.value = String(window.__focusFit);
+      }
+    }
     updateInstallButton();
     attachReadingsTableSelection();
-    loadAccounts().then(loadDevices).then(() => safeRefresh({ resetZoom: true }));
+    loadAccounts().then(loadDevices).then(() => {
+      applyFocusFitToWindowSelect();  // focus deep-links out-rank the saved range
+      return safeRefresh({ resetZoom: true });
+    });
     setInterval(tickCountdown, 1000);
     setInterval(updateTitleDotProgress, 200);
   </script>

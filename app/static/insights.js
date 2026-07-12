@@ -69,7 +69,7 @@
     for (let offset = 1; offset <= nights; offset++) {
       const now = new Date();
       const anchor = new Date(now);
-      if (now.getHours() < 12) anchor.setDate(anchor.getDate() - 1);
+      if (now.getHours() < 18) anchor.setDate(anchor.getDate() - 1);
       anchor.setDate(anchor.getDate() - offset);
       const start = new Date(anchor); start.setHours(18, 0, 0, 0);
       const end = new Date(start); end.setDate(end.getDate() + 1); end.setHours(12, 0, 0, 0);
