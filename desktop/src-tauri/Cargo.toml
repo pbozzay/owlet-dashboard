@@ -1,0 +1,16 @@
+[package]
+name = "owlet-dashboard-desktop"
+version = "0.1.0"
+description = "Unofficial Owlet sock history dashboard - desktop shell"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+
+[profile.release]
+strip = true
+lto = true

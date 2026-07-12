@@ -42,6 +42,18 @@ pre-multi-user database), and link your Owlet login on the onboarding page. Owle
 passwords are verified once with Owlet and never stored — only access tokens.
 Region options: `world` (typical US/global account) or `europe` (EU account).
 
+## Desktop app (Windows)
+
+A Tauri-based installable Windows app lives in [`desktop/`](desktop/README.md): the same
+server frozen into a sidecar exe (data in `%LOCALAPPDATA%\owlet-dashboard`), wrapped in a
+native window with an `admin`/`password` local login.
+
+> **Know its limitation:** the desktop app only collects readings **while it is running**
+> (or while your PC is awake). Owlet's API cannot backfill, so time offline is lost
+> permanently and shows up as "collector off" gaps in the charts. For gapless 24/7
+> history, run the Docker version on an always-on machine and use the desktop app or a
+> browser as the viewer.
+
 ## Local development
 
 ```bash

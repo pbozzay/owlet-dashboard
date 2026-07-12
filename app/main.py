@@ -203,6 +203,7 @@ def create_app(
             "ok": True,
             "collecting": bool(state.get("pollers")),
             "has_credentials": settings.has_owlet_credentials,
+            "desktop_mode": settings.desktop_mode,
             "database_path": str(settings.database_path),
         }
 

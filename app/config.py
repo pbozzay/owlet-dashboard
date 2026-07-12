@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     # Seeds an 'admin'/'password' login at startup. Convenience for local/desktop
     # use only - NEVER enable on a publicly reachable deployment.
     seed_default_admin: bool = Field(default=False, alias="SEED_DEFAULT_ADMIN")
+    # Set by the desktop shell: surfaces the collects-only-while-running warning.
+    desktop_mode: bool = Field(default=False, alias="OWLET_DESKTOP")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 

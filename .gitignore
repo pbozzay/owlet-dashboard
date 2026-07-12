@@ -9,3 +9,11 @@ __pycache__/
 *.egg-info/
 data/*.sqlite3
 data/*.sqlite3-*
+desktop/build/
+desktop/dist/
+desktop/smoke.log
+desktop/owlet-server.spec
+desktop/src-tauri/target/
+desktop/src-tauri/binaries/
+desktop/src-tauri/gen/
+desktop/src-tauri/icons/
