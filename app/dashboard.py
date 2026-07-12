@@ -389,6 +389,16 @@ DASHBOARD_HTML = r"""
             <span><b>Crypto widget</b><br><small>BTC card + optional chart line</small></span>
             <input id="showCryptoSetting" type="checkbox" />
           </label>
+          <label class="profile-toggle" for="pollIntervalSetting">
+            <span><b>Update every</b><br><small>How often readings are pulled from Owlet</small></span>
+            <select id="pollIntervalSetting">
+              <option selected value="5">5 sec</option>
+              <option value="10">10 sec</option>
+              <option value="30">30 sec</option>
+              <option value="60">1 min</option>
+              <option value="300">5 min</option>
+            </select>
+          </label>
           <div class="profile-menu-actions">
             <button id="installApp" class="install-button" type="button" title="Install Owlet as an app">Install app</button>
             <button id="closeProfileMenu" type="button">Close</button>
@@ -1482,6 +1492,8 @@ DASHBOARD_HTML = r"""
       el('profileAccountName').textContent = label;
       el('profileMenuTitle').textContent = label;
       el('profileDeviceName').textContent = deviceName;
+      const intervalSelect = el('pollIntervalSetting');
+      if (intervalSelect) intervalSelect.value = String(account?.poll_interval_seconds || 5);
       el('profileMenuSubtitle').textContent = `${deviceName}${account?.status && account.status !== 'active' ? ` · ${account.status.replace('_', ' ')}` : ''}`;
       el('profileMenuWrap')?.classList.toggle('share-only-hidden', SHARE_MODE);
       renderCryptoVisibility();
@@ -3238,6 +3250,13 @@ DASHBOARD_HTML = r"""
       toggleProfileMenu();
     });
     el('closeProfileMenu')?.addEventListener('click', closeProfileMenu);
+    el('pollIntervalSetting')?.addEventListener('change', async event => {
+      try {
+        await updateCurrentAccountPreference({ poll_interval_seconds: Number(event.target.value) });
+      } catch (error) {
+        console.error(error);
+      }
+    });
     el('showCryptoSetting')?.addEventListener('change', async event => {
       const checked = event.target.checked;
       try {

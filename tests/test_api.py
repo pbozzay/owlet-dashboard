@@ -912,3 +912,31 @@ async def test_share_link_serves_read_only_dashboard_and_api_without_basic_auth(
     assert rollups.json()["bucket"] == "hour"
     assert wrong.status_code == 404
     assert normal_api.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_poll_interval_preference_updates_account_and_live_poller(tmp_path):
+    from types import SimpleNamespace
+
+    db_path = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db_path)
+    await store.init()
+    auth = AuthStore(db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    account = await store.create_account(email="sock@x.y", user_id=user["id"])
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+    fake_poller = SimpleNamespace(account_id=account["id"], interval_seconds=30)
+    app.state.owlet_state.setdefault("pollers", []).append(fake_poller)
+
+    with client_for(app, session) as client:
+        updated = client.patch(
+            f"/api/accounts/{account['id']}", json={"poll_interval_seconds": 10}
+        ).json()["account"]
+        assert updated["poll_interval_seconds"] == 10
+        assert fake_poller.interval_seconds == 10
+        # values outside the whitelist are ignored
+        rejected = client.patch(
+            f"/api/accounts/{account['id']}", json={"poll_interval_seconds": 7}
+        ).json()["account"]
+        assert rejected["poll_interval_seconds"] == 10
+        assert fake_poller.interval_seconds == 10

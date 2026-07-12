@@ -80,7 +80,9 @@ def create_app(
                         poller, client = await create_account_poller(
                             store=store,
                             account=account,
-                            interval_seconds=settings.poll_interval_seconds,
+                            interval_seconds=int(
+                                account.get("poll_interval_seconds") or settings.poll_interval_seconds
+                            ),
                         )
                         poller.start()
                         pollers.append(poller)
@@ -235,6 +237,12 @@ def create_app(
         display_name = payload.get("display_name")
         show_crypto = payload.get("show_crypto")
         dashboard_preferences = _public_dashboard_preferences_patch(payload.get("dashboard_preferences"))
+        interval_raw = payload.get("poll_interval_seconds")
+        poll_interval = (
+            int(interval_raw)
+            if isinstance(interval_raw, int | str) and str(interval_raw) in {"5", "10", "30", "60", "300"}
+            else None
+        )
         try:
             await store.get_account(account_id, user_id=user["id"])  # ownership check -> KeyError
             account = await store.update_account_preferences(
@@ -242,9 +250,14 @@ def create_app(
                 display_name=str(display_name).strip() if isinstance(display_name, str) else None,
                 show_crypto=bool(show_crypto) if isinstance(show_crypto, bool) else None,
                 dashboard_preferences=dashboard_preferences,
+                poll_interval_seconds=poll_interval,
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Account not found") from exc
+        if poll_interval is not None:
+            for poller in state.get("pollers", []):  # type: ignore[union-attr]
+                if getattr(poller, "account_id", None) == account_id:
+                    poller.interval_seconds = poll_interval
         return {"account": _public_account(account)}
 
     async def _scope(user: dict, account: int | None) -> list[int]:
@@ -691,6 +704,7 @@ def _public_account(account: dict[str, object]) -> dict[str, object]:
         "display_name": account.get("display_name"),
         "status": account.get("status"),
         "show_crypto": bool(account.get("show_crypto")),
+        "poll_interval_seconds": account.get("poll_interval_seconds"),
         "dashboard_preferences": account.get("dashboard_preferences") if isinstance(account.get("dashboard_preferences"), dict) else {},
         "last_validated_at": account.get("last_validated_at"),
         "created_at": account.get("created_at"),

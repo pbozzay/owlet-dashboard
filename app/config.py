@@ -10,7 +10,8 @@ class Settings(BaseSettings):
     owlet_email: str | None = Field(default=None, alias="OWLET_EMAIL")
     owlet_password: str | None = Field(default=None, alias="OWLET_PASSWORD")
     owlet_region: str = Field(default="world", alias="OWLET_REGION")
-    poll_interval_seconds: int = Field(default=30, alias="POLL_INTERVAL_SECONDS")
+    # Owlet's own app refreshes roughly every 5 seconds; match that by default.
+    poll_interval_seconds: int = Field(default=5, alias="POLL_INTERVAL_SECONDS")
     database_path: Path = Field(default=Path("data/owlet.sqlite3"), alias="DATABASE_PATH")
     host: str = Field(default="127.0.0.1", alias="HOST")
     port: int = Field(default=8788, alias="PORT")

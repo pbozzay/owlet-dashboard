@@ -170,6 +170,8 @@ class ReadingStore:
             await db.execute("ALTER TABLE accounts ADD COLUMN dashboard_preferences TEXT NOT NULL DEFAULT '{}'")
         if "user_id" not in columns:
             await db.execute("ALTER TABLE accounts ADD COLUMN user_id INTEGER")
+        if "poll_interval_seconds" not in columns:
+            await db.execute("ALTER TABLE accounts ADD COLUMN poll_interval_seconds INTEGER")
 
     async def _table_columns(self, db: aiosqlite.Connection, table: str) -> list[str]:
         cursor = await db.execute(f"PRAGMA table_info({table})")
@@ -282,7 +284,7 @@ class ReadingStore:
                 f"""
                 SELECT id, email, region, display_name, api_token, api_token_expiry,
                        refresh_token, status, show_crypto, dashboard_preferences,
-                       created_at, updated_at, last_validated_at, user_id
+                       created_at, updated_at, last_validated_at, user_id, poll_interval_seconds
                 FROM accounts
                 {where}
                 ORDER BY id ASC
@@ -340,7 +342,7 @@ class ReadingStore:
                 f"""
                 SELECT id, email, region, display_name, api_token, api_token_expiry,
                        refresh_token, status, show_crypto, dashboard_preferences,
-                       created_at, updated_at, last_validated_at, user_id
+                       created_at, updated_at, last_validated_at, user_id, poll_interval_seconds
                 FROM accounts
                 {where}
                 """,
@@ -378,6 +380,7 @@ class ReadingStore:
         display_name: str | None = None,
         show_crypto: bool | None = None,
         dashboard_preferences: dict[str, Any] | None = None,
+        poll_interval_seconds: int | None = None,
     ) -> dict[str, Any]:
         await self.init()
         current = await self.get_account(account_id)
@@ -391,6 +394,9 @@ class ReadingStore:
         if show_crypto is not None:
             assignments.append("show_crypto = ?")
             values.append(1 if show_crypto else 0)
+        if poll_interval_seconds is not None:
+            assignments.append("poll_interval_seconds = ?")
+            values.append(int(poll_interval_seconds))
         if dashboard_preferences is not None:
             merged_preferences = _deep_merge_preferences(
                 dict(current.get("dashboard_preferences") or {}),
@@ -1121,6 +1127,7 @@ class ReadingStore:
             "updated_at": row[11],
             "last_validated_at": row[12],
             "user_id": int(row[13]) if len(row) > 13 and row[13] is not None else None,
+            "poll_interval_seconds": int(row[14]) if len(row) > 14 and row[14] is not None else None,
         }
 
     def _row_to_reading(self, row: tuple[Any, ...]) -> OwletReading:
