@@ -642,7 +642,11 @@ DASHBOARD_HTML = r"""
   <script>
     const API_BASE = "__API_BASE__";
     const SHARE_MODE = __SHARE_MODE__;
-    const REFRESH_SECONDS = 15;
+    // Dashboard refresh follows the account's poll interval (capped to a sane floor).
+    function refreshSeconds() {
+      const interval = Number(currentAccount()?.poll_interval_seconds || 5);
+      return Math.max(5, Math.min(300, Number.isFinite(interval) && interval > 0 ? interval : 5));
+    }
     const TABLE_ROW_LIMIT = 500;
     const HISTORY_PAN_BUFFER_HOURS = 2;
     const OLDER_HISTORY_CHUNK_HOURS = 24;
@@ -671,7 +675,7 @@ DASHBOARD_HTML = r"""
     let oxygenTrendChart = null;
     let challengeDetailChart = null;
     let dailyInsightsChart = null;
-    let secondsUntilRefresh = REFRESH_SECONDS;
+    let secondsUntilRefresh = 5;
     let syncInProgress = false;
     let zoomWindow = null;
     let loadedHours = null;
@@ -1701,7 +1705,7 @@ DASHBOARD_HTML = r"""
     }
 
     async function refresh({ resetZoom = false } = {}) {
-      secondsUntilRefresh = REFRESH_SECONDS;
+      secondsUntilRefresh = refreshSeconds();
       setInitialLoading('Loading readings and notifications…');
       updateRefreshButton('Refreshing…');
       const token = ++refreshToken;
@@ -2184,7 +2188,7 @@ DASHBOARD_HTML = r"""
       return {
         responsive: true,
         maintainAspectRatio: false,
-        animation: { duration: 450 },
+        animation: false,
         interaction: { mode: 'index', intersect: false },
         plugins: { legend: legendOptions(options.legend || {}), tooltip: { callbacks: { title: tooltipTitle, label: tooltipLabel } }, zoom: zoomOptions(), dayBoundaries: {}, challengeBands: { intervals: challengeBandsEnabled ? challengeIntervals() : [] }, offlineBands: { intervals: offlineIntervals() }, noDataBands: { intervals: gapIntervals() } },
         scales
@@ -3253,6 +3257,8 @@ DASHBOARD_HTML = r"""
     el('pollIntervalSetting')?.addEventListener('change', async event => {
       try {
         await updateCurrentAccountPreference({ poll_interval_seconds: Number(event.target.value) });
+        secondsUntilRefresh = Math.min(secondsUntilRefresh, refreshSeconds());
+        updateRefreshButton();
       } catch (error) {
         console.error(error);
       }
