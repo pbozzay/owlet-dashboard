@@ -35,10 +35,12 @@ MANIFEST = {
 }
 
 SERVICE_WORKER_JS = """
-const CACHE_NAME = 'owlet-dashboard-v1';
-const APP_SHELL = [
-  '/',
-  '/manifest.webmanifest',
+const CACHE_NAME = 'owlet-dashboard-v2';
+// Only truly immutable assets are safe to serve cache-first. Styles and
+// scripts change with every release, so they go network-first below —
+// otherwise one stale theme.css leaves the app half-styled until the
+// cache happens to rotate.
+const IMMUTABLE = [
   '/favicon.ico',
   '/icon-32.png',
   '/icon-180.png',
@@ -50,7 +52,7 @@ const APP_SHELL = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(APP_SHELL))
+      .then(cache => cache.addAll(IMMUTABLE.concat(['/', '/manifest.webmanifest'])))
       .then(() => self.skipWaiting())
   );
 });
@@ -63,6 +65,18 @@ self.addEventListener('activate', event => {
   );
 });
 
+function networkFirst(request, cacheKey) {
+  return fetch(request)
+    .then(response => {
+      if (response.ok) {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(cacheKey || request, copy));
+      }
+      return response;
+    })
+    .catch(() => caches.match(cacheKey || request).then(cached => cached || Response.error()));
+}
+
 self.addEventListener('fetch', event => {
   const request = event.request;
   if (request.method !== 'GET') return;
@@ -73,24 +87,22 @@ self.addEventListener('fetch', event => {
   if (url.pathname.startsWith('/share/')) return;
 
   if (request.mode === 'navigate') {
+    event.respondWith(networkFirst(request, '/'));
+    return;
+  }
+
+  if (IMMUTABLE.includes(url.pathname)) {
     event.respondWith(
-      fetch(request)
-        .then(response => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put('/', copy));
-          return response;
-        })
-        .catch(() => caches.match('/') || Response.error())
+      caches.match(request).then(cached => cached || fetch(request).then(response => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
+        return response;
+      }))
     );
     return;
   }
 
-  event.respondWith(
-    caches.match(request).then(cached => cached || fetch(request).then(response => {
-      const copy = response.clone();
-      caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
-      return response;
-    }))
-  );
+  // theme.css, insights.js, manifest — fresh when online, cached offline
+  event.respondWith(networkFirst(request));
 });
 """.strip()

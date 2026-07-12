@@ -348,7 +348,13 @@ async def test_widget_endpoint_returns_compact_status_payload(tmp_path):
     assert payload["oxygen_now"] == 96
     assert payload["oxygen_avg"] == 97
     assert payload["heart_rate"] == 130
+    assert payload["sock_reporting"] is True
     assert payload["trend"] in {"improving", "worsening", "stable"}
+
+    await _seed_reading(store, "2026-07-02T01:10:00Z", hr=0, spo2=0)
+    with client_for(app, session) as client:
+        offline_payload = client.get("/api/widget?hours=24").json()
+    assert offline_payload["sock_reporting"] is False
 
 
 @pytest.mark.asyncio
@@ -811,6 +817,8 @@ async def test_pwa_assets_are_served(tmp_path):
     assert {icon["sizes"] for icon in payload["icons"]} >= {"32x32", "192x192", "512x512"}
     assert worker.status_code == 200
     assert "CACHE_NAME" in worker.text
+    assert "owlet-dashboard-v2" in worker.text
+    assert "networkFirst" in worker.text     # styles/scripts must not be served cache-first
     assert "/favicon.ico" in worker.text
     assert "/logo.svg" in worker.text
     assert favicon.status_code == 200

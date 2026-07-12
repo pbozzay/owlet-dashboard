@@ -195,6 +195,7 @@ SHELL_JS = """<script>
   // ---- living dot: freshness of the newest reading ----
   var pollInterval = 5;
   var lastReadingAt = null;
+  var sockReporting = true;
   function paintDot() {
     var dot = document.getElementById('shellDot');
     if (!dot) return;
@@ -207,6 +208,13 @@ SHELL_JS = """<script>
     var age = Date.now() - lastReadingAt;
     var intervals = age / totalMs;
     var mix = function (from, to, fade) { return Math.round(from + (to - from) * fade); };
+    // The collector is alive but the sock itself has nothing to say
+    // (off, charging, out of range) — amber, not green.
+    if (!sockReporting && intervals <= 4) {
+      dot.style.backgroundColor = 'rgb(245,158,11)';
+      dot.title = 'Sock not reporting — it may be off or charging · click to refresh';
+      return;
+    }
     if (intervals <= 1.5) {
       var f = intervals / 1.5;
       dot.style.backgroundColor = 'rgb(' + mix(16, 148, f) + ',' + mix(220, 163, f) + ',' + mix(96, 184, f) + ')';
@@ -221,15 +229,18 @@ SHELL_JS = """<script>
     var status = byId('status');
     if (!status) return;
     var fresh = lastReadingAt !== null && (Date.now() - lastReadingAt) < pollInterval * 3000;
-    var dotClass = lastReadingAt === null ? '' : (fresh ? 'good' : 'offline');
+    var dotClass = lastReadingAt === null ? '' : (fresh ? (sockReporting ? 'good' : 'warn') : 'offline');
     var label = lastReadingAt === null
       ? 'Waiting for first reading…'
-      : (fresh ? 'Collecting live' : 'No new data for ' + Math.round((Date.now() - lastReadingAt) / 1000) + 's');
+      : (fresh
+        ? (sockReporting ? 'Collecting live' : 'Collector live — sock not reporting')
+        : 'No new data for ' + Math.round((Date.now() - lastReadingAt) / 1000) + 's');
     status.innerHTML = '<span class="status-dot ' + dotClass + '"></span>' + label;
   }
   function pollFreshness() {
     fetch('/api/widget?hours=1').then(function (r) { return r.json(); }).then(function (widget) {
       if (widget.updated_at) lastReadingAt = Date.parse(widget.updated_at);
+      sockReporting = widget.sock_reporting !== false;
       paintDot();
       paintStatus();
     }).catch(function () {});

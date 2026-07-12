@@ -168,6 +168,7 @@ body.themed * { box-sizing: border-box; }
 .pp-status .status-dot { width: 8px; height: 8px; border-radius: 50%;
   background: var(--faint); display: inline-block; flex: 0 0 auto; }
 .pp-status .status-dot.good { background: var(--good); }
+.pp-status .status-dot.warn { background: var(--warn); }
 .pp-status .status-dot.offline { background: var(--bad); }
 .pp-label {
   display: block; font-size: 11px; letter-spacing: .13em; text-transform: uppercase;

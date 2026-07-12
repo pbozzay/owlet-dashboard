@@ -712,6 +712,7 @@ async def _widget_payload(
     latest_notification = notifications["items"][0] if notifications["items"] else None
     return {
         "updated_at": latest.get("recorded_at") if isinstance(latest, dict) else None,
+        "sock_reporting": bool(readings) and not is_offline_reading(readings[-1]),
         "window": summary["window"],
         "oxygen_now": latest.get("oxygen_saturation") if isinstance(latest, dict) else None,
         "oxygen_avg": summary["oxygen_saturation"]["avg"],
