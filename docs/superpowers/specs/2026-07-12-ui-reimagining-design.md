@@ -65,21 +65,64 @@ authenticated views share:
 ## 3. The four rooms
 
 ### Now (`/` — new home, new file `app/now_page.py`)
-The ten-second check. Hero: current O₂ and HR as the two biggest numbers in the
-app, sleep/wake state with duration, all live (5s polling like the dashboard).
-Below: a "today so far" strip (sleep total, dips, battery), a one-line generated
-status sentence (reusing Tonight's narrative tone), and a compact link-card to
-last night's report. Empty/onboarding states reuse the existing flows.
+The ten-second check, made *interpretive* — numbers with personal context, not
+just numbers. Live at the account's poll interval.
 
-### Tonight (`/night` — restyle to tokens)
-Content unchanged. Gets the shell; its bespoke colors are replaced by tokens
-(in light theme it becomes a "morning report" — same layout on paper white;
-the starfield only renders in dark).
+- **Hero vitals with personal baselines.** Current O₂ and HR as the two biggest
+  numbers in the app, each with (a) a one-hour sparkline underneath and (b) a
+  baseline band: "143 bpm — typical for her asleep (135–150)". Baselines are the
+  5th–95th percentile of same-sleep-state readings from the last 7 days of 5m
+  rollups, computed client-side. A value outside its band gets a quiet amber tint.
+- **Session line.** "Asleep for 2h 14m — her 3rd sleep today" (current state
+  duration + today's sleep-session count).
+- **Tonight-so-far context** (evening/night only): "Fell asleep 7:12 PM — about
+  20 min earlier than usual" (vs 7-day typical bedtime).
+- **Night-readiness battery check.** Battery percent projected against a typical
+  night: "82% — comfortably enough for tonight" vs "31% — won't last the night,
+  charge before bed." (Linear projection from recent drain rate; conservative copy.)
+- **Secondary strip.** Movement (calm / stirring / active), skin temp with 24h
+  min–max, signal status, last notification with timestamp.
+- **Doors.** Link-card to last night's report; hero taps open Data (phase 4).
 
-### Rhythms (`/rhythms` — restyle to tokens)
-Content unchanged; gets the shell; already matches the light tokens, gains a
-proper dark rendering (paper→navy, ink→mist, actogram cell colors from tokens
-with dark-tuned sleep scale).
+### Tonight (`/night` — restyle to tokens + deeper report)
+Existing narrative/stats/timeline/dips/week-bars stay; added:
+
+- **Wake-ups, first-class.** Count, times, and durations ("2 wake-ups — 11:40 PM
+  for 8 min, 3:05 AM for 22 min"), derived from awake stretches ≥2 buckets inside
+  the night window; also drawn as markers on the sleep timeline.
+- **Best stretch callout.** "Longest unbroken sleep: 4h 32m (11:48 PM – 4:20 AM)."
+- **"Versus her usual night."** Every stat tile gains a delta chip vs the prior
+  7-night average (sleep total, bedtime, dips, avg O₂) — e.g. "+42m vs usual".
+  The narrative sentence weaves in the most notable delta.
+- **Overnight heart-rate arc.** Min/avg sleeping HR plus a small area curve —
+  the reassuring "her heart settles when she's deep asleep" picture.
+- **Skin-temperature note.** Overnight min/max; a gentle callout when it drifts
+  >1.5°C ("the room may have cooled around 4 AM").
+- **Richer dip events.** Each dip event shows sleep state at the time, duration
+  below 90%, and recovery time; deep-links to the raw window (phase 4).
+
+### Rhythms (`/rhythms` — restyle to tokens + longer-horizon insights)
+Actogram and existing tiles stay; added:
+
+- **Consolidation tile.** Average wake-ups per night, this week vs last:
+  "Nights are consolidating — 3.1 → 2.2 wake-ups."
+- **Day/night split tile.** Share of total sleep happening at night vs naps,
+  week over week: "78% of sleep now happens at night, up from 71%."
+- **Bedtime drift strip.** A dot per night on a time axis — makes the
+  "consistency" claim visible instead of asserted.
+- **Nap pattern line.** Detected typical nap windows from daytime sleep
+  stretches: "Usually naps around 9:30 AM and 2 PM."
+- **"The fortnight in words."** A generated paragraph in the Tonight narrative
+  voice summarizing the strongest trends (consolidation, bedtime, O₂ drift) —
+  insights stated plainly, each verifiable in the visuals below it.
+- **Records row.** Longest stretch ever recorded, earliest settled bedtime,
+  calmest night (fewest dips) — small, fun, sticky.
+
+All of the above is computable client-side from existing endpoints
+(`/api/rollups` 5m/30m, `/api/readings` small windows, `/api/widget`,
+`/api/notifications`) — no backend changes; insight helpers live in a shared
+`insights.js` consumed by the three simplified views so definitions (wake-up,
+bedtime, baseline) stay identical everywhere.
 
 ### Data (`/data` — the current dashboard, reframed)
 - Route moves from `/` to `/data`; `/` serves Now; old bookmarks fine because
