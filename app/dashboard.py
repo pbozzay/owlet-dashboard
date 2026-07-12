@@ -62,9 +62,12 @@ DASHBOARD_HTML = r"""
     .baby-name { color: var(--text); font-weight: 950; font-size: clamp(1rem, 2.5vw, 1.35rem); background: rgba(255,255,255,.76); border: 1px solid rgba(226,232,240,.9); border-radius: 999px; padding: .38rem .75rem; box-shadow: 0 8px 24px rgba(15,23,42,.08); }
     h1 { margin: 0; letter-spacing: -.045em; font-size: clamp(2.1rem, 5vw, 4.2rem); line-height: .92; }
     /* Sits like the period at the end of "Owlet Dashboard." — bottom on the text baseline. */
-    .status-dot.title-status-dot { display: inline-block; flex: 0 0 auto; width: 14px; height: 14px;
-      margin-left: 3px; vertical-align: baseline; cursor: pointer;
+    .status-dot.title-status-dot { display: inline-block; flex: 0 0 auto; width: 17px; height: 17px;
+      margin-left: 4px; vertical-align: baseline; cursor: pointer; position: relative;
       transition: background-color .25s linear; }
+    .dot-ping { position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+      background: rgba(16, 220, 96, .55); animation: dotPing .8s cubic-bezier(0, 0, .2, 1) forwards; }
+    @keyframes dotPing { 0% { transform: scale(1); opacity: .85; } 100% { transform: scale(3); opacity: 0; } }
     h2 { margin: 0; font-size: 1.03rem; letter-spacing: -.02em; }
     h3 { margin: 0 0 8px; font-size: .84rem; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
     .subtitle { color: var(--muted); max-width: 760px; margin: 10px 0 0; font-size: 1rem; }
@@ -1078,13 +1081,23 @@ DASHBOARD_HTML = r"""
         dot.style.boxShadow = '';
         return;
       }
-      // Freshness pulse: the dot's fill is vivid green right after data lands and
+      // Freshness pulse: the dot's fill is bright green right after data lands and
       // fades toward grey as readings age (fully grey after ~1.5 missed intervals).
       const totalMs = refreshSeconds() * 1000;
       const age = Math.max(0, Date.now() - lastDataAt);
       const fade = Math.min(1, age / (totalMs * 1.5));
       const mix = (fresh, stale) => Math.round(fresh + (stale - fresh) * fade);
-      dot.style.backgroundColor = `rgb(${mix(34, 148)}, ${mix(197, 163)}, ${mix(94, 184)})`;
+      dot.style.backgroundColor = `rgb(${mix(16, 148)}, ${mix(220, 163)}, ${mix(96, 184)})`;
+    }
+
+    function pingTitleDot() {
+      const dot = el('titleStatusDot');
+      if (!dot || dot.classList.contains('offline')) return;
+      const ping = document.createElement('span');
+      ping.className = 'dot-ping';
+      ping.setAttribute('aria-hidden', 'true');
+      dot.appendChild(ping);
+      setTimeout(() => ping.remove(), 900);
     }
 
     function setInitialLoading(message, kind = '') {
@@ -3200,6 +3213,8 @@ DASHBOARD_HTML = r"""
         try {
           await refresh(refreshOptions);
           lastDataAt = Date.now();
+          updateTitleDotProgress();
+          pingTitleDot();
         } catch (error) {
           console.error(error);
           if (!firstLoadComplete) setInitialLoading('Could not load dashboard data. Retrying soon…', 'error');
