@@ -671,8 +671,11 @@ def _public_dashboard_preferences_patch(value: object) -> dict[str, object] | No
         if str(window_value) in {"6", "12", "24", "72", "168", "720", "all"}:
             safe_settings["window"] = str(window_value)
         smoothing = chart_settings.get("smoothing")
-        if str(smoothing) in {"raw", "5", "15", "30", "60"}:
+        if str(smoothing) in {"raw", "5", "15", "30", "60", "240"}:
             safe_settings["smoothing"] = str(smoothing)
+        layout_value = chart_settings.get("layout")
+        if str(layout_value) in {"combined", "split"}:
+            safe_settings["layout"] = str(layout_value)
         for key in ("challenge_bands", "sleep_highlight", "sleep_ballpark"):
             if isinstance(chart_settings.get(key), bool):
                 safe_settings[key] = bool(chart_settings[key])

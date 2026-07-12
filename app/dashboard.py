@@ -109,6 +109,7 @@ DASHBOARD_HTML = r"""
     .chart-frame.main { height: 370px; }
     .chart-frame.companion { height: 190px; }
     .chart-frame.secondary { height: 240px; }
+    .chart-frame.split-panel { height: 165px; margin-top: 6px; }
     .chart-frame canvas { display: block; width: 100% !important; height: 100% !important; touch-action: pan-y; }
     .companion-chart { margin-top: 2px; padding-top: 0; background: transparent; }
     .info-popover-wrap { position: relative; display: inline-flex; align-items: center; }
@@ -511,6 +512,12 @@ DASHBOARD_HTML = r"""
                 <option value="240">4 hour avg</option>
               </select>
             </label>
+            <label class="control-field" for="chartLayout">Layout
+              <select id="chartLayout">
+                <option selected value="combined">Combined</option>
+                <option value="split">Split panels</option>
+              </select>
+            </label>
             <button id="resetZoom" type="button">Reset zoom</button>
             <button id="download" class="icon-button" title="Download CSV" aria-label="Download CSV">CSV</button>
             <span class="control-section-title">Overlays</span>
@@ -520,7 +527,10 @@ DASHBOARD_HTML = r"""
             <span class="small coverage-chip" id="coverage">—</span>
           </div>
         </div>
-        <div class="chart-frame main"><canvas id="vitalsChart"></canvas></div>
+        <div class="chart-frame main" id="combinedFrame"><canvas id="vitalsChart"></canvas></div>
+        <div class="chart-frame split-panel hidden" id="hrFrame"><canvas id="hrPanelChart"></canvas></div>
+        <div class="chart-frame split-panel hidden" id="spo2Frame"><canvas id="spo2PanelChart"></canvas></div>
+        <div class="chart-frame split-panel hidden" id="moveFrame"><canvas id="movePanelChart"></canvas></div>
         <div id="stateStripWrap" class="state-strip-wrap" title="Sleep/wake/offline state across the visible vitals window">
           <div id="stateStrip" class="state-strip"></div>
           <div id="stateTimeAxis" class="state-time-axis"></div>
@@ -640,9 +650,14 @@ DASHBOARD_HTML = r"""
     let notificationPageOffset = 0;
     const NOTIFICATION_PAGE_SIZE = 10;
     const TREND_MAX_SAMPLE_GAP_MS = 5 * 60 * 1000;
+    // Consecutive readings farther apart than this mean the collector was not running.
+    const COLLECTOR_GAP_MS = 15 * 60 * 1000;
     const TREND_MAX_SOURCE_POINTS_DESKTOP = 800;
     const TREND_MAX_SOURCE_POINTS_MOBILE = 420;
     let vitalsChart = null;
+    let hrPanel = null;
+    let spo2Panel = null;
+    let movePanel = null;
     let oxygenTrendChart = null;
     let challengeDetailChart = null;
     let dailyInsightsChart = null;
@@ -682,6 +697,7 @@ DASHBOARD_HTML = r"""
       offline: 'rgba(100, 116, 139, .48)'
     };
 
+    const PANEL_CANVAS_IDS = ['vitalsChart', 'hrPanelChart', 'spo2PanelChart', 'movePanelChart'];
     const offlineBandsPlugin = {
       id: 'offlineBands',
       beforeDatasetsDraw(chart, _args, options) {
@@ -700,6 +716,43 @@ DASHBOARD_HTML = r"""
           ctx.strokeRect(left, chartArea.top, width, chartArea.bottom - chartArea.top);
         });
         ctx.restore();
+      }
+    };
+    const noDataBandsPlugin = {
+      id: 'noDataBands',
+      beforeDatasetsDraw(chart, _args, options) {
+        const intervals = options?.intervals || [];
+        if (!intervals.length || !chart.scales?.x) return;
+        const { ctx, chartArea, scales } = chart;
+        const height = chartArea.bottom - chartArea.top;
+        intervals.forEach(({ start, end }) => {
+          const left = Math.max(chartArea.left, scales.x.getPixelForValue(start));
+          const right = Math.min(chartArea.right, scales.x.getPixelForValue(end));
+          if (!Number.isFinite(left) || !Number.isFinite(right) || right <= chartArea.left || left >= chartArea.right) return;
+          const width = Math.max(2, right - left);
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(left, chartArea.top, width, height);
+          ctx.clip();
+          ctx.fillStyle = 'rgba(148, 163, 184, 0.10)';
+          ctx.fillRect(left, chartArea.top, width, height);
+          ctx.strokeStyle = 'rgba(100, 116, 139, 0.22)';
+          ctx.lineWidth = 1;
+          for (let x = left - height; x < right; x += 14) {
+            ctx.beginPath();
+            ctx.moveTo(x, chartArea.bottom);
+            ctx.lineTo(x + height, chartArea.top);
+            ctx.stroke();
+          }
+          if (width > 78) {
+            ctx.fillStyle = 'rgba(71, 85, 105, 0.78)';
+            ctx.font = '600 10px ui-sans-serif, system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText('collector off', (left + right) / 2, chartArea.top + 4);
+          }
+          ctx.restore();
+        });
       }
     };
     const challengeBandsPlugin = {
@@ -749,7 +802,7 @@ DASHBOARD_HTML = r"""
     const notificationHoverPlugin = {
       id: 'notificationHoverPriority',
       afterEvent(chart, args) {
-        if (chart.canvas.id !== 'vitalsChart') return;
+        if (!['vitalsChart', 'spo2PanelChart'].includes(chart.canvas.id)) return;
         const event = args.event;
         const datasetIndex = chart.data.datasets.findIndex(dataset => dataset.id === 'notifications');
         if (datasetIndex < 0) return;
@@ -797,7 +850,7 @@ DASHBOARD_HTML = r"""
     const oxygen85ThresholdPlugin = {
       id: 'oxygen85Threshold',
       afterDraw(chart) {
-        if (chart.canvas.id !== 'vitalsChart') return;
+        if (!['vitalsChart', 'spo2PanelChart'].includes(chart.canvas.id)) return;
         const scale = chart.scales?.spo2;
         const { chartArea, ctx } = chart;
         if (!scale || !chartArea) return;
@@ -823,7 +876,7 @@ DASHBOARD_HTML = r"""
     const sleepBandsPlugin = {
       id: 'sleepBands',
       beforeDatasetsDraw(chart) {
-        if (chart.canvas.id !== 'vitalsChart' || !sleepHighlightEnabled || !chart.scales?.x) return;
+        if (!PANEL_CANVAS_IDS.includes(chart.canvas.id) || !sleepHighlightEnabled || !chart.scales?.x) return;
         const intervals = sleepOverlayIntervals();
         if (!intervals.length) return;
         const { ctx, chartArea, scales } = chart;
@@ -845,20 +898,20 @@ DASHBOARD_HTML = r"""
         const event = args.event;
         if (event.type === 'mouseout') {
           hoveredStateInterval = null;
-          vitalsChart?.update('none');
+          refreshPrimaryCharts();
           return;
         }
         if (!['mousemove', 'click', 'touchmove'].includes(event.type)) return;
         const timestamp = chart.scales.x.getValueForPixel(event.x);
         const interval = rollupIntervalAt(timestamp) || stateIntervalAt(timestamp);
         hoveredStateInterval = interval;
-        vitalsChart?.update('none');
+        refreshPrimaryCharts();
       }
     };
     const sleepPhaseHoverPlugin = {
       id: 'sleepPhaseHover',
       beforeDatasetsDraw(chart) {
-        if (chart.canvas.id !== 'vitalsChart' || !hoveredStateInterval || !chart.scales?.x) return;
+        if (!PANEL_CANVAS_IDS.includes(chart.canvas.id) || !hoveredStateInterval || !chart.scales?.x) return;
         const { ctx, chartArea, scales } = chart;
         const left = Math.max(chartArea.left, scales.x.getPixelForValue(hoveredStateInterval.start));
         const right = Math.min(chartArea.right, scales.x.getPixelForValue(hoveredStateInterval.end));
@@ -895,7 +948,7 @@ DASHBOARD_HTML = r"""
         ctx.restore();
       }
     };
-    Chart.register(sleepBandsPlugin, challengeBandsPlugin, offlineBandsPlugin, dayBoundaryPlugin, sleepPhaseHoverPlugin, stateChartHoverPlugin, notificationGlyphsPlugin, notificationHoverPlugin, oxygen85ThresholdPlugin);
+    Chart.register(sleepBandsPlugin, challengeBandsPlugin, offlineBandsPlugin, noDataBandsPlugin, dayBoundaryPlugin, sleepPhaseHoverPlugin, stateChartHoverPlugin, notificationGlyphsPlugin, notificationHoverPlugin, oxygen85ThresholdPlugin);
 
     const el = (id) => document.getElementById(id);
     const fmt = (value, suffix = '') => value === null || value === undefined ? '—' : `${value}${suffix}`;
@@ -925,7 +978,10 @@ DASHBOARD_HTML = r"""
     const isOffline = (row) => !!(row?.sock_disconnected || row?.sock_off || zeroOrNegative(row?.heart_rate) || zeroOrNegative(row?.oxygen_saturation));
     const durationText = (seconds) => seconds ? `${Math.floor(seconds / 3600)}h ${Math.round((seconds % 3600) / 60)}m`.replace(/^0h /, '') : '0m';
     const signed = (value, suffix = '') => value === null || value === undefined ? '—' : `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(1).replace(/\.0$/, '')}${suffix}`;
-    const chartList = () => [vitalsChart, oxygenTrendChart].filter(Boolean);
+    const chartList = () => [vitalsChart, hrPanel, spo2Panel, movePanel, oxygenTrendChart].filter(Boolean);
+    const primaryCharts = () => [vitalsChart, hrPanel, spo2Panel, movePanel].filter(Boolean);
+    const refreshPrimaryCharts = () => primaryCharts().forEach(chart => chart.update('none'));
+    const alignmentChart = () => vitalsChart || hrPanel || spo2Panel || movePanel;
 
     function smoothingMinutes() {
       const value = el('smoothing').value;
@@ -1546,6 +1602,7 @@ DASHBOARD_HTML = r"""
       try {
         if (settings.window && el('window')?.querySelector(`option[value="${settings.window}"]`)) el('window').value = settings.window;
         if (settings.smoothing && el('smoothing')?.querySelector(`option[value="${settings.smoothing}"]`)) el('smoothing').value = settings.smoothing;
+        if (settings.layout && el('chartLayout')?.querySelector(`option[value="${settings.layout}"]`)) el('chartLayout').value = settings.layout;
         if (typeof settings.challenge_bands === 'boolean') challengeBandsEnabled = settings.challenge_bands;
         if (typeof settings.sleep_highlight === 'boolean') sleepHighlightEnabled = settings.sleep_highlight;
         if (typeof settings.sleep_ballpark === 'boolean') sleepBallparkEnabled = settings.sleep_ballpark;
@@ -1563,6 +1620,7 @@ DASHBOARD_HTML = r"""
         chart_settings: {
           window: el('window')?.value,
           smoothing: el('smoothing')?.value,
+          layout: el('chartLayout')?.value,
           challenge_bands: challengeBandsEnabled,
           sleep_highlight: sleepHighlightEnabled,
           sleep_ballpark: sleepBallparkEnabled,
@@ -1797,17 +1855,28 @@ DASHBOARD_HTML = r"""
       const extended = points.slice();
       const first = visible[0];
       const last = visible[visible.length - 1];
-      if (first.x > range.min && !extended.some(point => point.x === range.min)) extended.push({ ...first, x: range.min });
-      if (last.x < range.max && !extended.some(point => point.x === range.max)) extended.push({ ...last, x: range.max });
+      // Never bridge a collector gap by copying a neighbor's value to the frame edge.
+      if (first.x > range.min && !extended.some(point => point.x === range.min)) {
+        extended.push(first.x - range.min > COLLECTOR_GAP_MS ? { x: range.min, y: null, reason: 'collector-gap' } : { ...first, x: range.min });
+      }
+      if (last.x < range.max && !extended.some(point => point.x === range.max)) {
+        extended.push(range.max - last.x > COLLECTOR_GAP_MS ? { x: range.max, y: null, reason: 'collector-gap' } : { ...last, x: range.max });
+      }
       return extended.sort((a, b) => a.x - b.x);
     }
 
     function readingSeries(key) {
       const minutes = smoothingMinutes();
       if (minutes > 0) return rollingAverageForKey(key, minutes);
-      const source = readings.map((row, index) => {
+      const source = [];
+      readings.forEach((row, index) => {
+        const time = Date.parse(row.recorded_at);
+        const previous = index > 0 ? Date.parse(readings[index - 1].recorded_at) : null;
+        if (previous !== null && time - previous > COLLECTOR_GAP_MS) {
+          source.push({ x: previous + 1, y: null, reason: 'collector-gap' });
+        }
         const offlineTransition = isOffline(row) && (!isOffline(readings[index - 1]) || !isOffline(readings[index + 1]));
-        return { x: Date.parse(row.recorded_at), y: metricValue(row, key), reason: offlineTransition ? 'offline-transition' : undefined };
+        source.push({ x: time, y: metricValue(row, key), reason: offlineTransition ? 'offline-transition' : undefined });
       });
       return chartPoints(source);
     }
@@ -1926,6 +1995,21 @@ DASHBOARD_HTML = r"""
           activeStart = null;
         }
       });
+      return intervals;
+    }
+
+    function gapIntervals() {
+      const intervals = [];
+      for (let i = 1; i < readings.length; i += 1) {
+        const previous = Date.parse(readings[i - 1].recorded_at);
+        const current = Date.parse(readings[i].recorded_at);
+        if (current - previous > COLLECTOR_GAP_MS) intervals.push({ start: previous, end: current });
+      }
+      const range = visibleRange();
+      const last = readings.length ? Date.parse(readings[readings.length - 1].recorded_at) : null;
+      if (last !== null && range && range.max - last > COLLECTOR_GAP_MS) {
+        intervals.push({ start: last, end: range.max });
+      }
       return intervals;
     }
 
@@ -2090,7 +2174,7 @@ DASHBOARD_HTML = r"""
         maintainAspectRatio: false,
         animation: { duration: 450 },
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: legendOptions(options.legend || {}), tooltip: { callbacks: { title: tooltipTitle, label: tooltipLabel } }, zoom: zoomOptions(), dayBoundaries: {}, challengeBands: { intervals: challengeBandsEnabled ? challengeIntervals() : [] }, offlineBands: { intervals: offlineIntervals() } },
+        plugins: { legend: legendOptions(options.legend || {}), tooltip: { callbacks: { title: tooltipTitle, label: tooltipLabel } }, zoom: zoomOptions(), dayBoundaries: {}, challengeBands: { intervals: challengeBandsEnabled ? challengeIntervals() : [] }, offlineBands: { intervals: offlineIntervals() }, noDataBands: { intervals: gapIntervals() } },
         scales
       };
     }
@@ -2143,13 +2227,17 @@ DASHBOARD_HTML = r"""
     }
 
     function attachNotificationHover(chart) {
-      if (chart.$notificationHoverAttached) return;
-      const update = event => setNotificationTooltip(chart, notificationHit(chart, event));
-      chart.canvas.addEventListener('mousemove', update);
-      chart.canvas.addEventListener('click', update);
-      chart.canvas.addEventListener('touchmove', update, { passive: true });
-      chart.canvas.addEventListener('mouseleave', () => setNotificationTooltip(chart, null));
-      chart.$notificationHoverAttached = true;
+      // Flag lives on the canvas (which outlives destroyed charts) and the live
+      // chart is resolved per event, so layout toggles never leave stale handlers.
+      const canvas = chart.canvas;
+      if (canvas.dataset.notificationHoverAttached === 'true') return;
+      const live = () => Chart.getChart(canvas);
+      const update = event => { const target = live(); if (target) setNotificationTooltip(target, notificationHit(target, event)); };
+      canvas.addEventListener('mousemove', update);
+      canvas.addEventListener('click', update);
+      canvas.addEventListener('touchmove', update, { passive: true });
+      canvas.addEventListener('mouseleave', () => { const target = live(); if (target) setNotificationTooltip(target, null); });
+      canvas.dataset.notificationHoverAttached = 'true';
     }
 
     function syncZoomFrom(sourceChart) {
@@ -2289,18 +2377,30 @@ DASHBOARD_HTML = r"""
       return existing;
     }
 
-    function renderCharts({ deferTrend = false } = {}) {
+    function chartLayoutMode() {
+      return el('chartLayout')?.value === 'split' ? 'split' : 'combined';
+    }
+
+    function readingLineDataset(id, label, key, color, axis, hiddenDefault) {
+      return { id, label, data: readingSeries(key), borderColor: color, backgroundColor: `${color}20`, yAxisID: axis, hidden: preferredDatasetHidden(id, hiddenDefault), spanGaps: false, pointRadius: 0, tension: .25 };
+    }
+
+    function notificationsDataset() {
+      return { id: 'notifications', type: 'scatter', label: 'Notifications', data: notificationPoints(), yAxisID: 'spo2', hidden: preferredDatasetHidden('notifications', false), pointStyle: 'triangle', pointRadius: 9, pointHoverRadius: 13, hitRadius: 24, showLine: false, borderWidth: 2, borderColor: '#92400e', backgroundColor: '#f59e0b' };
+    }
+
+    function renderCombinedChart() {
       const skinTempHidden = vitalsChart?.data.datasets.find(dataset => dataset.id === 'skinTemperature')?.hidden ?? preferredDatasetHidden('skinTemperature', true);
       const datasets = [
-        { id: 'heartRate', label: 'Heart rate', data: readingSeries('heart_rate'), borderColor: '#dc2626', backgroundColor: '#dc262620', yAxisID: 'hr', hidden: preferredDatasetHidden('heartRate', false), spanGaps: true, pointRadius: 0, tension: .25 },
-        { id: 'oxygen', label: 'SpO₂', data: readingSeries('oxygen_saturation'), borderColor: '#2563eb', backgroundColor: '#2563eb20', yAxisID: 'spo2', hidden: preferredDatasetHidden('oxygen', false), spanGaps: true, pointRadius: 0, tension: .25 },
-        { id: 'movement', label: 'Movement', data: readingSeries('movement'), borderColor: '#059669', backgroundColor: '#05966920', yAxisID: 'move', hidden: preferredDatasetHidden('movement', false), spanGaps: true, pointRadius: 0, tension: .2 },
-        { id: 'skinTemperature', label: 'Skin temp °C', data: readingSeries('skin_temperature'), borderColor: '#0f766e', backgroundColor: '#0f766e20', yAxisID: 'temp', hidden: skinTempHidden, spanGaps: true, pointRadius: 0, tension: .25 }
+        readingLineDataset('heartRate', 'Heart rate', 'heart_rate', '#dc2626', 'hr', false),
+        readingLineDataset('oxygen', 'SpO₂', 'oxygen_saturation', '#2563eb', 'spo2', false),
+        { ...readingLineDataset('movement', 'Movement', 'movement', '#059669', 'move', false), tension: .2 },
+        { ...readingLineDataset('skinTemperature', 'Skin temp °C', 'skin_temperature', '#0f766e', 'temp', true), hidden: skinTempHidden }
       ];
       if (showCryptoEnabled()) {
         datasets.push({ id: 'btcPrice', label: 'BTC price', data: cryptoBitcoinPoints(), borderColor: '#f97316', backgroundColor: '#f9731620', yAxisID: 'btc', hidden: preferredDatasetHidden('btcPrice', true), spanGaps: true, pointRadius: 0, tension: .25 });
       }
-      datasets.push({ id: 'notifications', type: 'scatter', label: 'Notifications', data: notificationPoints(), yAxisID: 'spo2', hidden: preferredDatasetHidden('notifications', false), pointStyle: 'triangle', pointRadius: 9, pointHoverRadius: 13, hitRadius: 24, showLine: false, borderWidth: 2, borderColor: '#92400e', backgroundColor: '#f59e0b' });
+      datasets.push(notificationsDataset());
       vitalsChart = upsertChart(vitalsChart, 'vitalsChart', {
         type: 'line',
         data: { datasets },
@@ -2313,6 +2413,55 @@ DASHBOARD_HTML = r"""
         }, { hideXTicks: true, legend: { position: 'top', align: 'end' } })
       });
       attachNotificationHover(vitalsChart);
+    }
+
+    function renderSplitPanels() {
+      const skinTempHidden = hrPanel?.data.datasets.find(dataset => dataset.id === 'skinTemperature')?.hidden ?? preferredDatasetHidden('skinTemperature', true);
+      hrPanel = upsertChart(hrPanel, 'hrPanelChart', {
+        type: 'line',
+        data: { datasets: [
+          readingLineDataset('heartRate', 'Heart rate', 'heart_rate', '#dc2626', 'hr', false),
+          { ...readingLineDataset('skinTemperature', 'Skin temp °C', 'skin_temperature', '#0f766e', 'temp', true), hidden: skinTempHidden }
+        ] },
+        options: chartOptions({
+          hr: { type: 'linear', position: 'left', min: 0, title: { display: true, text: 'BPM' } },
+          temp: { type: 'linear', position: 'right', display: false, suggestedMin: 28, suggestedMax: 38, grid: { drawOnChartArea: false } }
+        }, { hideXTicks: true, legend: { position: 'top', align: 'end' } })
+      });
+      spo2Panel = upsertChart(spo2Panel, 'spo2PanelChart', {
+        type: 'line',
+        data: { datasets: [
+          readingLineDataset('oxygen', 'SpO₂', 'oxygen_saturation', '#2563eb', 'spo2', false),
+          notificationsDataset()
+        ] },
+        options: chartOptions({
+          spo2: { type: 'linear', position: 'left', min: 0, suggestedMax: 100, title: { display: true, text: 'SpO₂' } }
+        }, { hideXTicks: true, legend: { position: 'top', align: 'end' } })
+      });
+      movePanel = upsertChart(movePanel, 'movePanelChart', {
+        type: 'line',
+        data: { datasets: [
+          { ...readingLineDataset('movement', 'Movement', 'movement', '#059669', 'move', false), tension: .2 }
+        ] },
+        options: chartOptions({
+          move: { type: 'linear', position: 'left', min: 0, title: { display: true, text: 'Move' } }
+        }, { legend: { position: 'top', align: 'end' } })
+      });
+      attachNotificationHover(spo2Panel);
+    }
+
+    function renderCharts({ deferTrend = false } = {}) {
+      const split = chartLayoutMode() === 'split';
+      el('combinedFrame')?.classList.toggle('hidden', split);
+      ['hrFrame', 'spo2Frame', 'moveFrame'].forEach(id => el(id)?.classList.toggle('hidden', !split));
+      if (split) {
+        if (vitalsChart) { vitalsChart.destroy(); vitalsChart = null; }
+        renderSplitPanels();
+      } else {
+        [hrPanel, spo2Panel, movePanel].forEach(chart => chart?.destroy());
+        hrPanel = spo2Panel = movePanel = null;
+        renderCombinedChart();
+      }
       if (deferTrend) {
         renderOxygenTrendPlaceholder();
         scheduleOxygenTrendChart();
@@ -2435,9 +2584,10 @@ DASHBOARD_HTML = r"""
     }
 
     function updatePrimaryChartAlignment() {
-      if (!vitalsChart?.chartArea) return;
-      const { left, right } = vitalsChart.chartArea;
-      const width = vitalsChart.width || 0;
+      const chart = alignmentChart();
+      if (!chart?.chartArea) return;
+      const { left, right } = chart.chartArea;
+      const width = chart.width || 0;
       el('stateStripWrap').style.setProperty('--chart-left-pad', `${Math.max(0, left)}px`);
       el('stateStripWrap').style.setProperty('--chart-right-pad', `${Math.max(0, width - right)}px`);
     }
@@ -2644,7 +2794,7 @@ DASHBOARD_HTML = r"""
       const timestamp = range.min + ratio * (range.max - range.min);
       hoveredStateInterval = stateIntervalAt(timestamp);
       showStateTooltip(hoveredStateInterval, event);
-      vitalsChart?.update('none');
+      refreshPrimaryCharts();
     }
 
     function attachStateStripHover() {
@@ -2654,7 +2804,7 @@ DASHBOARD_HTML = r"""
       strip.addEventListener('click', setStateStripHoverFromEvent);
       strip.addEventListener('touchstart', setStateStripHoverFromEvent, { passive: true });
       strip.addEventListener('touchmove', setStateStripHoverFromEvent, { passive: true });
-      strip.addEventListener('mouseleave', () => { hoveredStateInterval = null; hideStateTooltip(); vitalsChart?.update('none'); });
+      strip.addEventListener('mouseleave', () => { hoveredStateInterval = null; hideStateTooltip(); refreshPrimaryCharts(); });
       strip.dataset.hoverAttached = 'true';
     }
 
@@ -2665,7 +2815,7 @@ DASHBOARD_HTML = r"""
       const timestamp = stateChart.scales.x.getValueForPixel(source.clientX - rect.left);
       hoveredStateInterval = rollupIntervalAt(timestamp) || stateIntervalAt(timestamp);
       showStateTooltip(hoveredStateInterval, event, rollupIntervalAt(timestamp) ? 'Ballpark ' : '');
-      vitalsChart?.update('none');
+      refreshPrimaryCharts();
     }
 
     function attachStateChartHover(chart) {
@@ -2674,7 +2824,7 @@ DASHBOARD_HTML = r"""
       chart.canvas.addEventListener('click', setStateChartHoverFromEvent);
       chart.canvas.addEventListener('touchstart', setStateChartHoverFromEvent, { passive: true });
       chart.canvas.addEventListener('touchmove', setStateChartHoverFromEvent, { passive: true });
-      chart.canvas.addEventListener('mouseleave', () => { hoveredStateInterval = null; hideStateTooltip(); vitalsChart?.update('none'); });
+      chart.canvas.addEventListener('mouseleave', () => { hoveredStateInterval = null; hideStateTooltip(); refreshPrimaryCharts(); });
       chart.$stateHoverAttached = true;
     }
 
@@ -3142,6 +3292,24 @@ DASHBOARD_HTML = r"""
         + 'font-size:12px;text-decoration:underline">Sign out</button>';
       wrap.appendChild(nav);
     })();
+    (async function desktopModeNotice() {
+      if (SHARE_MODE || sessionStorage.getItem('owletDesktopNoticeDismissed')) return;
+      try {
+        const health = await fetchJson(`${API_BASE}/api/health`);
+        if (!health.desktop_mode) return;
+        const banner = document.createElement('div');
+        banner.style.cssText = 'background:#fef3c7;color:#92400e;padding:9px 14px;font-size:13px;'
+          + 'border-radius:10px;margin:8px 0;display:flex;justify-content:space-between;gap:12px;align-items:center';
+        banner.innerHTML = '<span>Desktop mode: readings are only collected while this app is running. '
+          + 'Time it spends closed appears as “collector off” gaps in the charts.</span>'
+          + '<button type="button" aria-label="Dismiss" style="all:unset;cursor:pointer;font-weight:700;padding:4px 8px">✕</button>';
+        banner.querySelector('button').addEventListener('click', () => {
+          sessionStorage.setItem('owletDesktopNoticeDismissed', '1');
+          banner.remove();
+        });
+        document.querySelector('main')?.prepend(banner);
+      } catch (error) { /* best effort */ }
+    })();
 
     el('deviceSelect').addEventListener('change', event => {
       setUrlDevice(event.target.value);
@@ -3153,6 +3321,7 @@ DASHBOARD_HTML = r"""
     });
     el('window').addEventListener('change', () => { notificationPageOffset = 0; readingsTableSignature = ''; persistChartSettings({ window: el('window').value }); safeRefresh({ resetZoom: true, force: true }); });
     el('smoothing').addEventListener('change', () => { persistChartSettings({ smoothing: el('smoothing').value }); renderCharts({ deferTrend: true }); safeRefresh({ resetZoom: false }); });
+    el('chartLayout').addEventListener('change', () => { persistChartSettings({ layout: el('chartLayout').value }); renderCharts({ deferTrend: true }); });
     el('refresh').addEventListener('click', () => safeRefresh());
     el('dailyInsightsToggle').addEventListener('click', openDailyInsightsModal);
     el('closeDailyInsights').addEventListener('click', () => el('dailyInsightsModal').classList.add('hidden'));
@@ -3192,12 +3361,12 @@ DASHBOARD_HTML = r"""
       sleepHighlightEnabled = event.target.checked;
       el('sleepBallparkToggle').disabled = !sleepHighlightEnabled;
       persistChartSettings({ sleep_highlight: sleepHighlightEnabled });
-      vitalsChart?.update('none');
+      refreshPrimaryCharts();
     });
     el('sleepBallparkToggle').addEventListener('change', event => {
       sleepBallparkEnabled = event.target.checked;
       persistChartSettings({ sleep_ballpark: sleepBallparkEnabled });
-      vitalsChart?.update('none');
+      refreshPrimaryCharts();
     });
     el('notificationsToggle').addEventListener('click', () => {
       el('challengesPanel').classList.add('hidden');
@@ -3212,7 +3381,7 @@ DASHBOARD_HTML = r"""
       if (!el('o2AddWrap').contains(event.target)) closeO2AddMenu();
       if (!el('profileMenuWrap')?.contains(event.target)) closeProfileMenu();
     });
-    ['vitalsChart', 'oxygenTrendChart'].forEach(id => {
+    ['vitalsChart', 'hrPanelChart', 'spo2PanelChart', 'movePanelChart', 'oxygenTrendChart'].forEach(id => {
       el(id)?.addEventListener('dblclick', resetZoom);
     });
     window.addEventListener('resize', () => { renderDeviceOptions(); renderProfileMenu(); updateRefreshButton(); renderCharts({ deferTrend: true }); renderRollups(); updatePanControl(); });

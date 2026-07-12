@@ -672,7 +672,10 @@ async def test_dashboard_endpoint_serves_html(tmp_path):
     assert "Math.ceil(hours) + HISTORY_PAN_BUFFER_HOURS" in response.text
     assert "defaultVisibleRange" in response.text
     assert "extendPointsToVisibleEdges" in response.text
-    assert "readingSeries('heart_rate')" in response.text
+    assert "readingLineDataset('heartRate', 'Heart rate', 'heart_rate'" in response.text
+    assert 'id="chartLayout"' in response.text
+    assert "gapIntervals" in response.text
+    assert "noDataBands" in response.text
     assert "rollingAverageForKey" in response.text
     assert "const value = metricValue(row, key)" in response.text
     assert "if (isOffline(row) || value === null)" in response.text
@@ -681,8 +684,7 @@ async def test_dashboard_endpoint_serves_html(tmp_path):
     assert "offset: false" in response.text
     assert "hr: { type: 'linear', position: 'left', min: 0" in response.text
     assert "spo2: { type: 'linear', position: 'right', min: 0" in response.text
-    assert "id: 'skinTemperature'" in response.text
-    assert "readingSeries('skin_temperature')" in response.text
+    assert "'skinTemperature', 'Skin temp °C', 'skin_temperature'" in response.text
     assert "metric-grid" not in response.text
     assert "renderMetricCards" not in response.text
     assert 'id="metricCards"' not in response.text
