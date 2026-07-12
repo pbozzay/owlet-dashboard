@@ -62,14 +62,8 @@ DASHBOARD_HTML = r"""
     .baby-name { color: var(--text); font-weight: 950; font-size: clamp(1rem, 2.5vw, 1.35rem); background: rgba(255,255,255,.76); border: 1px solid rgba(226,232,240,.9); border-radius: 999px; padding: .38rem .75rem; box-shadow: 0 8px 24px rgba(15,23,42,.08); }
     h1 { margin: 0; letter-spacing: -.045em; font-size: clamp(2.1rem, 5vw, 4.2rem); line-height: .92; }
     .title-status-dot { display: inline-block; flex: 0 0 auto; width: 10px; height: 10px;
-      position: relative; margin-left: 10px; vertical-align: middle; cursor: pointer; }
-    .dot-ring {
-      position: absolute; inset: -5px; border-radius: 50%; pointer-events: none;
-      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
-      mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
-    }
-    .title-status-dot.refreshing { animation: livePulse .9s ease-in-out infinite; }
-    @keyframes livePulse { 0%, 100% { box-shadow: 0 0 0 4px rgba(34,197,94,.14); } 50% { box-shadow: 0 0 0 8px rgba(34,197,94,.05); } }
+      position: relative; margin-left: 10px; vertical-align: middle; cursor: pointer;
+      transition: background-color .25s linear, box-shadow .25s linear; }
     h2 { margin: 0; font-size: 1.03rem; letter-spacing: -.02em; }
     h3 { margin: 0 0 8px; font-size: .84rem; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
     .subtitle { color: var(--muted); max-width: 760px; margin: 10px 0 0; font-size: 1rem; }
@@ -1073,33 +1067,28 @@ DASHBOARD_HTML = r"""
       button.setAttribute('aria-label', button.title);
     }
 
-    let refreshCycleStartedAt = Date.now();
-
-    function titleDotRing() {
-      const dot = el('titleStatusDot');
-      if (!dot) return null;
-      let ring = dot.querySelector('.dot-ring');
-      if (!ring) {
-        ring = document.createElement('span');
-        ring.className = 'dot-ring';
-        ring.setAttribute('aria-hidden', 'true');
-        dot.appendChild(ring);
-      }
-      return ring;
-    }
+    let lastDataAt = Date.now();
 
     function updateTitleDotProgress() {
       const dot = el('titleStatusDot');
-      const ring = titleDotRing();
-      if (!dot || !ring) return;
-      const totalMs = refreshSeconds() * 1000;
-      const progress = refreshInFlight
-        ? 1
-        : Math.min(1, Math.max(0, (Date.now() - refreshCycleStartedAt) / totalMs));
-      const color = dot.classList.contains('offline') ? 'rgba(239,68,68,.55)' : 'rgba(34,197,94,.55)';
-      ring.style.background = `conic-gradient(${color} ${(progress * 360).toFixed(1)}deg, rgba(148,163,184,.16) 0deg)`;
-      dot.classList.toggle('refreshing', !!refreshInFlight);
+      if (!dot) return;
       dot.title = `Auto-refresh in ${secondsUntilRefresh}s — click to refresh now`;
+      if (dot.classList.contains('offline')) {
+        dot.style.backgroundColor = '';
+        dot.style.boxShadow = '';
+        return;
+      }
+      // Freshness pulse: full green with a soft glow right after data lands,
+      // fading toward grey as the data ages (fully grey after ~2 intervals).
+      const totalMs = refreshSeconds() * 1000;
+      const age = Math.max(0, Date.now() - lastDataAt);
+      const fade = Math.min(1, age / (totalMs * 2));
+      const glow = Math.max(0, 1 - age / totalMs);
+      const mix = (fresh, stale) => Math.round(fresh + (stale - fresh) * fade);
+      dot.style.backgroundColor = `rgb(${mix(34, 148)}, ${mix(197, 163)}, ${mix(94, 184)})`;
+      dot.style.boxShadow = glow > 0.02
+        ? `0 0 0 ${(4 * glow).toFixed(1)}px rgba(34,197,94,${(0.30 * glow).toFixed(3)})`
+        : '';
     }
 
     function setInitialLoading(message, kind = '') {
@@ -1742,7 +1731,6 @@ DASHBOARD_HTML = r"""
 
     async function refresh({ resetZoom = false } = {}) {
       secondsUntilRefresh = refreshSeconds();
-      refreshCycleStartedAt = Date.now();
       setInitialLoading('Loading readings and notifications…');
       updateRefreshButton('Refreshing…');
       const token = ++refreshToken;
@@ -3215,6 +3203,7 @@ DASHBOARD_HTML = r"""
       const run = (async () => {
         try {
           await refresh(refreshOptions);
+          lastDataAt = Date.now();
         } catch (error) {
           console.error(error);
           if (!firstLoadComplete) setInitialLoading('Could not load dashboard data. Retrying soon…', 'error');
