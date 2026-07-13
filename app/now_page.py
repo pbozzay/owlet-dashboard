@@ -10,9 +10,18 @@ from app.shell import render_shell
 
 NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
   <style>
-    .status-line { font-size: 17px; color: var(--dim); line-height: 1.5; margin: 0 0 26px;
-      max-width: 60ch; }
+    .today-head { display: flex; justify-content: space-between; align-items: flex-start;
+      flex-wrap: wrap; gap: 8px 16px; margin-bottom: 22px; }
+    .status-line { font-size: 17px; color: var(--dim); line-height: 1.5; margin: 0;
+      max-width: 60ch; flex: 1 1 260px; }
     .status-line b { color: var(--ink); font-weight: 600; }
+    .range-seg { display: flex; background: var(--accent-soft); border-radius: 999px;
+      padding: 3px; margin-left: auto; flex: 0 0 auto; }
+    .range-seg button { all: unset; cursor: pointer; font-size: 12px; font-weight: 600;
+      color: var(--dim); padding: 5px 11px; border-radius: 999px;
+      font-variant-numeric: tabular-nums; }
+    .range-seg button.active { background: var(--surface); color: var(--accent);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, .12); }
     .hero { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
     @media (max-width: 640px) { .hero { grid-template-columns: 1fr; } }
     .hero-minor { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 8px; }
@@ -46,12 +55,15 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .chartzone .ghostline, .ms-chartwrap .ghostline { stroke: var(--faint);
       stroke-width: 1.4; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke;
       opacity: .75; }
-    /* hypnogram: rounded state bars in three lanes, tracker-style */
+    /* hypnogram: rounded state bars in three lanes, tracker-style, with thin
+       gradient connectors between stages the way Apple draws transitions */
     .chartzone .sleepbar, .ms-chartwrap .sleepbar { fill: none; stroke-linecap: round;
       vector-effect: non-scaling-stroke; }
     .sleepbar.sleep-awake { stroke: var(--awake); }
     .sleepbar.sleep-light { stroke: var(--sleep-light); }
     .sleepbar.sleep-deep { stroke: var(--sleep-deep); }
+    .chartzone .sleepconn, .ms-chartwrap .sleepconn { fill: none; stroke-width: 2px;
+      opacity: .45; stroke-linecap: round; vector-effect: non-scaling-stroke; }
     #card-sleep .value { text-transform: lowercase; }
     /* no-data bands: quiet grey = collector wasn't running, warm = sock off/charging */
     .gapband.collector { fill: color-mix(in srgb, var(--ink) 7%, transparent); }
@@ -194,7 +206,16 @@ _VITAL_CARD = """<div class="vital card{minor}" id="card-{key}" data-metric="{ke
       </div>"""
 
 NOW_BODY = (
-    """<p class="status-line" id="statusLine">Checking in…</p>
+    """<div class="today-head">
+      <p class="status-line" id="statusLine">Checking in…</p>
+      <div class="range-seg" id="rangeSeg" role="group" aria-label="Chart window">
+        <button type="button" data-mins="60">1h</button>
+        <button type="button" data-mins="180">3h</button>
+        <button type="button" data-mins="360">6h</button>
+        <button type="button" data-mins="720">12h</button>
+        <button type="button" data-mins="1440">24h</button>
+      </div>
+    </div>
     <div class="hero">"""
     + _VITAL_CARD.format(minor="", key="o2", label="Oxygen", unit="%")
     + _VITAL_CARD.format(minor="", key="hr", label="Heart rate", unit="bpm")
@@ -259,7 +280,11 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     // liveReadings is the always-fresh last hour; histReadings grows on demand
     // as the user pulls back in time. Points arrays hold only valid vitals, so
     // collector-off stretches show up as time gaps in the line.
-    const WINDOW_MS = 60 * 60 * 1000;
+    const WINDOW_CHOICES = [60, 180, 360, 720, 1440];
+    let windowMs = (() => {
+      const saved = Number(localStorage.getItem('owletTodayWindow'));
+      return WINDOW_CHOICES.includes(saved) ? saved * 60 * 1000 : 60 * 60 * 1000;
+    })();
     const GAP_MS = 90 * 1000;
     const HISTORY_STEPS = [3, 6, 12, 24];
     let liveReadings = [], histReadings = [], loadedHours = 1, loadingHistory = false;
@@ -477,6 +502,30 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           + `<circle class="evflag" cx="${xOf(e.x).toFixed(2)}" cy="3" r="2"/>`)
         .join('');
       const lanes = { awake: h * 0.2, light: h * 0.5, deep: h * 0.8 };
+      // Gradients keyed to lane positions (userSpaceOnUse), so a connector
+      // blends from one stage's color into the next no matter its direction —
+      // the Apple Health transition look.
+      const pid = opts.idPrefix || 'hyp';
+      const laneColor = { awake: 'var(--awake)', light: 'var(--sleep-light)', deep: 'var(--sleep-deep)' };
+      const pairs = [['awake', 'light'], ['light', 'deep'], ['awake', 'deep']];
+      const defs = '<defs>' + pairs.map(([a, b]) =>
+        `<linearGradient id="${pid}-${a}-${b}" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1="${lanes[a].toFixed(2)}" y2="${lanes[b].toFixed(2)}">
+          <stop offset="0" style="stop-color:${laneColor[a]}"/>
+          <stop offset="1" style="stop-color:${laneColor[b]}"/>
+        </linearGradient>`).join('') + '</defs>';
+      const gradientFor = (a, b) => {
+        const pair = pairs.find(p => (p[0] === a && p[1] === b) || (p[0] === b && p[1] === a));
+        return `${pid}-${pair[0]}-${pair[1]}`;
+      };
+      const connectors = [];
+      for (let i = 1; i < sleepRuns.length; i++) {
+        const a = sleepRuns[i - 1], b = sleepRuns[i];
+        if (a.level === b.level || b.start - a.end > GAP_MS * 3) continue;
+        const xm = (a.end + b.start) / 2;
+        if (xm < dataStart || xm > dataEnd) continue;
+        const x = (opts.clip ? clampX(xOf(xm)) : xOf(xm)).toFixed(2);
+        connectors.push(`<line class="sleepconn" x1="${x}" x2="${x}" y1="${lanes[a.level].toFixed(2)}" y2="${lanes[b.level].toFixed(2)}" stroke="url(#${gradientFor(a.level, b.level)})"/>`);
+      }
       const bars = sleepRuns
         .filter(r => r.end >= dataStart && r.start <= dataEnd)
         .map(r => {
@@ -486,15 +535,15 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           const y = lanes[r.level].toFixed(2);
           return `<line class="sleepbar sleep-${r.level}" x1="${x0.toFixed(2)}" x2="${x1.toFixed(2)}" y1="${y}" y2="${y}" style="stroke-width:${opts.bar || 5}px"/>`;
         }).join('');
-      return { markup: bands + eventMarks + bars };
+      return { markup: defs + bands + eventMarks + connectors.join('') + bars };
     }
 
     function renderChart(key) {
       const g = el(key + 'G'); if (!g) return;
       const end = chartEnd();
       const built = key === 'sleep'
-        ? buildSleepMarkup(end - WINDOW_MS, end, end - 2 * WINDOW_MS, end + WINDOW_MS / 4, 100, 42)
-        : buildSeriesMarkup(key, end - WINDOW_MS, end, end - 2 * WINDOW_MS, end + WINDOW_MS / 4, 100, 42);
+        ? buildSleepMarkup(end - windowMs, end, end - 2 * windowMs, end + windowMs / 4, 100, 42)
+        : buildSeriesMarkup(key, end - windowMs, end, end - 2 * windowMs, end + windowMs / 4, 100, 42);
       g.innerHTML = built.markup;
       g.removeAttribute('transform');
     }
@@ -504,16 +553,22 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       updateTimescale();
     }
     function applyPan() {
-      const shift = ((anchorEnd - chartEnd()) / WINDOW_MS) * 100;
+      const shift = ((anchorEnd - chartEnd()) / windowMs) * 100;
       if (Math.abs(shift) > 85) { renderCharts(); return; }
       const t = `translate(${shift.toFixed(3)} 0)`;
       HERO_KEYS.forEach(key => el(key + 'G').setAttribute('transform', t));
       updateTimescale();
     }
+    const fmtTick = date => {
+      const label = fmtClock(date);
+      return date.toDateString() === new Date().toDateString()
+        ? label
+        : `${date.getMonth() + 1}/${date.getDate()} ${label}`;
+    };
     function updateTimescale() {
       const end = chartEnd();
-      el('tsStart').textContent = fmtClock(new Date(end - WINDOW_MS));
-      el('tsEnd').textContent = viewEnd == null ? 'now' : fmtClock(new Date(end));
+      el('tsStart').textContent = fmtTick(new Date(end - windowMs));
+      el('tsEnd').textContent = viewEnd == null ? 'now' : fmtTick(new Date(end));
       const chip = el('tsLive');
       chip.textContent = viewEnd == null ? '● live' : '⟳ back to now';
       chip.classList.toggle('paused', viewEnd != null);
@@ -521,6 +576,26 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     el('tsLive').addEventListener('click', () => {
       if (viewEnd == null) return;
       viewEnd = null; clearInspect(); renderCharts();
+    });
+
+    // ---- window picker (top right): sets the span all four charts show ----
+    function paintRangeSeg() {
+      el('rangeSeg').querySelectorAll('button').forEach(button => {
+        button.classList.toggle('active', Number(button.dataset.mins) * 60 * 1000 === windowMs);
+      });
+    }
+    paintRangeSeg();
+    el('rangeSeg').addEventListener('click', async event => {
+      const mins = event.target.dataset && event.target.dataset.mins;
+      if (!mins) return;
+      windowMs = Number(mins) * 60 * 1000;
+      localStorage.setItem('owletTodayWindow', mins);
+      viewEnd = null;             // a new span always starts back at "now"
+      paintRangeSeg();
+      clearInspect();
+      renderCharts();
+      await ensureHistoryHours(Math.ceil(windowMs / 3600000));
+      renderCharts();
     });
 
     // ---- inspect (tap / hold) ----------------------------------------------
@@ -534,7 +609,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     function inspectAt(clientX, card) {
       const rect = card.getBoundingClientRect();
       const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-      const t = chartEnd() - WINDOW_MS + frac * WINDOW_MS;
+      const t = chartEnd() - windowMs + frac * windowMs;
       const nearEvent = careEvents.find(e => Math.abs(e.x - t) <= 3 * 60 * 1000);
       const when = `at ${fmtClock(new Date(t))}` + (nearEvent ? ` · ⚑ ${esc(nearEvent.kind)}` : '');
       const gap = gapAt(t);
@@ -575,7 +650,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         mode: 'pending', card,
         x0: event.clientX, y0: event.clientY,
         end0: chartEnd(),
-        msPerPx: WINDOW_MS / card.getBoundingClientRect().width,
+        msPerPx: windowMs / card.getBoundingClientRect().width,
         hist: [{ x: event.clientX, t: performance.now() }],
       };
       inspectAt(event.clientX, card);   // respond on pointer-down, not release
@@ -598,10 +673,10 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       if (gesture.mode === 'pan') {
         let end = gesture.end0 - dx * gesture.msPerPx;   // pull right → back in time
         const nowMs = Date.now();
-        const minEnd = loadedStart() + WINDOW_MS;
+        const minEnd = loadedStart() + windowMs;
         if (end > nowMs) end = nowMs + (end - nowMs) / 3;             // rubber-band at "now"
         if (end < minEnd) { end = minEnd + (end - minEnd) / 3; extendHistory(); }
-        else if (end - WINDOW_MS < loadedStart() + WINDOW_MS / 4) extendHistory();
+        else if (end - windowMs < loadedStart() + windowMs / 4) extendHistory();
         viewEnd = end;
         applyPan();
       }
@@ -629,22 +704,22 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         const nowMs = Date.now();
         let target = viewEnd;
         if (target != null && nowMs - target < 5000) target = null;
-        if (target != null && target < loadedStart() + WINDOW_MS) target = loadedStart() + WINDOW_MS;
+        if (target != null && target < loadedStart() + windowMs) target = loadedStart() + windowMs;
         viewEnd = target === null ? null : target;
         renderCharts();
       };
-      if (Math.abs(vMs) < WINDOW_MS * 0.02) { settle(); return; }
+      if (Math.abs(vMs) < windowMs * 0.02) { settle(); return; }
       let last = performance.now();
       const step = t => {
         const dt = Math.min(64, t - last); last = t;
         vMs *= Math.pow(0.998, dt);
         let end = chartEnd() + vMs * (dt / 1000);
-        const nowMs = Date.now(), minEnd = loadedStart() + WINDOW_MS;
+        const nowMs = Date.now(), minEnd = loadedStart() + windowMs;
         if (end >= nowMs) { viewEnd = null; settle(); return; }
         if (end <= minEnd) { viewEnd = minEnd; extendHistory(); settle(); return; }
         viewEnd = end;
         applyPan();
-        if (Math.abs(vMs) > WINDOW_MS * 0.01) momentumRaf = requestAnimationFrame(step);
+        if (Math.abs(vMs) > windowMs * 0.01) momentumRaf = requestAnimationFrame(step);
         else settle();
       };
       momentumRaf = requestAnimationFrame(step);
@@ -906,7 +981,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       if (!sleepSheetState) return;
       await ensureHistoryHours(Math.ceil(sleepSheetState.spanMs / 3600000));
       const t1 = Date.now(), t0 = t1 - sleepSheetState.spanMs;
-      const built = buildSleepMarkup(t0, t1, t0, t1, 360, 150, { clip: true, bar: 12 });
+      const built = buildSleepMarkup(t0, t1, t0, t1, 360, 150, { clip: true, bar: 12, idPrefix: 'hyps' });
       const inWin = sleepRuns.filter(r => r.end > t0 && r.start < t1)
         .map(r => ({ level: r.level, start: Math.max(r.start, t0), end: Math.min(r.end, t1) }));
       const sum = level => inWin.filter(r => r.level === level).reduce((a, r) => a + (r.end - r.start), 0);
@@ -1154,6 +1229,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         return;
       }
       await refresh();
+      if (windowMs > 3600000) ensureHistoryHours(Math.ceil(windowMs / 3600000));
       rollupsReady.then(refresh);
       setInterval(refresh, Math.max(5, pollSeconds) * 1000);
       setInterval(async () => {  // refresh baselines occasionally
