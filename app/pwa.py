@@ -82,18 +82,6 @@ function networkFirst(request, cacheKey) {
     .catch(() => caches.match(cacheKey || request).then(cached => cached || Response.error()));
 }
 
-// Serve the cached page instantly and refresh it in the background — tab
-// switches paint at once instead of waiting a server round trip. Pages are
-// static shells (all data arrives via /api/*, which is never cached here),
-// so a slightly stale shell is always safe.
-function staleWhileRevalidate(request, cacheKey) {
-  return caches.match(cacheKey).then(cached => {
-    const network = networkFirst(request, cacheKey);
-    if (cached) { network.catch(() => {}); return cached; }
-    return network;
-  });
-}
-
 self.addEventListener('fetch', event => {
   const request = event.request;
   if (request.method !== 'GET') return;
@@ -103,8 +91,19 @@ self.addEventListener('fetch', event => {
   if (url.pathname.includes('/api/')) return;
   if (url.pathname.startsWith('/share/')) return;
 
+  // Serve the cached page instantly and refresh it in the background — tab
+  // switches paint at once instead of waiting a server round trip. Pages are
+  // static shells (all data arrives via /api/*, which is never cached here),
+  // so a slightly stale shell is always safe. waitUntil keeps the worker
+  // alive long enough for the background refresh to actually land.
   if (request.mode === 'navigate') {
-    event.respondWith(staleWhileRevalidate(request, url.pathname));
+    event.respondWith(
+      caches.match(url.pathname).then(cached => {
+        const network = networkFirst(request, url.pathname);
+        if (cached) { event.waitUntil(network.then(() => {}, () => {})); return cached; }
+        return network;
+      })
+    );
     return;
   }
 

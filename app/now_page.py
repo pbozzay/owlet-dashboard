@@ -60,8 +60,10 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .chip .sub { display: block; font-size: 11px; color: var(--faint); margin-top: 3px; }
     .chip.warn b { color: var(--warn); }
     .chip.good b { color: var(--good); }
-    button.chip { all: unset; box-sizing: border-box; padding: 15px 16px 13px;
-      cursor: pointer; text-align: left; }
+    /* Reset only the button chrome — `all: unset` would also wipe the .card
+       background/border/radius that these chips rely on. */
+    button.chip { display: block; width: 100%; margin: 0; font: inherit;
+      color: inherit; text-align: left; cursor: pointer; appearance: none; }
     button.chip:hover { border-color: var(--accent); }
     .doors { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     @media (max-width: 640px) { .doors { grid-template-columns: 1fr; } }

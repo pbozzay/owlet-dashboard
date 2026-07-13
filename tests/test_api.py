@@ -732,8 +732,8 @@ async def test_dashboard_endpoint_serves_html(tmp_path):
     assert "rgba(37, 99, 235, 0.10)" in response.text
     assert "ctx.setLineDash(isTrendCompanion ? [7, 5] : [8, 5])" in response.text
     assert "ctx.strokeRect(left, chartArea.top + 1" in response.text
-    assert "rgba(4, 120, 87, .96)" in response.text
-    assert "rgba(185, 28, 28, .96)" in response.text
+    assert "seriesAlpha(SERIES.good, 'f2')" in response.text
+    assert "seriesAlpha(SERIES.bad, 'f2')" in response.text
     assert "stateStrip" in response.text
     assert "Challenge data is excluded" in response.text
     assert "challengeEditForm" in response.text
