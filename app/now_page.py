@@ -13,7 +13,9 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .today-head { display: flex; justify-content: space-between; align-items: flex-start;
       flex-wrap: wrap; gap: 8px 16px; margin-bottom: 22px; }
     .status-line { font-size: 17px; color: var(--dim); line-height: 1.5; margin: 0;
-      max-width: 60ch; flex: 1 1 260px; }
+      max-width: 70ch; flex: 1 1 320px; }
+    /* On phones the picker takes its own row instead of squeezing the text. */
+    @media (max-width: 640px) { .status-line { flex-basis: 100%; } }
     .status-line b { color: var(--ink); font-weight: 600; }
     .range-seg { display: flex; background: var(--accent-soft); border-radius: 999px;
       padding: 3px; margin-left: auto; flex: 0 0 auto; }
@@ -65,9 +67,11 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .chartzone .sleepconn, .ms-chartwrap .sleepconn { fill: none; stroke-width: 2px;
       opacity: .45; stroke-linecap: round; vector-effect: non-scaling-stroke; }
     #card-sleep .value { text-transform: lowercase; }
-    /* no-data bands: quiet grey = collector wasn't running, warm = sock off/charging */
-    .gapband.collector { fill: color-mix(in srgb, var(--ink) 7%, transparent); }
-    .gapband.sock { fill: color-mix(in srgb, var(--awake) 10%, transparent); }
+    /* gap captions: tiny inline label naming why the line is dotted there */
+    .gaplabels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+    .gaplabels span { position: absolute; top: 5px; transform: translateX(-50%);
+      font-size: 9px; letter-spacing: .09em; text-transform: uppercase;
+      color: var(--faint); white-space: nowrap; }
     .vital-expand { all: unset; position: absolute; top: 10px; right: 10px; z-index: 2;
       cursor: pointer; color: var(--faint); padding: 7px 9px; border-radius: 9px;
       font-size: 14px; line-height: 1; }
@@ -201,6 +205,7 @@ _VITAL_CARD = """<div class="vital card{minor}" id="card-{key}" data-metric="{ke
         <div class="band" id="{key}Band"></div>
         <div class="chartzone">
           <svg viewBox="0 0 100 42" preserveAspectRatio="none" aria-hidden="true"><g id="{key}G"></g></svg>
+          <div class="gaplabels" id="{key}Gaps"></div>
           <div class="xline" id="{key}X" hidden></div>
         </div>
       </div>"""
@@ -336,25 +341,49 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     function computeGaps(rows) {
       const out = [];
       let sockRun = null;
+      // Rows keep flowing while the sock itself is silent, so we can usually
+      // say WHY: battery climbing = charging, explicit disconnect flag, or
+      // plain sock-off. No rows at all = the collector wasn't running.
+      const finishSockRun = run => {
+        run.label = run.battery0 != null && run.battery1 != null && run.battery1 - run.battery0 > 1
+          ? 'charging'
+          : (run.disconnected ? 'disconnected' : 'sock off');
+        return run;
+      };
       for (let i = 0; i < rows.length; i++) {
         const t = Date.parse(rows[i].recorded_at);
         if (i > 0) {
           const prev = Date.parse(rows[i - 1].recorded_at);
-          if (t - prev > 2 * 60 * 1000) out.push({ start: prev, end: t, kind: 'collector' });
+          if (t - prev > 2 * 60 * 1000) out.push({ start: prev, end: t, kind: 'collector', label: 'collector off' });
         }
         if (isOffline(rows[i])) {
-          if (!sockRun) sockRun = { start: t, end: t, kind: 'sock' };
-          else sockRun.end = t;
-        } else if (sockRun) { out.push(sockRun); sockRun = null; }
+          const battery = rows[i].battery;
+          if (!sockRun) sockRun = { start: t, end: t, kind: 'sock', battery0: battery, battery1: battery, disconnected: false };
+          else {
+            sockRun.end = t;
+            if (battery != null) { sockRun.battery1 = battery; if (sockRun.battery0 == null) sockRun.battery0 = battery; }
+          }
+          if (rows[i].sock_disconnected) sockRun.disconnected = true;
+        } else if (sockRun) { out.push(finishSockRun(sockRun)); sockRun = null; }
       }
-      if (sockRun) { sockRun.end = Date.now(); out.push(sockRun); }
+      if (sockRun) { sockRun.end = Date.now(); out.push(finishSockRun(sockRun)); }
       if (rows.length) {
         const lastT = Date.parse(rows[rows.length - 1].recorded_at);
-        if (Date.now() - lastT > 2 * 60 * 1000) out.push({ start: lastT, end: Date.now(), kind: 'collector' });
+        if (Date.now() - lastT > 2 * 60 * 1000) out.push({ start: lastT, end: Date.now(), kind: 'collector', label: 'collector off' });
         const firstT = Date.parse(rows[0].recorded_at);
-        if (firstT - loadedStart() > 2 * 60 * 1000) out.unshift({ start: loadedStart(), end: firstT, kind: 'collector' });
+        if (firstT - loadedStart() > 2 * 60 * 1000) out.unshift({ start: loadedStart(), end: firstT, kind: 'collector', label: 'collector off' });
       }
       return out;
+    }
+    // Small inline captions naming each gap wide enough to carry one.
+    function gapLabelSpans(t0, t1, minFrac) {
+      return gaps
+        .filter(g => g.end > t0 && g.start < t1
+          && (Math.min(g.end, t1) - Math.max(g.start, t0)) / (t1 - t0) >= minFrac)
+        .map(g => {
+          const mid = (Math.max(g.start, t0) + Math.min(g.end, t1)) / 2;
+          return `<span style="left:${(((mid - t0) / (t1 - t0)) * 100).toFixed(2)}%">${esc(g.label)}</span>`;
+        }).join('');
     }
     function gapAt(t) { return gaps.find(g => t >= g.start && t <= g.end) || null; }
     function lastPointBefore(pts, t) {
@@ -426,20 +455,13 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const metric = METRICS.find(m => m.key === key);
       const xOf = t => ((t - t0) / (t1 - t0)) * w;
       const clampX = x => Math.max(0, Math.min(w, x));
-      const bands = gaps
-        .filter(g => g.end >= dataStart && g.start <= dataEnd && g.end - g.start > GAP_MS)
-        .map(g => {
-          const x0 = opts.clip ? clampX(xOf(g.start)) : xOf(g.start);
-          const x1 = opts.clip ? clampX(xOf(g.end)) : xOf(g.end);
-          return x1 - x0 < 0.2 ? '' : `<rect class="gapband ${g.kind}" x="${x0.toFixed(2)}" y="0" width="${(x1 - x0).toFixed(2)}" height="${h}"/>`;
-        }).join('');
       const eventMarks = careEvents
         .filter(e => e.x >= dataStart && e.x <= dataEnd)
         .map(e => `<line class="evline" x1="${xOf(e.x).toFixed(2)}" x2="${xOf(e.x).toFixed(2)}" y1="0" y2="${h}"><title>${esc(e.kind)}</title></line>`
           + `<circle class="evflag" cx="${xOf(e.x).toFixed(2)}" cy="3" r="2"/>`)
         .join('');
       const pts = downsample(points[key].filter(p => p.x >= dataStart && p.x <= dataEnd));
-      if (pts.length < 2) return { markup: bands + eventMarks, min: null, max: null };
+      if (pts.length < 2) return { markup: eventMarks, min: null, max: null };
       let min = Infinity, max = -Infinity;
       for (const p of pts) { if (p.y < min) min = p.y; if (p.y > max) max = p.y; }
       // Anchor the O₂ domain near the 90% line so a dip to 85 reads as a real
@@ -482,20 +504,13 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const lines = segs.filter(s => s.coords.length > 1)
         .map(s => `<polyline points="${s.coords.join(' ')}" style="stroke:${s.color}"/>`)
         .join('');
-      return { markup: bands + thresholds + ghosts + eventMarks + lines, min: domainMin, max: domainMax };
+      return { markup: thresholds + ghosts + eventMarks + lines, min: domainMin, max: domainMax };
     }
 
     // Tracker-style hypnogram: rounded bars in three lanes (awake / light / deep).
     function buildSleepMarkup(t0, t1, dataStart, dataEnd, w, h, opts = {}) {
       const xOf = t => ((t - t0) / (t1 - t0)) * w;
       const clampX = x => Math.max(0, Math.min(w, x));
-      const bands = gaps
-        .filter(g => g.end >= dataStart && g.start <= dataEnd && g.end - g.start > GAP_MS)
-        .map(g => {
-          const x0 = opts.clip ? clampX(xOf(g.start)) : xOf(g.start);
-          const x1 = opts.clip ? clampX(xOf(g.end)) : xOf(g.end);
-          return x1 - x0 < 0.2 ? '' : `<rect class="gapband ${g.kind}" x="${x0.toFixed(2)}" y="0" width="${(x1 - x0).toFixed(2)}" height="${h}"/>`;
-        }).join('');
       const eventMarks = careEvents
         .filter(e => e.x >= dataStart && e.x <= dataEnd)
         .map(e => `<line class="evline" x1="${xOf(e.x).toFixed(2)}" x2="${xOf(e.x).toFixed(2)}" y1="0" y2="${h}"><title>${esc(e.kind)}</title></line>`
@@ -535,7 +550,18 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           const y = lanes[r.level].toFixed(2);
           return `<line class="sleepbar sleep-${r.level}" x1="${x0.toFixed(2)}" x2="${x1.toFixed(2)}" y1="${y}" y2="${y}" style="stroke-width:${opts.bar || 5}px"/>`;
         }).join('');
-      return { markup: defs + bands + eventMarks + connectors.join('') + bars };
+      const ghosts = gaps
+        .filter(g => g.end >= dataStart && g.start <= dataEnd && g.end - g.start > GAP_MS)
+        .map(g => {
+          const prior = sleepRuns.filter(r => r.end <= g.start + 1000).pop();
+          if (!prior) return '';
+          const x0 = opts.clip ? clampX(xOf(g.start)) : xOf(g.start);
+          const x1 = opts.clip ? clampX(xOf(g.end)) : xOf(g.end);
+          if (x1 - x0 < 0.5) return '';
+          const y = lanes[prior.level].toFixed(2);
+          return `<line class="ghostline" x1="${x0.toFixed(2)}" x2="${x1.toFixed(2)}" y1="${y}" y2="${y}"/>`;
+        }).join('');
+      return { markup: defs + ghosts + eventMarks + connectors.join('') + bars };
     }
 
     function renderChart(key) {
@@ -546,6 +572,8 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         : buildSeriesMarkup(key, end - windowMs, end, end - 2 * windowMs, end + windowMs / 4, 100, 42);
       g.innerHTML = built.markup;
       g.removeAttribute('transform');
+      const labels = el(key + 'Gaps');
+      if (labels) { labels.innerHTML = gapLabelSpans(end - windowMs, end, 0.16); labels.style.transform = ''; }
     }
     function renderCharts() {
       anchorEnd = chartEnd();
@@ -556,7 +584,10 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const shift = ((anchorEnd - chartEnd()) / windowMs) * 100;
       if (Math.abs(shift) > 85) { renderCharts(); return; }
       const t = `translate(${shift.toFixed(3)} 0)`;
-      HERO_KEYS.forEach(key => el(key + 'G').setAttribute('transform', t));
+      HERO_KEYS.forEach(key => {
+        el(key + 'G').setAttribute('transform', t);
+        el(key + 'Gaps').style.transform = `translateX(${shift.toFixed(3)}%)`;
+      });
       updateTimescale();
     }
     const fmtTick = date => {
@@ -613,7 +644,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const nearEvent = careEvents.find(e => Math.abs(e.x - t) <= 3 * 60 * 1000);
       const when = `at ${fmtClock(new Date(t))}` + (nearEvent ? ` · ⚑ ${esc(nearEvent.kind)}` : '');
       const gap = gapAt(t);
-      const gapLabel = gap ? (gap.kind === 'collector' ? 'collector was off' : 'sock was off') : 'no reading';
+      const gapLabel = gap ? gap.label : 'no reading';
       HERO_KEYS.forEach(key => {
         if (key === 'sleep') {
           const level = sleepLevelAt(t);
@@ -922,6 +953,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         <div class="ms-chartwrap" id="msChart">
           <svg viewBox="0 0 360 150" preserveAspectRatio="none" aria-hidden="true">${built.markup}</svg>
           ${built.max != null ? `<span class="ms-ylab" style="top:2px">${metric.fmt(built.max)}</span><span class="ms-ylab" style="bottom:2px">${metric.fmt(built.min)}</span>` : ''}
+          <div class="gaplabels">${gapLabelSpans(t0, t1, 0.08)}</div>
           <div class="ms-xline" id="msX" hidden></div>
         </div>
         <div class="ms-axis"><span>${fmtClock(new Date(t0))}</span><span>${msState.center == null ? 'now' : fmtClock(new Date(t1))}</span></div>
@@ -953,7 +985,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         el('msValue').innerHTML = (p ? metric.fmt(p.y) : '—') + `<small> ${metric.unit}</small>`;
         el('msWhen').textContent = p
           ? `at ${fmtClock(new Date(t))}`
-          : `${gap ? (gap.kind === 'collector' ? 'collector was off' : 'sock was off') : 'no reading'} at ${fmtClock(new Date(t))}`;
+          : `${gap ? gap.label : 'no reading'} at ${fmtClock(new Date(t))}`;
         const x = el('msX'); x.hidden = false; x.style.left = (frac * 100) + '%';
       };
       chart.addEventListener('pointerdown', event => {
@@ -1017,6 +1049,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           <span class="ms-ylab" style="top:calc(20% - 6px)">awake</span>
           <span class="ms-ylab" style="top:calc(50% - 6px)">light</span>
           <span class="ms-ylab" style="top:calc(80% - 6px)">deep</span>
+          <div class="gaplabels">${gapLabelSpans(t0, t1, 0.08)}</div>
           <div class="ms-xline" id="msX" hidden></div>
         </div>
         <div class="ms-axis"><span>${fmtClock(new Date(t0))}</span><span>now</span></div>
@@ -1039,7 +1072,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         el('msValue').textContent = level ? SLEEP_WORD[level] : '—';
         el('msWhen').textContent = level
           ? `at ${fmtClock(new Date(t))}`
-          : `${gap ? (gap.kind === 'collector' ? 'collector was off' : 'sock was off') : 'no reading'} at ${fmtClock(new Date(t))}`;
+          : `${gap ? gap.label : 'no reading'} at ${fmtClock(new Date(t))}`;
         const x = el('msX'); x.hidden = false; x.style.left = (frac * 100) + '%';
       };
       chart.addEventListener('pointerdown', event => {

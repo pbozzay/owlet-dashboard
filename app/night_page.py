@@ -26,7 +26,7 @@ NIGHT_HEAD = """<style>
     h1 { font-size: clamp(34px, 6vw, 52px); letter-spacing: -0.025em; line-height: 1.04; margin: 0; }
     h1 small { display: block; font-size: 15px; letter-spacing: 0; color: var(--dim);
       font-weight: 400; margin-top: 10px; }
-    .lede { font-size: 17px; line-height: 1.55; color: var(--dim); max-width: 60ch;
+    .lede { font-size: 17px; line-height: 1.55; color: var(--dim); max-width: 72ch;
       margin: 18px 0 34px; }
     .lede b { color: var(--ink); font-weight: 600; }
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
