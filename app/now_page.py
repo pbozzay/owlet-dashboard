@@ -59,7 +59,9 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
       opacity: .75; }
     /* hypnogram: rounded state bars in three lanes, tracker-style, with thin
        gradient connectors between stages the way Apple draws transitions */
-    .chartzone .sleepbar, .ms-chartwrap .sleepbar { fill: none; stroke-linecap: round;
+    /* Butt caps: rounded ones extend half the bar width past each end and
+       read as stages overlapping in time. */
+    .chartzone .sleepbar, .ms-chartwrap .sleepbar { fill: none; stroke-linecap: butt;
       vector-effect: non-scaling-stroke; }
     .sleepbar.sleep-awake { stroke: var(--awake); }
     .sleepbar.sleep-light { stroke: var(--sleep-light); }

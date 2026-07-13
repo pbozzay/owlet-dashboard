@@ -10,7 +10,7 @@ RHYTHMS_HEAD = """<style>
       font-size: clamp(34px, 5.4vw, 54px); line-height: 1.06; letter-spacing: -0.015em;
       font-weight: 600; max-width: 30ch; margin: 0; }
     h1 em { font-style: italic; color: var(--accent); }
-    .lede { font-size: 16.5px; line-height: 1.6; color: var(--dim); max-width: 70ch;
+    .lede { font-size: 16.5px; line-height: 1.6; color: var(--dim);
       margin: 18px 0 40px; }
     section { margin-bottom: 44px; }
     .acto-card { padding: 22px; overflow-x: auto; }
