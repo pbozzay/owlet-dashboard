@@ -46,6 +46,13 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .chartzone .ghostline, .ms-chartwrap .ghostline { stroke: var(--faint);
       stroke-width: 1.4; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke;
       opacity: .75; }
+    /* hypnogram: rounded state bars in three lanes, tracker-style */
+    .chartzone .sleepbar, .ms-chartwrap .sleepbar { fill: none; stroke-linecap: round;
+      vector-effect: non-scaling-stroke; }
+    .sleepbar.sleep-awake { stroke: var(--awake); }
+    .sleepbar.sleep-light { stroke: var(--sleep-light); }
+    .sleepbar.sleep-deep { stroke: var(--sleep-deep); }
+    #card-sleep .value { text-transform: lowercase; }
     /* no-data bands: quiet grey = collector wasn't running, warm = sock off/charging */
     .gapband.collector { fill: color-mix(in srgb, var(--ink) 7%, transparent); }
     .gapband.sock { fill: color-mix(in srgb, var(--awake) 10%, transparent); }
@@ -193,7 +200,7 @@ NOW_BODY = (
     + _VITAL_CARD.format(minor="", key="hr", label="Heart rate", unit="bpm")
     + """</div>
     <div class="hero-minor">"""
-    + _VITAL_CARD.format(minor=" minor", key="temp", label="Skin temp", unit="°C")
+    + _VITAL_CARD.format(minor=" minor", key="sleep", label="Sleep", unit="")
     + _VITAL_CARD.format(minor=" minor", key="move", label="Movement", unit="")
     + """</div>
     <div class="timescale">
@@ -244,6 +251,9 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       { key: 'temp', label: 'Skin temp',  unit: '°C',  fmt: v => v.toFixed(1),  zone: null },
       { key: 'move', label: 'Movement',   unit: '',    fmt: v => Math.round(v), zone: null },
     ];
+    // Cards on the page: temp lives in the chip strip now; sleep is a hypnogram.
+    const HERO_KEYS = ['o2', 'hr', 'sleep', 'move'];
+    const SLEEP_WORD = { awake: 'awake', light: 'light', deep: 'deep' };
 
     // ---- data buffers ------------------------------------------------------
     // liveReadings is the always-fresh last hour; histReadings grows on demand
@@ -277,6 +287,26 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         .map(r => ({ x: Date.parse(r.recorded_at), y: r.skin_temperature }));
       points.move = valid.map(r => ({ x: Date.parse(r.recorded_at), y: r.movement || 0 }));
       gaps = computeGaps(rows);
+      sleepRuns = computeSleepRuns(rows);
+    }
+    let sleepRuns = [];   // {start, end, level: 'awake' | 'light' | 'deep'}
+    function computeSleepRuns(rows) {
+      const level = s => { const v = String(s); return v === '8' ? 'light' : v === '15' ? 'deep' : 'awake'; };
+      const out = [];
+      let run = null;
+      for (const r of rows) {
+        if (isOffline(r)) { run = null; continue; }
+        const t = Date.parse(r.recorded_at);
+        const lv = level(r.sleep_state);
+        if (run && run.level === lv && t - run.end <= GAP_MS) run.end = t;
+        else { run = { start: t, end: t, level: lv }; out.push(run); }
+      }
+      // drop sub-45s flickers — Owlet's state flaps sample to sample
+      return out.filter(r => r.end - r.start >= 45 * 1000);
+    }
+    function sleepLevelAt(t) {
+      const run = sleepRuns.find(r => t >= r.start - GAP_MS && t <= r.end + GAP_MS);
+      return run ? run.level : null;
     }
     function computeGaps(rows) {
       const out = [];
@@ -296,6 +326,8 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       if (rows.length) {
         const lastT = Date.parse(rows[rows.length - 1].recorded_at);
         if (Date.now() - lastT > 2 * 60 * 1000) out.push({ start: lastT, end: Date.now(), kind: 'collector' });
+        const firstT = Date.parse(rows[0].recorded_at);
+        if (firstT - loadedStart() > 2 * 60 * 1000) out.unshift({ start: loadedStart(), end: firstT, kind: 'collector' });
       }
       return out;
     }
@@ -428,24 +460,54 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       return { markup: bands + thresholds + ghosts + eventMarks + lines, min: domainMin, max: domainMax };
     }
 
-    function renderChart(metric) {
-      const g = el(metric.key + 'G'); if (!g) return;
+    // Tracker-style hypnogram: rounded bars in three lanes (awake / light / deep).
+    function buildSleepMarkup(t0, t1, dataStart, dataEnd, w, h, opts = {}) {
+      const xOf = t => ((t - t0) / (t1 - t0)) * w;
+      const clampX = x => Math.max(0, Math.min(w, x));
+      const bands = gaps
+        .filter(g => g.end >= dataStart && g.start <= dataEnd && g.end - g.start > GAP_MS)
+        .map(g => {
+          const x0 = opts.clip ? clampX(xOf(g.start)) : xOf(g.start);
+          const x1 = opts.clip ? clampX(xOf(g.end)) : xOf(g.end);
+          return x1 - x0 < 0.2 ? '' : `<rect class="gapband ${g.kind}" x="${x0.toFixed(2)}" y="0" width="${(x1 - x0).toFixed(2)}" height="${h}"/>`;
+        }).join('');
+      const eventMarks = careEvents
+        .filter(e => e.x >= dataStart && e.x <= dataEnd)
+        .map(e => `<line class="evline" x1="${xOf(e.x).toFixed(2)}" x2="${xOf(e.x).toFixed(2)}" y1="0" y2="${h}"><title>${esc(e.kind)}</title></line>`
+          + `<circle class="evflag" cx="${xOf(e.x).toFixed(2)}" cy="3" r="2"/>`)
+        .join('');
+      const lanes = { awake: h * 0.2, light: h * 0.5, deep: h * 0.8 };
+      const bars = sleepRuns
+        .filter(r => r.end >= dataStart && r.start <= dataEnd)
+        .map(r => {
+          const x0 = opts.clip ? clampX(xOf(r.start)) : xOf(r.start);
+          const x1 = opts.clip ? clampX(xOf(r.end)) : xOf(r.end);
+          if (x1 - x0 < 0.4) return '';
+          const y = lanes[r.level].toFixed(2);
+          return `<line class="sleepbar sleep-${r.level}" x1="${x0.toFixed(2)}" x2="${x1.toFixed(2)}" y1="${y}" y2="${y}" style="stroke-width:${opts.bar || 5}px"/>`;
+        }).join('');
+      return { markup: bands + eventMarks + bars };
+    }
+
+    function renderChart(key) {
+      const g = el(key + 'G'); if (!g) return;
       const end = chartEnd();
-      const built = buildSeriesMarkup(metric.key, end - WINDOW_MS, end,
-        end - 2 * WINDOW_MS, end + WINDOW_MS / 4, 100, 42);
+      const built = key === 'sleep'
+        ? buildSleepMarkup(end - WINDOW_MS, end, end - 2 * WINDOW_MS, end + WINDOW_MS / 4, 100, 42)
+        : buildSeriesMarkup(key, end - WINDOW_MS, end, end - 2 * WINDOW_MS, end + WINDOW_MS / 4, 100, 42);
       g.innerHTML = built.markup;
       g.removeAttribute('transform');
     }
     function renderCharts() {
       anchorEnd = chartEnd();
-      METRICS.forEach(renderChart);
+      HERO_KEYS.forEach(renderChart);
       updateTimescale();
     }
     function applyPan() {
       const shift = ((anchorEnd - chartEnd()) / WINDOW_MS) * 100;
       if (Math.abs(shift) > 85) { renderCharts(); return; }
       const t = `translate(${shift.toFixed(3)} 0)`;
-      METRICS.forEach(m => el(m.key + 'G').setAttribute('transform', t));
+      HERO_KEYS.forEach(key => el(key + 'G').setAttribute('transform', t));
       updateTimescale();
     }
     function updateTimescale() {
@@ -477,19 +539,26 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const when = `at ${fmtClock(new Date(t))}` + (nearEvent ? ` · ⚑ ${esc(nearEvent.kind)}` : '');
       const gap = gapAt(t);
       const gapLabel = gap ? (gap.kind === 'collector' ? 'collector was off' : 'sock was off') : 'no reading';
-      METRICS.forEach(m => {
-        const p = nearestPoint(points[m.key], t);
-        el(m.key + 'Value').textContent = p ? m.fmt(p.y) : '—';
-        el(m.key + 'Band').innerHTML = p ? when : `${gapLabel} ${when}`;
-        el('card-' + m.key).classList.add('inspecting');
-        const x = el(m.key + 'X');
+      HERO_KEYS.forEach(key => {
+        if (key === 'sleep') {
+          const level = sleepLevelAt(t);
+          el('sleepValue').textContent = level ? SLEEP_WORD[level] : '—';
+          el('sleepBand').innerHTML = level ? when : `${gapLabel} ${when}`;
+        } else {
+          const metric = METRICS.find(m => m.key === key);
+          const p = nearestPoint(points[key], t);
+          el(key + 'Value').textContent = p ? metric.fmt(p.y) : '—';
+          el(key + 'Band').innerHTML = p ? when : `${gapLabel} ${when}`;
+        }
+        el('card-' + key).classList.add('inspecting');
+        const x = el(key + 'X');
         x.hidden = false; x.style.left = (frac * 100) + '%';
       });
     }
     function clearInspect() {
-      METRICS.forEach(m => {
-        el(m.key + 'X').hidden = true;
-        el('card-' + m.key).classList.remove('inspecting');
+      HERO_KEYS.forEach(key => {
+        el(key + 'X').hidden = true;
+        el('card-' + key).classList.remove('inspecting');
       });
       updateHeroLive();
     }
@@ -580,8 +649,8 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       };
       momentumRaf = requestAnimationFrame(step);
     }
-    METRICS.forEach(m => {
-      const card = el('card-' + m.key);
+    HERO_KEYS.forEach(key => {
+      const card = el('card-' + key);
       card.addEventListener('pointerdown', e => onDown(e, card));
       card.addEventListener('pointermove', onMove);
       card.addEventListener('pointerup', onUp);
@@ -610,25 +679,6 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     function todayWindow() {
       const start = new Date(); start.setHours(0, 0, 0, 0);
       return { start, end: new Date() };
-    }
-
-    function sleepSheet() {
-      const today = todayWindow();
-      const runs = I.sessions(rollups, today.start, today.end)
-        .filter(run => run.state !== 'nodata' && run.buckets >= 2);
-      if (!runs.length) return openSheet('Sleep today', '<p class="note">No sleep sessions recorded yet today.</p>');
-      const rows = runs.map(run => {
-        const ongoing = run === runs[runs.length - 1] && (Date.now() - run.end) < 10 * 60 * 1000;
-        return `<div class="row">
-          <span>${fmtClock(new Date(run.start))} – ${ongoing ? 'now' : fmtClock(new Date(run.end))}</span>
-          <span class="mut">${run.state === 'asleep' ? 'asleep' : 'awake'}</span>
-          <b>${fmtDur((run.end - run.start) / 1000)}</b>
-        </div>`;
-      }).join('');
-      const asleep = runs.filter(r => r.state === 'asleep');
-      const total = asleep.reduce((a, r) => a + (r.end - r.start), 0);
-      openSheet('Sleep today', rows +
-        `<p class="note">${asleep.length} sleep ${asleep.length === 1 ? 'session' : 'sessions'} · ${fmtDur(total / 1000)} total.</p>`);
     }
 
     function dipsSheet() {
@@ -837,27 +887,108 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       });
       chart.addEventListener('pointermove', scrub);
     }
-    METRICS.forEach(m => {
-      const button = document.querySelector(`.vital-expand[data-expand="${m.key}"]`);
-      if (!button) return;
+    document.querySelectorAll('.vital-expand').forEach(button => {
       button.addEventListener('pointerdown', event => event.stopPropagation());
-      button.addEventListener('click', event => { event.stopPropagation(); openMetricSheet(m.key); });
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        if (button.dataset.expand === 'sleep') openSleepSheet();
+        else openMetricSheet(button.dataset.expand);
+      });
     });
+
+    // ---- sleep detail sheet: bigger hypnogram, split, sessions ----------------
+    let sleepSheetState = null;
+    function openSleepSheet() {
+      sleepSheetState = { spanMs: 12 * 3600 * 1000 };
+      renderSleepSheet();
+    }
+    async function renderSleepSheet() {
+      if (!sleepSheetState) return;
+      await ensureHistoryHours(Math.ceil(sleepSheetState.spanMs / 3600000));
+      const t1 = Date.now(), t0 = t1 - sleepSheetState.spanMs;
+      const built = buildSleepMarkup(t0, t1, t0, t1, 360, 150, { clip: true, bar: 12 });
+      const inWin = sleepRuns.filter(r => r.end > t0 && r.start < t1)
+        .map(r => ({ level: r.level, start: Math.max(r.start, t0), end: Math.min(r.end, t1) }));
+      const sum = level => inWin.filter(r => r.level === level).reduce((a, r) => a + (r.end - r.start), 0);
+      const lightMs = sum('light'), deepMs = sum('deep');
+      let wakeUps = 0;
+      for (let i = 1; i < inWin.length - 1; i++) {
+        if (inWin[i].level === 'awake' && inWin[i - 1].level !== 'awake' && inWin[i + 1].level !== 'awake') wakeUps += 1;
+      }
+      const stats = `<div class="ms-stats">
+        <div><b>${fmtDur((lightMs + deepMs) / 1000)}</b><span>asleep</span></div>
+        <div><b>${fmtDur(lightMs / 1000)}</b><span>light</span></div>
+        <div><b>${fmtDur(deepMs / 1000)}</b><span>deep</span></div>
+        <div><b>${wakeUps}</b><span>wake-ups</span></div></div>`;
+      const naps = I.sessions(rollups, new Date(t0), new Date(t1))
+        .filter(run => run.state === 'asleep' && run.buckets >= 2);
+      const sessionRows = naps.slice(-8).reverse().map(run => {
+        const ongoing = (Date.now() - run.end) < 10 * 60 * 1000;
+        return `<div class="row">
+          <span>${fmtClock(new Date(run.start))} – ${ongoing ? 'now' : fmtClock(new Date(run.end))}</span>
+          <b>${fmtDur((run.end - run.start) / 1000)}</b>
+        </div>`;
+      }).join('');
+      const spans = [3, 12, 24].map(h =>
+        `<button type="button" data-hours="${h}" class="${h * 3600 * 1000 === sleepSheetState.spanMs ? 'active' : ''}">${h}h</button>`).join('');
+      openSheet('Sleep',
+        `<div class="ms-top">
+          <div class="ms-value" id="msValue">—</div>
+          <div class="ms-when" id="msWhen">touch the chart to read a moment</div>
+        </div>
+        <div class="ms-seg" id="msSeg">${spans}</div>
+        <div class="ms-chartwrap" id="msChart">
+          <svg viewBox="0 0 360 150" preserveAspectRatio="none" aria-hidden="true">${built.markup}</svg>
+          <span class="ms-ylab" style="top:calc(20% - 6px)">awake</span>
+          <span class="ms-ylab" style="top:calc(50% - 6px)">light</span>
+          <span class="ms-ylab" style="top:calc(80% - 6px)">deep</span>
+          <div class="ms-xline" id="msX" hidden></div>
+        </div>
+        <div class="ms-axis"><span>${fmtClock(new Date(t0))}</span><span>now</span></div>
+        ${stats}
+        ${sessionRows ? '<h3 class="section-title" style="margin-top:16px">Sleep sessions</h3>' + sessionRows : ''}
+        <a class="ms-link" href="/night">Tonight's full report →</a>`);
+      el('msSeg').addEventListener('click', event => {
+        const hours = event.target.dataset && event.target.dataset.hours;
+        if (!hours) return;
+        sleepSheetState.spanMs = Number(hours) * 3600 * 1000;
+        renderSleepSheet();
+      });
+      const chart = el('msChart');
+      const scrub = event => {
+        const rect = chart.getBoundingClientRect();
+        const frac = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+        const t = t0 + frac * (t1 - t0);
+        const level = sleepLevelAt(t);
+        const gap = gapAt(t);
+        el('msValue').textContent = level ? SLEEP_WORD[level] : '—';
+        el('msWhen').textContent = level
+          ? `at ${fmtClock(new Date(t))}`
+          : `${gap ? (gap.kind === 'collector' ? 'collector was off' : 'sock was off') : 'no reading'} at ${fmtClock(new Date(t))}`;
+        const x = el('msX'); x.hidden = false; x.style.left = (frac * 100) + '%';
+      };
+      chart.addEventListener('pointerdown', event => {
+        try { chart.setPointerCapture(event.pointerId); } catch (error) { /* fine */ }
+        scrub(event);
+      });
+      chart.addEventListener('pointermove', scrub);
+    }
 
     // ---- live vitals + narrative --------------------------------------------
     const bandText = (band, unit) => band
       ? `typical ${baselineState} range ${Math.round(band.low)}–${Math.round(band.high)}${unit}`
       : 'building her baseline — needs a couple of days';
 
+    let sleepSessionText = 'watching for the first session';
     function updateHeroLive() {
       if (el('card-o2').classList.contains('inspecting')) return;
       el('o2Value').textContent = latest.o2 != null ? Math.round(latest.o2) : '—';
       el('hrValue').textContent = latest.hr != null ? Math.round(latest.hr) : '—';
-      el('tempValue').textContent = latest.temp != null ? latest.temp.toFixed(1) : '—';
+      el('sleepValue').textContent = latest.sleepLevel ? SLEEP_WORD[latest.sleepLevel] : '—';
       el('moveValue').textContent = latest.move != null ? moveWord(latest.move) : '—';
       el('o2Band').textContent = bandText(bands.o2, '%');
       el('hrBand').textContent = bandText(bands.hr, '');
-      el('tempBand').textContent = tempRangeText || 'skin temperature, not core';
+      el('sleepBand').textContent = sleepSessionText;
       el('moveBand').textContent = 'wiggle level — spikes while awake are normal';
       const o2Out = bands.o2 && latest.o2 != null && (latest.o2 < bands.o2.low || latest.o2 > bands.o2.high);
       const hrOut = bands.hr && latest.hr != null && (latest.hr < bands.hr.low || latest.hr > bands.hr.high);
@@ -886,6 +1017,12 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       latest.hr = latestRow && !offline ? latestRow.heart_rate : null;
       latest.o2 = latestRow && !offline ? latestRow.oxygen_saturation : null;
       latest.temp = latestRow && !offline && latestRow.skin_temperature > 0 ? latestRow.skin_temperature : null;
+      latest.sleepLevel = latestRow && !offline
+        ? ({ '8': 'light', '15': 'deep' }[String(latestRow.sleep_state)] || 'awake')
+        : null;
+      sleepSessionText = currentRun && currentRun.state !== 'nodata'
+        ? `${currentRun.state === 'asleep' ? 'asleep' : 'awake'} for ${fmtDur((Date.now() - currentRun.start) / 1000)}`
+        : 'settling in';
       const recent = readings.slice(-24).filter(r => !isOffline(r));
       latest.move = !offline && recent.length
         ? recent.reduce((a, r) => a + (r.movement || 0), 0) / recent.length
@@ -964,6 +1101,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           <button class="chip card" id="chipSleep"><b>${fmtDur(sleepToday)}</b><span>sleep today</span><span class="sub">tap for sessions</span></button>
           <button class="chip card ${dipsToday ? 'warn' : 'good'}" id="chipDips"><b>${dipsToday}</b><span>O₂ dips today</span><span class="sub">tap for detail</span></button>
           <button class="chip card ${batteryClass}" id="chipBattery"><b>${batteryText}</b><span>battery</span><span class="sub">${batterySub}</span></button>
+          <button class="chip card" id="chipTemp"><b>${latest.temp != null ? latest.temp.toFixed(1) + '°' : '—'}</b><span>skin temp</span><span class="sub">${tempRangeText || 'tap for history'}</span></button>
           <button class="chip card" id="chipEvents"><b>⚑ Log</b><span>event</span>
             <span class="sub">${lastEvent ? 'last: ' + esc(lastEvent.kind) + ' ' + fmtClock(new Date(lastEvent.x)) : 'O₂ on/off, sock off…'}</span></button>
         </div>
@@ -973,7 +1111,8 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           <a class="door card" href="/data"><b>The raw data →</b>
             <span>Full charts, tables, exports — every reading behind these numbers.</span></a>
         </div>`;
-      el('chipSleep').addEventListener('click', sleepSheet);
+      el('chipSleep').addEventListener('click', openSleepSheet);
+      el('chipTemp').addEventListener('click', () => openMetricSheet('temp'));
       el('chipDips').addEventListener('click', dipsSheet);
       el('chipBattery').addEventListener('click', batterySheet);
       el('chipEvents').addEventListener('click', eventsSheet);
