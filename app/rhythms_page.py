@@ -211,18 +211,18 @@ RHYTHMS_SCRIPTS = """<script>
     async function boot() {
       let rollups = [], deviceName = null;
       try {
-        const [rollupData, devices] = await Promise.all([
+        const [rollupData, accounts] = await Promise.all([
           fetch('/api/rollups?bucket=30m&hours=336&limit=100000').then(r => r.json()),
-          fetch('/api/devices').then(r => r.json())
+          fetch('/api/accounts').then(r => r.json())
         ]);
         rollups = rollupData.rollups || [];
-        const device = (devices.devices || [])[0];
-        if (device) deviceName = device.baby_name || device.name;
+        const account = (accounts.accounts || [])[0];
+        deviceName = (account && account.dashboard_preferences && account.dashboard_preferences.baby_name) || null;
       } catch (error) {
         el('content').innerHTML = '<div class="empty">Could not load readings — is the collector running?</div>';
         return;
       }
-      if (deviceName) el('title').innerHTML = `The shape of <em>${deviceName}’s</em> days`;
+      el('title').innerHTML = deviceName ? `The shape of <em>${deviceName}’s</em> days` : 'The shape of the days';
       const days = dayGrid(rollups);
       if (!days.length) {
         el('content').innerHTML = `<div class="empty">Nothing to chart yet.<br/>

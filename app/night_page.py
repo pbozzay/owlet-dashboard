@@ -172,7 +172,8 @@ NIGHT_SCRIPTS = """<script>
       if (!dips.length) mood = 'a smooth night — oxygen held steady the whole way';
       else if (dips.length === 1) mood = `one brief dip to <b>${Math.round(dips[0].min)}%</b> around ${fmtClock(dips[0].start)}, otherwise steady`;
       else mood = `<b>${dips.length}</b> dips below 90%, the lowest at <b>${Math.round(Math.min(...dips.map(d => d.min)))}%</b>`;
-      const opener = inProgress ? `So far tonight, ${name} has logged` : `${name} logged`;
+      const capName = name.charAt(0) === '<' ? name.replace(/<b>(.)/, (m, c) => '<b>' + c.toUpperCase()) : name;
+      const opener = inProgress ? `So far tonight, ${name} has logged` : `${capName} logged`;
       return `${opener} ${sleepText}, with ${mood}.`;
     }
 
@@ -278,13 +279,14 @@ NIGHT_SCRIPTS = """<script>
 
     async function boot() {
       try {
-        const [rollupData, devices] = await Promise.all([
+        const [rollupData, accounts] = await Promise.all([
           fetch('/api/rollups?bucket=5m&hours=192&limit=100000').then(r => r.json()),
-          fetch('/api/devices').then(r => r.json())
+          fetch('/api/accounts').then(r => r.json())
         ]);
         rollups = rollupData.rollups || [];
-        const device = (devices.devices || [])[0];
-        if (device) deviceName = device.baby_name || device.name || deviceName;
+        const account = (accounts.accounts || [])[0];
+        const babyName = account && account.dashboard_preferences && account.dashboard_preferences.baby_name;
+        if (babyName) deviceName = babyName;
       } catch (error) {
         el('lede').textContent = 'Could not load readings — is the collector running?';
         return;

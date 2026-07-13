@@ -109,7 +109,8 @@ SHELL_JS = """<script>
     var account = shellSelectedAccount();
     var device = (devices || [])[0];
     var name = account ? (account.display_name || account.email || 'Owlet profile') : 'Owlet profile';
-    var deviceName = device ? (device.baby_name || device.name || 'Owlet sock') : 'Owlet sock';
+    var babyName = account && account.dashboard_preferences && account.dashboard_preferences.baby_name;
+    var deviceName = babyName || (device ? (device.baby_name || device.name || 'Owlet sock') : 'Owlet sock');
     var initials = name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || 'O';
     ['profileAvatar', 'profileMenuAvatar'].forEach(function (id) {
       var node = byId(id); if (node) node.textContent = initials;
@@ -119,6 +120,9 @@ SHELL_JS = """<script>
     if (byId('profileDeviceName')) byId('profileDeviceName').textContent = deviceName;
     if (byId('profileMenuSubtitle')) byId('profileMenuSubtitle').textContent = deviceName;
     if (byId('pollIntervalSetting')) byId('pollIntervalSetting').value = String((account && account.poll_interval_seconds) || 5);
+    if (byId('babyNameSetting') && document.activeElement !== byId('babyNameSetting')) {
+      byId('babyNameSetting').value = babyName || '';
+    }
   }
   function loadShellAccounts() {
     return Promise.all([
@@ -165,6 +169,10 @@ SHELL_JS = """<script>
     patchSelectedAccount({ poll_interval_seconds: Number(event.target.value) }).then(function (account) {
       if (account && account.poll_interval_seconds) pollInterval = account.poll_interval_seconds;
     });
+  });
+  if (byId('babyNameSetting')) byId('babyNameSetting').addEventListener('change', function (event) {
+    patchSelectedAccount({ dashboard_preferences: { baby_name: event.target.value.trim() } })
+      .then(function () { loadShellAccounts(); });
   });
   if (byId('accountSelect')) byId('accountSelect').addEventListener('change', function () {
     renderShellMenu([]);
@@ -454,6 +462,11 @@ def render_shell(
             <button id="addAccount" class="pp-link-btn" type="button"
               title="Link another Owlet account">Link</button>
           </div>
+        </div>
+        <div class="pp-section">
+          <span class="pp-label">Baby's name</span>
+          <input id="babyNameSetting" type="text" maxlength="40" placeholder="e.g. Hazel"
+            autocomplete="off" />
         </div>
         <div class="pp-section">
           <span class="pp-label">Update every</span>

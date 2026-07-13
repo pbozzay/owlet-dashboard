@@ -817,6 +817,9 @@ def _public_dashboard_preferences_patch(value: object) -> dict[str, object] | No
     theme_value = value.get("theme")
     if str(theme_value) in {"auto", "light", "dark"}:
         allowed["theme"] = str(theme_value)
+    baby_name = value.get("baby_name")
+    if isinstance(baby_name, str):
+        allowed["baby_name"] = baby_name.strip()[:40]
     return allowed
 
 

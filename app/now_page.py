@@ -71,7 +71,7 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     #card-sleep .value { text-transform: lowercase; }
     /* gap captions: tiny inline label naming why the line is dotted there */
     .gaplabels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-    .gaplabels span { position: absolute; top: 5px; transform: translateX(-50%);
+    .gaplabels span { position: absolute; transform: translateX(-50%);
       font-size: 9px; letter-spacing: .09em; text-transform: uppercase;
       color: var(--faint); white-space: nowrap; }
     .vital-expand { all: unset; position: absolute; top: 10px; right: 10px; z-index: 2;
@@ -263,6 +263,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     const esc = text => String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     let pollSeconds = 5;
     let deviceName = 'your little one';
+    const capitalized = s => s.charAt(0).toUpperCase() + s.slice(1);
     let rollups = [];
 
     const stateLabel = value => ({ '0': 'resting', '1': 'awake', '8': 'in light sleep', '15': 'in deep sleep' }[String(value)] || null);
@@ -378,13 +379,15 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       return out;
     }
     // Small inline captions naming each gap wide enough to carry one.
-    function gapLabelSpans(t0, t1, minFrac) {
+    function gapLabelSpans(t0, t1, minFrac, ghostYs) {
       return gaps
         .filter(g => g.end > t0 && g.start < t1
           && (Math.min(g.end, t1) - Math.max(g.start, t0)) / (t1 - t0) >= minFrac)
         .map(g => {
           const mid = (Math.max(g.start, t0) + Math.min(g.end, t1)) / 2;
-          return `<span style="left:${(((mid - t0) / (t1 - t0)) * 100).toFixed(2)}%">${esc(g.label)}</span>`;
+          const yFrac = ghostYs && ghostYs[g.start] != null ? ghostYs[g.start] : null;
+          const top = yFrac == null ? 'top:5px' : `top:max(2px, calc(${(yFrac * 100).toFixed(1)}% - 16px))`;
+          return `<span style="left:${(((mid - t0) / (t1 - t0)) * 100).toFixed(2)}%;${top}">${esc(g.label)}</span>`;
         }).join('');
     }
     function gapAt(t) { return gaps.find(g => t >= g.start && t <= g.end) || null; }
@@ -392,6 +395,12 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       if (!pts.length || pts[0].x > t) return null;
       let lo = 0, hi = pts.length - 1;
       while (lo < hi) { const mid = (lo + hi + 1) >> 1; (pts[mid].x <= t ? lo = mid : hi = mid - 1); }
+      return pts[lo];
+    }
+    function firstPointAfter(pts, t) {
+      if (!pts.length || pts[pts.length - 1].x < t) return null;
+      let lo = 0, hi = pts.length - 1;
+      while (lo < hi) { const mid = (lo + hi) >> 1; (pts[mid].x >= t ? hi = mid : lo = mid + 1); }
       return pts[lo];
     }
     function loadedStart() { return Date.now() - loadedHours * 3600 * 1000; }
@@ -463,7 +472,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           + `<circle class="evflag" cx="${xOf(e.x).toFixed(2)}" cy="3" r="2"/>`)
         .join('');
       const pts = downsample(points[key].filter(p => p.x >= dataStart && p.x <= dataEnd));
-      if (pts.length < 2) return { markup: eventMarks, min: null, max: null };
+      if (pts.length < 2) return { markup: eventMarks, min: null, max: null, ghostYs: {} };
       let min = Infinity, max = -Infinity;
       for (const p of pts) { if (p.y < min) min = p.y; if (p.y > max) max = p.y; }
       // Anchor the O₂ domain near the 90% line so a dip to 85 reads as a real
@@ -480,12 +489,17 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       }
       // Hold the last reading's level through each offline stretch as a dashed
       // grey line, so the gap reads as "signal lost here" rather than nothing.
+      const ghostYs = {};
       const ghosts = gaps
         .filter(g => g.end >= dataStart && g.start <= dataEnd && g.end - g.start > GAP_MS)
         .map(g => {
-          const prior = lastPointBefore(points[key], g.start + 1000);
-          if (!prior) return '';
-          const gy = Math.max(2, Math.min(h - 2, yOf(prior.y)));
+          // Anchor on the reading before the gap, or the one after it when the
+          // earlier history simply isn't loaded yet — the line always draws.
+          const anchor = lastPointBefore(points[key], g.start + 1000)
+            || firstPointAfter(points[key], g.end - 1000);
+          if (!anchor) return '';
+          const gy = Math.max(2, Math.min(h - 2, yOf(anchor.y)));
+          ghostYs[g.start] = gy / h;
           const x0 = opts.clip ? clampX(xOf(g.start)) : xOf(g.start);
           const x1 = opts.clip ? clampX(xOf(g.end)) : xOf(g.end);
           if (x1 - x0 < 0.5) return '';
@@ -506,7 +520,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const lines = segs.filter(s => s.coords.length > 1)
         .map(s => `<polyline points="${s.coords.join(' ')}" style="stroke:${s.color}"/>`)
         .join('');
-      return { markup: thresholds + ghosts + eventMarks + lines, min: domainMin, max: domainMax };
+      return { markup: thresholds + ghosts + eventMarks + lines, min: domainMin, max: domainMax, ghostYs };
     }
 
     // Tracker-style hypnogram: rounded bars in three lanes (awake / light / deep).
@@ -552,18 +566,21 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           const y = lanes[r.level].toFixed(2);
           return `<line class="sleepbar sleep-${r.level}" x1="${x0.toFixed(2)}" x2="${x1.toFixed(2)}" y1="${y}" y2="${y}" style="stroke-width:${opts.bar || 5}px"/>`;
         }).join('');
+      const ghostYs = {};
       const ghosts = gaps
         .filter(g => g.end >= dataStart && g.start <= dataEnd && g.end - g.start > GAP_MS)
         .map(g => {
-          const prior = sleepRuns.filter(r => r.end <= g.start + 1000).pop();
-          if (!prior) return '';
+          const anchor = sleepRuns.filter(r => r.end <= g.start + 1000).pop()
+            || sleepRuns.find(r => r.start >= g.end - 1000);
+          if (!anchor) return '';
+          ghostYs[g.start] = lanes[anchor.level] / h;
           const x0 = opts.clip ? clampX(xOf(g.start)) : xOf(g.start);
           const x1 = opts.clip ? clampX(xOf(g.end)) : xOf(g.end);
           if (x1 - x0 < 0.5) return '';
-          const y = lanes[prior.level].toFixed(2);
+          const y = lanes[anchor.level].toFixed(2);
           return `<line class="ghostline" x1="${x0.toFixed(2)}" x2="${x1.toFixed(2)}" y1="${y}" y2="${y}"/>`;
         }).join('');
-      return { markup: defs + ghosts + eventMarks + connectors.join('') + bars };
+      return { markup: defs + ghosts + eventMarks + connectors.join('') + bars, ghostYs };
     }
 
     function renderChart(key) {
@@ -575,7 +592,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       g.innerHTML = built.markup;
       g.removeAttribute('transform');
       const labels = el(key + 'Gaps');
-      if (labels) { labels.innerHTML = gapLabelSpans(end - windowMs, end, 0.16); labels.style.transform = ''; }
+      if (labels) { labels.innerHTML = gapLabelSpans(end - windowMs, end, 0.16, built.ghostYs); labels.style.transform = ''; }
     }
     function renderCharts() {
       anchorEnd = chartEnd();
@@ -955,7 +972,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         <div class="ms-chartwrap" id="msChart">
           <svg viewBox="0 0 360 150" preserveAspectRatio="none" aria-hidden="true">${built.markup}</svg>
           ${built.max != null ? `<span class="ms-ylab" style="top:2px">${metric.fmt(built.max)}</span><span class="ms-ylab" style="bottom:2px">${metric.fmt(built.min)}</span>` : ''}
-          <div class="gaplabels">${gapLabelSpans(t0, t1, 0.08)}</div>
+          <div class="gaplabels">${gapLabelSpans(t0, t1, 0.08, built.ghostYs)}</div>
           <div class="ms-xline" id="msX" hidden></div>
         </div>
         <div class="ms-axis"><span>${fmtClock(new Date(t0))}</span><span>${msState.center == null ? 'now' : fmtClock(new Date(t1))}</span></div>
@@ -1051,7 +1068,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           <span class="ms-ylab" style="top:calc(20% - 6px)">awake</span>
           <span class="ms-ylab" style="top:calc(50% - 6px)">light</span>
           <span class="ms-ylab" style="top:calc(80% - 6px)">deep</span>
-          <div class="gaplabels">${gapLabelSpans(t0, t1, 0.08)}</div>
+          <div class="gaplabels">${gapLabelSpans(t0, t1, 0.08, built.ghostYs)}</div>
           <div class="ms-xline" id="msX" hidden></div>
         </div>
         <div class="ms-axis"><span>${fmtClock(new Date(t0))}</span><span>now</span></div>
@@ -1195,13 +1212,13 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       // --- status sentence ---------------------------------------------------
       let status;
       if (offline) {
-        status = `<b>${deviceName}</b>'s sock isn't reporting right now — it may be off or charging.`;
+        status = `<b>${capitalized(deviceName)}</b>'s sock isn't reporting right now — it may be off or charging.`;
       } else {
         const sessionText = currentRun && currentRun.state !== 'nodata'
           ? `${currentRun.state === 'asleep' ? 'asleep' : 'awake'} for <b>${fmtDur((Date.now() - currentRun.start) / 1000)}</b>`
           : 'settling in';
         const nth = sleepRunsToday ? ` — sleep #${sleepRunsToday} today` : '';
-        status = `<b>${deviceName}</b> is ${stateText || 'doing fine'}, ${sessionText}${nth}.${bedtimeLine}`;
+        status = `<b>${capitalized(deviceName)}</b> is ${stateText || 'doing fine'}, ${sessionText}${nth}.${bedtimeLine}`;
       }
       el('statusLine').innerHTML = status;
 
@@ -1255,9 +1272,9 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           fetch('/api/devices').then(r => r.json()),
           fetch('/api/accounts').then(r => r.json())
         ]);
-        const device = (devices.devices || [])[0];
-        if (device) deviceName = device.baby_name || device.name || deviceName;
         const account = (accounts.accounts || [])[0];
+        const babyName = account && account.dashboard_preferences && account.dashboard_preferences.baby_name;
+        if (babyName) deviceName = babyName;
         if (account && account.poll_interval_seconds) pollSeconds = account.poll_interval_seconds;
       } catch (error) {
         el('statusLine').textContent = 'Could not load readings — is the collector running?';
