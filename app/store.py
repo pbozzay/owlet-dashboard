@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -107,6 +107,21 @@ class ReadingStore:
             )
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_oxygen_challenges_start ON oxygen_challenges(start_time)"
+            )
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS care_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id INTEGER NOT NULL,
+                    at TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    note TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_care_events_account_at ON care_events(account_id, at)"
             )
             await db.execute(
                 """
@@ -788,6 +803,93 @@ class ReadingStore:
             cursor = await db.execute(f"DELETE FROM oxygen_challenges {where}", params)
             await db.commit()
             return cursor.rowcount or 0
+
+    async def create_care_event(
+        self,
+        *,
+        account_id: int,
+        at: str | datetime,
+        kind: str,
+        note: str = "",
+    ) -> dict[str, Any]:
+        await self.init()
+        moment = parse_time(at)
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "INSERT INTO care_events (account_id, at, kind, note) VALUES (?, ?, ?, ?)",
+                (account_id, moment.astimezone(timezone.utc).isoformat(), kind, note or ""),
+            )
+            await db.commit()
+            event_id = int(cursor.lastrowid)
+            cursor = await db.execute(
+                "SELECT id, account_id, at, kind, note, created_at FROM care_events WHERE id = ?",
+                (event_id,),
+            )
+            row = await cursor.fetchone()
+        return self._row_to_care_event(row)
+
+    async def get_care_events(
+        self,
+        hours: int | None = 24,
+        limit: int = 500,
+        account_ids: list[int] | None = None,
+    ) -> list[dict[str, Any]]:
+        await self.init()
+        if account_ids is not None and not account_ids:
+            return []
+        where: list[str] = []
+        params: list[Any] = []
+        if hours is not None:
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=int(hours))).isoformat()
+            where.append("at >= ?")
+            params.append(cutoff)
+        if account_ids is not None:
+            placeholders = ",".join("?" for _ in account_ids)
+            where.append(f"account_id IN ({placeholders})")
+            params.extend(account_ids)
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        params.append(int(limit))
+        async with self._connect() as db:
+            cursor = await db.execute(
+                f"""
+                SELECT id, account_id, at, kind, note, created_at FROM care_events
+                {clause} ORDER BY at DESC LIMIT ?
+                """,
+                params,
+            )
+            rows = await cursor.fetchall()
+        return [self._row_to_care_event(row) for row in rows]
+
+    async def delete_care_event(
+        self,
+        event_id: int,
+        account_ids: list[int] | None = None,
+    ) -> int:
+        await self.init()
+        where = "WHERE id = ?"
+        params: list[Any] = [event_id]
+        if account_ids is not None:
+            if not account_ids:
+                return 0
+            placeholders = ",".join("?" for _ in account_ids)
+            where += f" AND account_id IN ({placeholders})"
+            params.extend(account_ids)
+        async with self._connect() as db:
+            cursor = await db.execute(f"DELETE FROM care_events {where}", params)
+            await db.commit()
+            return cursor.rowcount or 0
+
+    def _row_to_care_event(self, row: tuple[Any, ...]) -> dict[str, Any]:
+        return {
+            "id": int(row[0]),
+            "account_id": int(row[1]),
+            "at": row[2],
+            "kind": row[3],
+            "note": row[4],
+            "created_at": row[5],
+        }
 
     async def get_oxygen_challenges(
         self,

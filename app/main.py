@@ -5,6 +5,7 @@ import logging
 import secrets
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path as FilePath
 from typing import Literal
 
@@ -665,6 +666,58 @@ def create_app(
         )
         if not deleted:
             raise HTTPException(status_code=404, detail="Challenge not found")
+        return {"ok": True}
+
+    @app.get("/api/events")
+    async def care_events(
+        hours: int | None = Query(default=48, ge=1, le=24 * 365),
+        limit: int = Query(default=500, ge=1, le=2000),
+        account: int | None = Query(default=None, ge=1),
+        user: dict = Depends(require_user),
+    ):
+        events = await store.get_care_events(
+            hours=hours, limit=limit, account_ids=await _scope(user, account)
+        )
+        return {"events": events}
+
+    @app.post("/api/events")
+    async def create_care_event(
+        payload: dict[str, object] = JSON_BODY,
+        user: dict = Depends(require_user),
+    ):
+        kind = str(payload.get("kind") or "").strip()
+        if not kind or len(kind) > 60:
+            raise HTTPException(status_code=400, detail="kind is required (max 60 chars)")
+        at = payload.get("at")
+        note = str(payload.get("note") or "")[:500]
+        account_id = payload.get("account_id")
+        requested = (
+            int(account_id)
+            if isinstance(account_id, int | str) and str(account_id).isdigit()
+            else None
+        )
+        ids = await _scope(user, requested)
+        if not ids:
+            raise HTTPException(status_code=400, detail="Link an Owlet account first")
+        try:
+            event = await store.create_care_event(
+                account_id=ids[0],
+                at=at if isinstance(at, str) and at else datetime.now(timezone.utc),
+                kind=kind,
+                note=note,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid timestamp") from exc
+        return {"event": event}
+
+    @app.delete("/api/events/{event_id}")
+    async def delete_care_event(
+        event_id: int = Path(ge=1),
+        user: dict = Depends(require_user),
+    ):
+        deleted = await store.delete_care_event(event_id, account_ids=await _scope(user, None))
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Event not found")
         return {"ok": True}
 
     @app.get("/api/widget")

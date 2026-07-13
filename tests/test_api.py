@@ -934,3 +934,41 @@ async def test_night_and_rhythms_pages_are_session_gated(tmp_path):
         assert rhythms.status_code == 200
         assert "Two weeks, half-hour by half-hour" in rhythms.text
         assert "/api/rollups?bucket=30m" in rhythms.text
+
+
+@pytest.mark.asyncio
+async def test_care_events_crud_and_tenancy(tmp_path):
+    db_path = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db_path)
+    await store.init()
+    auth = AuthStore(db_path)
+    owner, owner_session = await make_user(auth, "owner@example.test")
+    other, other_session = await make_user(auth, "other@example.test")
+    await store.create_account(email="sock@x.y", user_id=owner["id"])
+    await store.create_account(email="other@x.y", user_id=other["id"])
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+
+    with client_for(app, owner_session) as client:
+        created = client.post("/api/events", json={"kind": "O2 on", "note": "starting flow"}).json()["event"]
+        with_time = client.post(
+            "/api/events", json={"kind": "Sock off", "at": "2026-07-12T18:30:00+00:00"}
+        ).json()["event"]
+        listed = client.get("/api/events?hours=8760").json()["events"]
+        bad = client.post("/api/events", json={"kind": ""})
+        bad_time = client.post("/api/events", json={"kind": "Feed", "at": "not-a-time"})
+
+    assert created["kind"] == "O2 on"
+    assert created["note"] == "starting flow"
+    assert with_time["at"].startswith("2026-07-12T18:30:00")
+    assert {event["id"] for event in listed} >= {created["id"], with_time["id"]}
+    assert bad.status_code == 400
+    assert bad_time.status_code == 400
+
+    with client_for(app, other_session) as other_client:
+        assert other_client.get("/api/events?hours=8760").json()["events"] == []
+        assert other_client.delete(f"/api/events/{created['id']}").status_code == 404
+
+    with client_for(app, owner_session) as client:
+        assert client.delete(f"/api/events/{created['id']}").json() == {"ok": True}
+        remaining = client.get("/api/events?hours=8760").json()["events"]
+    assert [event["id"] for event in remaining] == [with_time["id"]]
