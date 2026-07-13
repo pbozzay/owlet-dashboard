@@ -206,6 +206,107 @@ SHELL_JS = """<script>
     }
   });
 
+  // ---- notifications: shell bell, unread badge, toasts ----
+  var bellButton = byId('shellBell');
+  var bellPop = byId('bellPop');
+  var unreadCount = 0;
+  function escapeHtml(text) {
+    return String(text == null ? '' : text).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function notificationTime(iso) {
+    var date = new Date(iso);
+    var h = date.getHours();
+    var minutes = String(date.getMinutes()).padStart(2, '0');
+    var ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+    var label = h + ':' + minutes + ' ' + ap;
+    if (date.toDateString() !== new Date().toDateString()) {
+      label = (date.getMonth() + 1) + '/' + date.getDate() + ' ' + label;
+    }
+    return label;
+  }
+  function focusLink(notification) {
+    return '/data?focus=' + encodeURIComponent(notification.recorded_at) + '&span=30';
+  }
+  function paintBell() {
+    var badge = byId('shellBellCount');
+    if (!badge) return;
+    badge.hidden = unreadCount <= 0;
+    badge.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
+  }
+  function closeBell() {
+    if (!bellPop) return;
+    bellPop.hidden = true;
+    if (bellButton) bellButton.setAttribute('aria-expanded', 'false');
+  }
+  function openBell() {
+    closeProfile();
+    bellPop.hidden = false;
+    bellButton.setAttribute('aria-expanded', 'true');
+    byId('bellList').innerHTML = '<div class="bell-empty">Loading…</div>';
+    fetch('/api/notifications?hours=168&limit=25')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var items = data.items || [];
+        byId('bellList').innerHTML = items.length
+          ? items.map(function (n) {
+              return '<a class="bell-item ' + (n.severity || 'info') + (n.read_at ? '' : ' unread') + '"'
+                + ' href="' + focusLink(n) + '">'
+                + '<b>' + escapeHtml(n.title) + '</b>'
+                + '<span>' + notificationTime(n.recorded_at) + ' · ' + escapeHtml(n.message) + '</span>'
+                + '</a>';
+            }).join('')
+          : '<div class="bell-empty">Nothing yet — alerts from the sock land here.</div>';
+        // Opening the panel is reading it.
+        if (unreadCount > 0) fetch('/api/notifications/read', { method: 'POST' }).catch(function () {});
+        unreadCount = 0;
+        paintBell();
+      })
+      .catch(function () {
+        byId('bellList').innerHTML = '<div class="bell-empty">Could not load notifications.</div>';
+      });
+  }
+  if (bellButton && bellPop) {
+    bellButton.addEventListener('click', function (event) {
+      event.stopPropagation();
+      if (bellPop.hidden) openBell(); else closeBell();
+    });
+    document.addEventListener('click', function (event) {
+      if (!bellPop.hidden && !bellPop.contains(event.target) && !bellButton.contains(event.target)) closeBell();
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') closeBell();
+    });
+  }
+
+  var TOAST_FRESH_MS = 15 * 60 * 1000;
+  function showToast(notification) {
+    var rack = byId('toastRack');
+    if (!rack) return;
+    var toast = document.createElement('a');
+    toast.className = 'toast card ' + (notification.severity || 'info');
+    toast.href = focusLink(notification);
+    toast.innerHTML = '<b>' + escapeHtml(notification.title) + '</b>'
+      + '<span>' + notificationTime(notification.recorded_at) + ' · tap to inspect</span>';
+    rack.appendChild(toast);
+    while (rack.children.length > 3) rack.removeChild(rack.firstChild);
+    setTimeout(function () { toast.classList.add('leaving'); }, 6000);
+    setTimeout(function () { toast.remove(); }, 6500);
+  }
+  function maybeToast(widget) {
+    var latest = widget && widget.latest_notification;
+    if (!latest || !latest.id || latest.read_at) return;
+    var age = Date.now() - Date.parse(latest.recorded_at);
+    if (!(age >= 0) || age > TOAST_FRESH_MS) return;
+    // localStorage so a page switch doesn't replay the same alert
+    var lastToasted = Number(localStorage.getItem('owletLastToastId') || 0);
+    if (latest.id <= lastToasted) return;
+    localStorage.setItem('owletLastToastId', String(latest.id));
+    if (bellPop && !bellPop.hidden) return;   // already looking at the list
+    showToast(latest);
+  }
+
   // ---- living dot: freshness of the newest reading ----
   var pollInterval = 5;
   var lastReadingAt = null;
@@ -255,6 +356,11 @@ SHELL_JS = """<script>
     fetch('/api/widget?hours=1').then(function (r) { return r.json(); }).then(function (widget) {
       if (widget.updated_at) lastReadingAt = Date.parse(widget.updated_at);
       sockReporting = widget.sock_reporting !== false;
+      if (typeof widget.unread_notifications === 'number' && (bellPop == null || bellPop.hidden)) {
+        unreadCount = widget.unread_notifications;
+        paintBell();
+      }
+      maybeToast(widget);
       paintDot();
       paintStatus();
     }).catch(function () {});
@@ -311,6 +417,21 @@ def render_shell(
       role="button" tabindex="0" aria-label="Data freshness — click to refresh"></span></a>
     <nav class="shell-tabs" aria-label="Views">{tabs_top}</nav>
     <span class="shell-side" id="profileMenuWrap">
+      <span class="bell-wrap">
+        <button id="shellBell" class="shell-bell" type="button" aria-haspopup="true"
+          aria-expanded="false" title="Notifications" aria-label="Notifications">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+            <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+          </svg>
+          <span id="shellBellCount" class="bell-badge" hidden></span>
+        </button>
+        <div id="bellPop" class="bell-pop card" role="menu" aria-label="Notifications" hidden>
+          <div class="bp-head"><b>Notifications</b><span class="bp-meta">newest first · opening marks read</span></div>
+          <div id="bellList" class="bell-list"></div>
+        </div>
+      </span>
       <button id="profileMenuToggle" class="profile-chip" type="button" aria-haspopup="menu"
         aria-expanded="false" title="Account and dashboard settings">
         <span id="profileAvatar" class="pc-avatar" aria-hidden="true">·</span>
@@ -369,6 +490,7 @@ def render_shell(
   <footer class="shell-footer">Retrospective trend viewing only — not a medical monitor or alert
     replacement. Unofficial; not affiliated with Owlet Baby Care.</footer>
   <nav class="shell-bottom" aria-label="Views">{tabs_bottom}</nav>
+  <div id="toastRack" class="toast-rack" aria-live="polite"></div>
   {SHELL_JS}
   {scripts}
 </body>

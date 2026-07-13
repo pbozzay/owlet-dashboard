@@ -739,7 +739,9 @@ async def test_dashboard_endpoint_serves_html(tmp_path):
     assert "challengeEditForm" in response.text
     assert "Save edits" in response.text
     assert "Delete challenge" in response.text
-    assert "closeNotificationsPanel" in response.text
+    assert "closeNotificationsPanel" not in response.text  # bell moved to the shell
+    assert 'id="notificationsToggle"' not in response.text
+    assert 'id="shellBell"' in response.text
     assert "closeChallengesPanel" in response.text
     assert "safeRefresh" in response.text
     assert 'id="refresh"' not in response.text  # refresh lives on the shell's living dot
@@ -972,3 +974,50 @@ async def test_care_events_crud_and_tenancy(tmp_path):
         assert client.delete(f"/api/events/{created['id']}").json() == {"ok": True}
         remaining = client.get("/api/events?hours=8760").json()["events"]
     assert [event["id"] for event in remaining] == [with_time["id"]]
+
+
+@pytest.mark.asyncio
+async def test_notifications_read_tracking(tmp_path):
+    db_path = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db_path)
+    await store.init()
+    account_id = await _default_account_id(store)
+    await store.insert_reading(
+        normalize_reading(
+            {
+                "heart_rate": 120,
+                "oxygen_saturation": 95,
+                "battery": 82,
+                "last_updated": "2026-07-02T01:00:00Z",
+                "low_oxygen_alert": True,
+            },
+            "AC123",
+        ),
+        account_id=account_id,
+    )
+    auth = AuthStore(db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    other, other_session = await make_user(auth, "other@example.test")
+    await store.create_account(email="other@x.y", user_id=other["id"])
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+
+    with client_for(app, session) as client:
+        listed = client.get("/api/notifications?hours=8760").json()
+        widget = client.get("/api/widget?hours=1").json()
+        assert listed["unread_total"] == listed["total"] > 0
+        assert all(item["read_at"] is None and item["id"] for item in listed["items"])
+        assert widget["unread_notifications"] == listed["unread_total"]
+        assert widget["latest_notification"]["read_at"] is None
+
+        # another user marking read must not touch this account's notifications
+        with client_for(app, other_session) as other_client:
+            assert other_client.post("/api/notifications/read").json()["marked"] == 0
+        still = client.get("/api/notifications?hours=8760").json()
+        assert still["unread_total"] == listed["unread_total"]
+
+        marked = client.post("/api/notifications/read").json()
+        assert marked["ok"] is True and marked["marked"] == listed["unread_total"]
+        after = client.get("/api/notifications?hours=8760").json()
+        assert after["unread_total"] == 0
+        assert all(item["read_at"] for item in after["items"])
+        assert client.get("/api/widget?hours=1").json()["unread_notifications"] == 0

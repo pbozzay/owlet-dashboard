@@ -668,6 +668,11 @@ def create_app(
             raise HTTPException(status_code=404, detail="Challenge not found")
         return {"ok": True}
 
+    @app.post("/api/notifications/read")
+    async def mark_notifications_read(user: dict = Depends(require_user)):
+        marked = await store.mark_notifications_read(account_ids=await _scope(user, None))
+        return {"ok": True, "marked": marked}
+
     @app.get("/api/events")
     async def care_events(
         hours: int | None = Query(default=48, ge=1, le=24 * 365),
@@ -752,8 +757,10 @@ async def _widget_payload(
     readings = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device, account_ids=account_ids)
     summary = await store.get_summary(hours=hours, device_serial=device, account_ids=account_ids)
     insights = build_insights(await store.exclude_challenge_readings(readings, account_ids=account_ids))
+    # Fixed week-wide window: the unread badge and toast source must not
+    # shrink with the caller's vitals window (the shell polls with hours=1).
     notifications = await store.get_notifications(
-        hours=hours,
+        hours=24 * 7,
         limit=1,
         offset=0,
         device_serial=device,
@@ -774,6 +781,7 @@ async def _widget_payload(
         "trend_sentence": breathing.get("plain_language"),
         "battery": latest.get("battery") if isinstance(latest, dict) else None,
         "notification_count": notifications["total"],
+        "unread_notifications": notifications.get("unread_total", 0),
         "latest_notification": latest_notification,
     }
 

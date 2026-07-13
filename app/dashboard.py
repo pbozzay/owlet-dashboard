@@ -126,18 +126,8 @@ DATA_HEAD = r"""  <meta name="theme-color" content="#122033" />
     .oxygen-value.caution { color: var(--warn); }
     .oxygen-value.danger { color: var(--bad); }
     .glance-progress { height: 7px; margin-top: 7px; }
-    .notification-button { position: relative; }
     .account-cluster.hidden { display: none; }
     .account-add-button { padding-inline: .65rem; }
-    .notification-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); font-size: .72rem; font-weight: 700; }
-    .notifications-popover { position: absolute; right: 0; top: calc(100% + 8px); width: min(420px, calc(100vw - 28px)); max-height: min(72vh, 520px); overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: var(--shadow); padding: 12px; z-index: 30; }
-    .notifications-popover.hidden { display: none; }
-    .notification-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; }
-    .notification-item { border: 1px solid var(--line); border-left: 5px solid var(--warn); border-radius: 13px; padding: 9px 10px; background: color-mix(in srgb, var(--warn) 7%, transparent); }
-    .notification-item.critical { border-left-color: var(--bad); background: color-mix(in srgb, var(--bad) 7%, transparent); }
-    .notification-item.info { border-left-color: var(--accent); background: var(--accent-soft); }
-    .notification-title { font-weight: 700; }
-    .notification-meta { color: var(--muted); font-size: .78rem; margin-top: 3px; line-height: 1.3; }
     .challenge-button { background: var(--accent-soft); color: var(--accent); }
     .challenge-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-size: .72rem; font-weight: 700; }
     .challenge-popover { position: absolute; right: 0; top: calc(100% + 8px); width: min(520px, calc(100vw - 28px)); max-height: min(74vh, 620px); overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: var(--shadow); padding: 12px; z-index: 32; }
@@ -245,8 +235,6 @@ DATA_HEAD = r"""  <meta name="theme-color" content="#122033" />
       select, button { padding: .38rem .42rem; border-radius: 10px; font-size: .78rem; min-height: 32px; }
       button.icon-button { width: 34px; height: 34px; }
       .challenge-button { white-space: nowrap; }
-      .notification-button { width: 36px; height: 32px; padding: 0; display: inline-grid; place-items: center; font-size: .94rem; }
-      .notification-count { position: absolute; right: -5px; top: -6px; min-width: 17px; height: 17px; padding: 0 4px; margin: 0; font-size: .64rem; }
       .challenge-count { min-width: 17px; height: 17px; padding: 0 4px; margin-left: 2px; font-size: .64rem; }
       .battery-pill { gap: 4px; min-height: 32px; padding-inline: .42rem; }
       .battery-shell { width: 22px; height: 13px; border-width: 1.5px; padding: 2px; }
@@ -269,9 +257,8 @@ DATA_HEAD = r"""  <meta name="theme-color" content="#122033" />
       .chart-frame.main { height: 430px; }
       .chart-frame.companion { height: 215px; }
       .chart-frame.secondary { height: 295px; }
-      .notifications-popover, .challenge-popover { position: fixed; inset: 8px; width: auto; max-height: none; border-radius: 18px; z-index: 80; display: flex; flex-direction: column; box-shadow: 0 0 0 9999px rgba(10, 12, 30, .45), var(--shadow); }
-      .notifications-popover.hidden, .challenge-popover.hidden { display: none; }
-      .notification-list, .challenge-list { max-height: none; flex: 1; }
+      .challenge-popover { position: fixed; inset: 8px; width: auto; max-height: none; border-radius: 18px; z-index: 80; display: flex; flex-direction: column; box-shadow: 0 0 0 9999px rgba(10, 12, 30, .45), var(--shadow); }
+      .challenge-list { max-height: none; flex: 1; }
       .challenge-actions { display: grid !important; grid-template-columns: 1fr 1fr; align-items: stretch; }
       .challenge-actions .wide { grid-column: 1 / -1; }
       .challenge-modal { align-items: center; padding: 8px; }
@@ -309,7 +296,6 @@ DATA_BODY = r"""
       <div class="control-group refresh-cluster toolbar-right">
         <button id="dailyInsightsToggle" class="daily-insights-button" type="button" aria-label="Daily insights"><span class="desktop-label">Daily insights</span><span class="mobile-label" aria-hidden="true">📊</span></button>
         <button id="challengesToggle" class="challenge-button" type="button" aria-expanded="false" aria-label="O₂ challenges"><span class="desktop-label">O₂ challenges</span><span class="mobile-label" aria-hidden="true">O₂ Ch.</span> <span id="challengeCount" class="challenge-count">0</span></button>
-        <button id="notificationsToggle" class="notification-button" type="button" aria-expanded="false" aria-label="Notifications"><span class="desktop-label">Notifications</span><span class="mobile-label" aria-hidden="true">🔔</span> <span id="notificationCount" class="notification-count">0</span></button>
         <button id="batteryStatus" class="battery-pill unknown" type="button" title="Battery details">
           <span class="battery-shell" aria-hidden="true"><span id="batteryFill" class="battery-fill" style="width: 0%;"></span></span>
           <span id="batteryLabel">—</span>
@@ -327,18 +313,6 @@ DATA_BODY = r"""
           </div>
           <div id="challengeList" class="challenge-list"></div>
         </div>
-        <div id="notificationsPanel" class="notifications-popover hidden" role="dialog" aria-modal="true" aria-label="Notifications">
-          <div class="panel-title">
-            <h2>Notifications</h2>
-            <div class="control-group"><span class="small" id="notificationPage">—</span><button id="closeNotificationsPanel" type="button">Close</button></div>
-          </div>
-          <div id="notificationList" class="notification-list"></div>
-          <div class="control-group" style="justify-content: space-between; margin-top: 10px;">
-            <button id="notificationsPrev" type="button">Previous</button>
-            <button id="notificationsNext" type="button">Next</button>
-          </div>
-        </div>
-      </div>
     </section>
 
     <section id="glanceStrip" class="glance-strip" aria-label="At a glance">
@@ -595,8 +569,6 @@ DATA_BODY = r"""
     let comparisonRows = [];
     let notifications = { items: [], total: 0, limit: 500, offset: 0 };
     let challenges = { items: [], total: 0, limit: 100, offset: 0 };
-    let notificationPageOffset = 0;
-    const NOTIFICATION_PAGE_SIZE = 10;
     const TREND_MAX_SAMPLE_GAP_MS = 5 * 60 * 1000;
     // Consecutive readings farther apart than this mean the collector was not running.
     const COLLECTOR_GAP_MS = 15 * 60 * 1000;
@@ -1339,9 +1311,7 @@ DATA_BODY = r"""
 
     async function openDailyInsightsModal() {
       el('challengesPanel').classList.add('hidden');
-      el('notificationsPanel').classList.add('hidden');
       el('challengesToggle').setAttribute('aria-expanded', 'false');
-      el('notificationsToggle').setAttribute('aria-expanded', 'false');
       el('dailyInsightsModal').classList.remove('hidden');
       if (dailyInsightsChart) {
         dailyInsightsChart.destroy();
@@ -1528,7 +1498,6 @@ DATA_BODY = r"""
         const accountId = data.account?.id ? String(data.account.id) : selectedAccount();
         if (accountId) setUrlAccount(accountId);
         await loadDevices();
-        notificationPageOffset = 0;
         loadedHours = null;
         readingsTableSignature = '';
         safeRefresh({ resetZoom: true, force: true });
@@ -1688,7 +1657,6 @@ DATA_BODY = r"""
       renderStatus(health);
       applyFilter();
       renderCharts({ deferTrend: true });
-      renderNotifications();
       renderChallenges();
       updateRefreshButton();
       hideInitialLoading();
@@ -2865,23 +2833,6 @@ DATA_BODY = r"""
       table.dataset.selectionAttached = 'true';
     }
 
-    function renderNotifications() {
-      const items = notifications.items || [];
-      const total = notifications.total ?? items.length;
-      notificationPageOffset = Math.min(notificationPageOffset, Math.max(0, items.length - NOTIFICATION_PAGE_SIZE));
-      const pageItems = items.slice(notificationPageOffset, notificationPageOffset + NOTIFICATION_PAGE_SIZE);
-      el('notificationCount').textContent = total;
-      el('notificationPage').textContent = total ? `${notificationPageOffset + 1}-${Math.min(notificationPageOffset + NOTIFICATION_PAGE_SIZE, items.length)} of ${total}` : 'none';
-      el('notificationsPrev').disabled = notificationPageOffset === 0;
-      el('notificationsNext').disabled = notificationPageOffset + NOTIFICATION_PAGE_SIZE >= items.length;
-      el('notificationList').innerHTML = pageItems.map(item => `
-        <article class="notification-item ${item.severity}">
-          <div class="notification-title">⚠ ${item.title}</div>
-          <div>${item.message}</div>
-          <div class="notification-meta">${localTime(item.recorded_at)} · O₂ ${fmt(item.oxygen_saturation, '%')} · HR ${fmt(item.heart_rate, ' bpm')} · battery ${fmt(item.battery, '%')}</div>
-        </article>`).join('') || '<div class="empty">No Owlet notifications in this window.</div>';
-    }
-
     function renderChallenges() {
       const items = challenges.items || [];
       const total = challenges.total ?? items.length;
@@ -2979,8 +2930,6 @@ DATA_BODY = r"""
     async function openChallengeDetail(id) {
       el('challengesPanel').classList.add('hidden');
       el('challengesToggle').setAttribute('aria-expanded', 'false');
-      el('notificationsPanel').classList.add('hidden');
-      el('notificationsToggle').setAttribute('aria-expanded', 'false');
       const detail = await fetchJson(`${API_BASE}/api/oxygen-challenges/${id}`);
       currentChallengeDetail = detail;
       const summary = detail.summary || {};
@@ -3171,7 +3120,6 @@ DATA_BODY = r"""
       renderDeviceOptions('');
       await loadDevices();
       renderBabyName();
-      notificationPageOffset = 0;
       loadedHours = null;
       readingsTableSignature = '';
       safeRefresh({ resetZoom: true, force: true });
@@ -3198,12 +3146,11 @@ DATA_BODY = r"""
     el('deviceSelect').addEventListener('change', event => {
       setUrlDevice(event.target.value);
       renderBabyName();
-      notificationPageOffset = 0;
       loadedHours = null;
       readingsTableSignature = '';
       safeRefresh({ resetZoom: true, force: true });
     });
-    el('window').addEventListener('change', () => { notificationPageOffset = 0; readingsTableSignature = ''; persistChartSettings({ window: el('window').value }); safeRefresh({ resetZoom: true, force: true }); });
+    el('window').addEventListener('change', () => { readingsTableSignature = ''; persistChartSettings({ window: el('window').value }); safeRefresh({ resetZoom: true, force: true }); });
     el('smoothing').addEventListener('change', () => { persistChartSettings({ smoothing: el('smoothing').value }); renderCharts({ deferTrend: true }); safeRefresh({ resetZoom: false }); });
     el('chartLayout').addEventListener('change', () => { persistChartSettings({ layout: el('chartLayout').value }); renderCharts({ deferTrend: true }); });
     el('refresh')?.addEventListener('click', () => safeRefresh());
@@ -3217,8 +3164,6 @@ DATA_BODY = r"""
     el('resetZoom').addEventListener('click', resetZoom);
     el('resetZoomHeader').addEventListener('click', resetZoom);
     el('challengesToggle').addEventListener('click', () => {
-      el('notificationsPanel').classList.add('hidden');
-      el('notificationsToggle').setAttribute('aria-expanded', 'false');
       const panel = el('challengesPanel');
       const hidden = panel.classList.toggle('hidden');
       el('challengesToggle').setAttribute('aria-expanded', String(!hidden));
@@ -3234,7 +3179,6 @@ DATA_BODY = r"""
     el('menuNewChallenge')?.addEventListener('click', () => { closeO2AddMenu(); openNewChallengeModal(); });
     el('menuVisibleChallenge')?.addEventListener('click', () => { closeO2AddMenu(); markVisibleChallenge(); });
     el('closeChallengesPanel').addEventListener('click', () => { el('challengesPanel').classList.add('hidden'); el('challengesToggle').setAttribute('aria-expanded', 'false'); });
-    el('closeNotificationsPanel').addEventListener('click', () => { el('notificationsPanel').classList.add('hidden'); el('notificationsToggle').setAttribute('aria-expanded', 'false'); });
     el('closeChallengeModal').addEventListener('click', () => { currentChallengeDetail = null; el('challengeModal').classList.add('hidden'); });
     el('challengeEditForm').addEventListener('submit', saveChallengeEdits);
     el('deleteChallenge').addEventListener('click', deleteCurrentChallenge);
@@ -3256,15 +3200,6 @@ DATA_BODY = r"""
       persistChartSettings({ sleep_ballpark: sleepBallparkEnabled });
       refreshPrimaryCharts();
     });
-    el('notificationsToggle').addEventListener('click', () => {
-      el('challengesPanel').classList.add('hidden');
-      el('challengesToggle').setAttribute('aria-expanded', 'false');
-      const panel = el('notificationsPanel');
-      const hidden = panel.classList.toggle('hidden');
-      el('notificationsToggle').setAttribute('aria-expanded', String(!hidden));
-    });
-    el('notificationsPrev').addEventListener('click', () => { notificationPageOffset = Math.max(0, notificationPageOffset - NOTIFICATION_PAGE_SIZE); renderNotifications(); });
-    el('notificationsNext').addEventListener('click', () => { notificationPageOffset += NOTIFICATION_PAGE_SIZE; renderNotifications(); });
     document.addEventListener('click', event => {
       if (!el('o2AddWrap').contains(event.target)) closeO2AddMenu();
     });
@@ -3305,7 +3240,6 @@ DATA_BODY = r"""
       const accountId = event.detail?.id ? String(event.detail.id) : selectedAccount();
       if (accountId) setUrlAccount(accountId);
       await loadDevices();
-      notificationPageOffset = 0;
       loadedHours = null;
       readingsTableSignature = '';
       safeRefresh({ resetZoom: true, force: true });

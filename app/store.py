@@ -84,7 +84,8 @@ class ReadingStore:
                     battery REAL,
                     sleep_state TEXT,
                     details_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    read_at TEXT
                 )
                 """
             )
@@ -251,6 +252,8 @@ class ReadingStore:
 
     async def _ensure_notifications_account_schema(self, db: aiosqlite.Connection, default_account_id: int) -> None:
         columns = await self._table_columns(db, "notifications")
+        if "read_at" not in columns:
+            await db.execute("ALTER TABLE notifications ADD COLUMN read_at TEXT")
         table_sql = await self._table_sql(db, "notifications")
         needs_rebuild = "account_id" not in columns or "UNIQUE(device_serial, recorded_at, event_type)" in table_sql
         if not needs_rebuild:
@@ -273,7 +276,8 @@ class ReadingStore:
                 battery REAL,
                 sleep_state TEXT,
                 details_json TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                read_at TEXT
             )
             """
         )
@@ -1097,10 +1101,17 @@ class ReadingStore:
             count_cursor = await db.execute(f"SELECT COUNT(*) FROM notifications {where}", params)
             count_row = await count_cursor.fetchone()
             total = int(count_row[0] or 0)
+            unread_where = f"{where} AND read_at IS NULL" if where else "WHERE read_at IS NULL"
+            unread_cursor = await db.execute(
+                f"SELECT COUNT(*) FROM notifications {unread_where}", params
+            )
+            unread_row = await unread_cursor.fetchone()
+            unread_total = int(unread_row[0] or 0)
             cursor = await db.execute(
                 f"""
                 SELECT device_serial, recorded_at, event_type, severity, title, message,
-                       heart_rate, oxygen_saturation, battery, sleep_state, details_json
+                       heart_rate, oxygen_saturation, battery, sleep_state, details_json,
+                       id, read_at
                 FROM notifications
                 {where}
                 ORDER BY recorded_at DESC, id DESC
@@ -1110,8 +1121,38 @@ class ReadingStore:
             )
             rows = await cursor.fetchall()
 
-        items = [self._row_to_notification(row).model_dump(mode="json") for row in rows]
-        return {"items": items, "total": total, "limit": limit, "offset": offset}
+        items = [
+            {
+                **self._row_to_notification(row[:11]).model_dump(mode="json"),
+                "id": int(row[11]),
+                "read_at": row[12],
+            }
+            for row in rows
+        ]
+        return {
+            "items": items,
+            "total": total,
+            "unread_total": unread_total,
+            "limit": limit,
+            "offset": offset,
+        }
+
+    async def mark_notifications_read(self, account_ids: list[int] | None = None) -> int:
+        await self.init()
+        where = "WHERE read_at IS NULL"
+        params: list[Any] = []
+        if account_ids is not None:
+            if not account_ids:
+                return 0
+            placeholders = ",".join("?" for _ in account_ids)
+            where += f" AND account_id IN ({placeholders})"
+            params.extend(account_ids)
+        async with self._connect() as db:
+            cursor = await db.execute(
+                f"UPDATE notifications SET read_at = CURRENT_TIMESTAMP {where}", params
+            )
+            await db.commit()
+            return cursor.rowcount or 0
 
     async def _ensure_notification_backfill(self, db: aiosqlite.Connection) -> None:
         cursor = await db.execute("SELECT value FROM metadata WHERE key = 'notifications_schema_version'")
