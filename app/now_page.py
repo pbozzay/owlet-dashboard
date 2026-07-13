@@ -35,10 +35,61 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .vital.inspecting .band { color: var(--accent); font-weight: 600; }
     .chartzone { position: absolute; left: 0; right: 0; bottom: 0; height: 60px; }
     .chartzone svg { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .6; }
-    .chartzone polyline { fill: none; stroke: var(--accent); stroke-width: 1.6;
-      stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-    .chartzone line.evline { stroke: var(--warn); stroke-width: 1; stroke-dasharray: 2 3;
-      vector-effect: non-scaling-stroke; opacity: .85; }
+    .chartzone polyline, .ms-chartwrap polyline { fill: none; stroke: var(--accent);
+      stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round;
+      vector-effect: non-scaling-stroke; }
+    .chartzone line.evline, .ms-chartwrap line.evline { stroke: var(--warn);
+      stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; opacity: .85; }
+    .chartzone .evflag, .ms-chartwrap .evflag { fill: var(--warn); }
+    /* no-data bands: quiet grey = collector wasn't running, warm = sock off/charging */
+    .gapband.collector { fill: color-mix(in srgb, var(--ink) 7%, transparent); }
+    .gapband.sock { fill: color-mix(in srgb, var(--awake) 10%, transparent); }
+    .vital-expand { all: unset; position: absolute; top: 10px; right: 10px; z-index: 2;
+      cursor: pointer; color: var(--faint); padding: 7px 9px; border-radius: 9px;
+      font-size: 14px; line-height: 1; }
+    .vital-expand:hover { color: var(--accent); background: var(--accent-soft); }
+
+    /* ---- metric detail sheet ---------------------------------------------- */
+    .ms-top { display: flex; justify-content: space-between; align-items: baseline;
+      gap: 10px; margin-bottom: 10px; min-height: 34px; }
+    .ms-value { font-size: 28px; font-weight: 700; letter-spacing: -.02em;
+      font-variant-numeric: tabular-nums; }
+    .ms-value small { font-size: 14px; color: var(--dim); font-weight: 500; }
+    .ms-when { color: var(--dim); font-size: 12px; text-align: right; }
+    .ms-seg { display: flex; background: var(--accent-soft); border-radius: 999px;
+      padding: 3px; margin-bottom: 12px; }
+    .ms-seg button { all: unset; flex: 1; text-align: center; cursor: pointer;
+      font-size: 12px; font-weight: 600; color: var(--dim); padding: 5px 0;
+      border-radius: 999px; }
+    .ms-seg button.active { background: var(--surface); color: var(--accent);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, .12); }
+    .ms-chartwrap { position: relative; touch-action: pan-y; user-select: none;
+      -webkit-user-select: none; cursor: crosshair; }
+    .ms-chartwrap svg { display: block; width: 100%; height: 150px; }
+    .ms-chartwrap .threshold { stroke: var(--bad); opacity: .3; stroke-width: 1;
+      stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; }
+    .ms-xline { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--dim);
+      opacity: .8; pointer-events: none; }
+    .ms-axis { display: flex; justify-content: space-between; color: var(--faint);
+      font-size: 10.5px; margin-top: 5px; font-variant-numeric: tabular-nums; }
+    .ms-ylab { position: absolute; right: 3px; font-size: 10px; color: var(--faint);
+      font-variant-numeric: tabular-nums; pointer-events: none; }
+    .ms-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+      margin: 14px 0 4px; }
+    .ms-stats div { text-align: center; }
+    .ms-stats b { display: block; font-size: 15px; font-variant-numeric: tabular-nums; }
+    .ms-stats span { font-size: 10.5px; color: var(--faint); text-transform: uppercase;
+      letter-spacing: .08em; }
+    .ms-dips { margin-top: 12px; display: grid; gap: 6px; }
+    .ms-dips button { all: unset; box-sizing: border-box; cursor: pointer; display: flex;
+      justify-content: space-between; gap: 10px; padding: 8px 11px;
+      border: 1px solid var(--surface-line); border-radius: var(--radius-control);
+      font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .ms-dips button:hover { border-color: var(--accent); }
+    .ms-dips b { color: var(--awake); }
+    .ms-dips b.deep { color: var(--bad); }
+    .ms-link { display: block; margin-top: 14px; text-align: center; color: var(--accent);
+      text-decoration: none; font-size: 13px; font-weight: 600; }
     .xline { position: absolute; top: 12px; bottom: 0; width: 1px;
       background: var(--dim); opacity: .8; pointer-events: none; }
     .xline::after { content: ''; position: absolute; top: -5px; left: -2.5px;
@@ -119,6 +170,8 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
   </style>"""
 
 _VITAL_CARD = """<div class="vital card{minor}" id="card-{key}" data-metric="{key}">
+        <button class="vital-expand" data-expand="{key}" type="button"
+          aria-label="Expand {label} chart" title="Bigger chart &amp; stats">⤢</button>
         <span class="label">{label}</span>
         <div class="value"><span id="{key}Value">—</span><small id="{key}Unit"> {unit}</small></div>
         <div class="band" id="{key}Band"></div>
@@ -181,10 +234,10 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     const moveWord = avg => avg < 4 ? 'calm' : avg < 20 ? 'stirring' : 'active';
 
     const METRICS = [
-      { key: 'o2',   fmt: v => Math.round(v), zone: o2Zone },
-      { key: 'hr',   fmt: v => Math.round(v), zone: null },
-      { key: 'temp', fmt: v => v.toFixed(1),  zone: null },
-      { key: 'move', fmt: v => Math.round(v), zone: null },
+      { key: 'o2',   label: 'Oxygen',     unit: '%',   fmt: v => Math.round(v), zone: o2Zone },
+      { key: 'hr',   label: 'Heart rate', unit: 'bpm', fmt: v => Math.round(v), zone: null },
+      { key: 'temp', label: 'Skin temp',  unit: '°C',  fmt: v => v.toFixed(1),  zone: null },
+      { key: 'move', label: 'Movement',   unit: '',    fmt: v => Math.round(v), zone: null },
     ];
 
     // ---- data buffers ------------------------------------------------------
@@ -196,6 +249,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     const HISTORY_STEPS = [3, 6, 12, 24];
     let liveReadings = [], histReadings = [], loadedHours = 1, loadingHistory = false;
     let points = { o2: [], hr: [], temp: [], move: [] };
+    let gaps = [];   // {start, end, kind: 'collector' | 'sock'} — why the line breaks
     let bands = { o2: null, hr: null };
     let latest = { o2: null, hr: null, temp: null, move: null, offline: true };
     let tempRangeText = '';
@@ -217,7 +271,30 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       points.temp = valid.filter(r => r.skin_temperature > 0)
         .map(r => ({ x: Date.parse(r.recorded_at), y: r.skin_temperature }));
       points.move = valid.map(r => ({ x: Date.parse(r.recorded_at), y: r.movement || 0 }));
+      gaps = computeGaps(rows);
     }
+    function computeGaps(rows) {
+      const out = [];
+      let sockRun = null;
+      for (let i = 0; i < rows.length; i++) {
+        const t = Date.parse(rows[i].recorded_at);
+        if (i > 0) {
+          const prev = Date.parse(rows[i - 1].recorded_at);
+          if (t - prev > 2 * 60 * 1000) out.push({ start: prev, end: t, kind: 'collector' });
+        }
+        if (isOffline(rows[i])) {
+          if (!sockRun) sockRun = { start: t, end: t, kind: 'sock' };
+          else sockRun.end = t;
+        } else if (sockRun) { out.push(sockRun); sockRun = null; }
+      }
+      if (sockRun) { sockRun.end = Date.now(); out.push(sockRun); }
+      if (rows.length) {
+        const lastT = Date.parse(rows[rows.length - 1].recorded_at);
+        if (Date.now() - lastT > 2 * 60 * 1000) out.push({ start: lastT, end: Date.now(), kind: 'collector' });
+      }
+      return out;
+    }
+    function gapAt(t) { return gaps.find(g => t >= g.start && t <= g.end) || null; }
     function loadedStart() { return Date.now() - loadedHours * 3600 * 1000; }
     async function extendHistory() {
       const next = HISTORY_STEPS.find(h => h > loadedHours);
@@ -230,6 +307,13 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         if (!gesture) renderCharts();
       } catch (error) { /* keep what we have */ }
       loadingHistory = false;
+    }
+    async function ensureHistoryHours(hours) {
+      for (let i = 0; i < HISTORY_STEPS.length && loadedHours < hours; i++) {
+        const before = loadedHours;
+        await extendHistory();
+        if (loadedHours === before) break;   // concurrent fetch or nothing left to load
+      }
     }
     async function loadEvents() {
       try {
@@ -266,22 +350,43 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       return out;
     }
 
-    function renderChart(metric) {
-      const g = el(metric.key + 'G'); if (!g) return;
-      const end = chartEnd();
-      const renderStart = end - 2 * WINDOW_MS, renderEnd = end + WINDOW_MS / 4;
-      const xOf = t => ((t - (end - WINDOW_MS)) / WINDOW_MS) * 100;
-      const eventLines = careEvents
-        .filter(e => e.x >= renderStart && e.x <= renderEnd)
-        .map(e => `<line class="evline" x1="${xOf(e.x).toFixed(2)}" x2="${xOf(e.x).toFixed(2)}" y1="0" y2="42"><title>${esc(e.kind)}</title></line>`)
+    // Shared SVG builder for hero strips and the detail sheet. Maps the time
+    // domain [t0, t1] to x [0, w]; points outside may overflow (the hero pans
+    // over its margins, the svg clips). Draws no-data bands, event markers
+    // with a flag dot, then zone-colored line segments.
+    function buildSeriesMarkup(key, t0, t1, dataStart, dataEnd, w, h, opts = {}) {
+      const metric = METRICS.find(m => m.key === key);
+      const xOf = t => ((t - t0) / (t1 - t0)) * w;
+      const clampX = x => Math.max(0, Math.min(w, x));
+      const bands = gaps
+        .filter(g => g.end >= dataStart && g.start <= dataEnd && g.end - g.start > GAP_MS)
+        .map(g => {
+          const x0 = opts.clip ? clampX(xOf(g.start)) : xOf(g.start);
+          const x1 = opts.clip ? clampX(xOf(g.end)) : xOf(g.end);
+          return x1 - x0 < 0.2 ? '' : `<rect class="gapband ${g.kind}" x="${x0.toFixed(2)}" y="0" width="${(x1 - x0).toFixed(2)}" height="${h}"/>`;
+        }).join('');
+      const eventMarks = careEvents
+        .filter(e => e.x >= dataStart && e.x <= dataEnd)
+        .map(e => `<line class="evline" x1="${xOf(e.x).toFixed(2)}" x2="${xOf(e.x).toFixed(2)}" y1="0" y2="${h}"><title>${esc(e.kind)}</title></line>`
+          + `<circle class="evflag" cx="${xOf(e.x).toFixed(2)}" cy="3" r="2"/>`)
         .join('');
-      const pts = downsample(points[metric.key].filter(p => p.x >= renderStart && p.x <= renderEnd));
-      if (pts.length < 2) { g.innerHTML = eventLines; g.removeAttribute('transform'); return; }
+      const pts = downsample(points[key].filter(p => p.x >= dataStart && p.x <= dataEnd));
+      if (pts.length < 2) return { markup: bands + eventMarks, min: null, max: null };
       let min = Infinity, max = -Infinity;
       for (const p of pts) { if (p.y < min) min = p.y; if (p.y > max) max = p.y; }
+      // Anchor the O₂ domain near the 90% line so a dip to 85 reads as a real
+      // plunge instead of vanishing into an auto-fit scale.
+      if (key === 'o2') { min = Math.min(min, 91); max = Math.max(max, 99); }
+      const domainMin = min, domainMax = max;
       const padY = Math.max(0.5, (max - min) * 0.1); min -= padY; max += padY;
-      const yOf = v => 40 - ((v - min) / (max - min)) * 36;
-      const zone = metric.zone || (() => 'var(--accent)');
+      const yOf = v => (h - 2) - ((v - min) / (max - min)) * (h - 6);
+      let thresholds = '';
+      if (key === 'o2' && opts.thresholds) {
+        thresholds = [90, 86].filter(v => v > min && v < max)
+          .map(v => `<line class="threshold" x1="0" x2="${w}" y1="${yOf(v).toFixed(2)}" y2="${yOf(v).toFixed(2)}"/>`)
+          .join('');
+      }
+      const zone = (metric && metric.zone) || (() => 'var(--accent)');
       const segs = [];
       let run = { color: zone(pts[0].y), coords: [`${xOf(pts[0].x).toFixed(2)},${yOf(pts[0].y).toFixed(2)}`] };
       for (let i = 1; i < pts.length; i++) {
@@ -293,9 +398,18 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         if (color !== run.color) { segs.push(run); run = { color, coords: [coord] }; }
       }
       segs.push(run);
-      g.innerHTML = eventLines + segs.filter(s => s.coords.length > 1)
+      const lines = segs.filter(s => s.coords.length > 1)
         .map(s => `<polyline points="${s.coords.join(' ')}" style="stroke:${s.color}"/>`)
         .join('');
+      return { markup: bands + thresholds + eventMarks + lines, min: domainMin, max: domainMax };
+    }
+
+    function renderChart(metric) {
+      const g = el(metric.key + 'G'); if (!g) return;
+      const end = chartEnd();
+      const built = buildSeriesMarkup(metric.key, end - WINDOW_MS, end,
+        end - 2 * WINDOW_MS, end + WINDOW_MS / 4, 100, 42);
+      g.innerHTML = built.markup;
       g.removeAttribute('transform');
     }
     function renderCharts() {
@@ -337,10 +451,12 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const t = chartEnd() - WINDOW_MS + frac * WINDOW_MS;
       const nearEvent = careEvents.find(e => Math.abs(e.x - t) <= 3 * 60 * 1000);
       const when = `at ${fmtClock(new Date(t))}` + (nearEvent ? ` · ⚑ ${esc(nearEvent.kind)}` : '');
+      const gap = gapAt(t);
+      const gapLabel = gap ? (gap.kind === 'collector' ? 'collector was off' : 'sock was off') : 'no reading';
       METRICS.forEach(m => {
         const p = nearestPoint(points[m.key], t);
         el(m.key + 'Value').textContent = p ? m.fmt(p.y) : '—';
-        el(m.key + 'Band').innerHTML = p ? when : `no reading ${when}`;
+        el(m.key + 'Band').innerHTML = p ? when : `${gapLabel} ${when}`;
         el('card-' + m.key).classList.add('inspecting');
         const x = el(m.key + 'X');
         x.hidden = false; x.style.left = (frac * 100) + '%';
@@ -580,6 +696,129 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         }
       });
     }
+
+    // ---- metric detail sheet: bigger chart, stats, dip zoom -------------------
+    const SPANS = [
+      { label: '30m', ms: 30 * 60 * 1000 },
+      { label: '1h',  ms: 3600 * 1000 },
+      { label: '3h',  ms: 3 * 3600 * 1000 },
+      { label: '12h', ms: 12 * 3600 * 1000 },
+      { label: '24h', ms: 24 * 3600 * 1000 },
+    ];
+    let msState = null;   // { key, spanMs, center } — center=null means "ends now"
+    function msWindow() {
+      if (msState.center != null) {
+        const t1 = Math.min(Date.now(), msState.center + msState.spanMs / 2);
+        return { t0: t1 - msState.spanMs, t1 };
+      }
+      return { t0: Date.now() - msState.spanMs, t1: Date.now() };
+    }
+    function openMetricSheet(key) {
+      msState = { key, spanMs: 3 * 3600 * 1000, center: null };
+      renderMetricSheet();
+    }
+    async function renderMetricSheet() {
+      if (!msState) return;
+      const metric = METRICS.find(m => m.key === msState.key);
+      await ensureHistoryHours(Math.ceil((Date.now() - msWindow().t0) / 3600000));
+      const { t0, t1 } = msWindow();
+      const built = buildSeriesMarkup(msState.key, t0, t1, t0, t1, 360, 150, { clip: true, thresholds: true });
+      const inWin = points[msState.key].filter(p => p.x >= t0 && p.x <= t1);
+
+      let stats = '';
+      if (inWin.length) {
+        const values = inWin.map(p => p.y);
+        const minV = Math.min(...values), maxV = Math.max(...values);
+        const avg = values.reduce((a, b) => a + b, 0) / values.length;
+        const fourth = msState.key === 'o2'
+          ? `<div><b>${Math.round((values.filter(v => v < 90).length / values.length) * 100)}%</b><span>time &lt;90</span></div>`
+          : `<div><b>${values.length}</b><span>samples</span></div>`;
+        stats = `<div class="ms-stats">
+          <div><b>${metric.fmt(minV)}</b><span>min</span></div>
+          <div><b>${metric.fmt(avg)}</b><span>avg</span></div>
+          <div><b>${metric.fmt(maxV)}</b><span>max</span></div>
+          ${fourth}</div>`;
+      }
+
+      // O₂ only: tap a dip to recenter a 30-minute window on it
+      let dips = '';
+      if (msState.key === 'o2') {
+        const dipRuns = [];
+        let run = null;
+        for (const p of inWin) {
+          if (p.y < 90) {
+            if (!run) run = { start: p.x, end: p.x, min: p.y, count: 1 };
+            else { run.end = p.x; run.min = Math.min(run.min, p.y); run.count += 1; }
+          } else if (run) { if (run.count >= 2) dipRuns.push(run); run = null; }
+        }
+        if (run && run.count >= 2) dipRuns.push(run);
+        if (dipRuns.length) {
+          dips = '<div class="ms-dips">' + dipRuns.slice(-6).reverse().map(d =>
+            `<button type="button" data-dip="${d.start}">
+              <span>${fmtClock(new Date(d.start))} · ${fmtDur(Math.max(60, (d.end - d.start) / 1000))}</span>
+              <b class="${d.min < 86 ? 'deep' : ''}">low ${Math.round(d.min)}%</b>
+            </button>`).join('') + '</div>';
+        }
+      }
+
+      const segButtons = SPANS.map(s =>
+        `<button type="button" data-span="${s.ms}" class="${s.ms === msState.spanMs ? 'active' : ''}">${s.label}</button>`).join('');
+      const focusIso = new Date(msState.center ?? (t1 - msState.spanMs / 2)).toISOString();
+      openSheet(metric.label,
+        `<div class="ms-top">
+          <div class="ms-value" id="msValue">—<small> ${metric.unit}</small></div>
+          <div class="ms-when" id="msWhen">touch the chart to read a moment</div>
+        </div>
+        <div class="ms-seg" id="msSeg">${segButtons}</div>
+        <div class="ms-chartwrap" id="msChart">
+          <svg viewBox="0 0 360 150" preserveAspectRatio="none" aria-hidden="true">${built.markup}</svg>
+          ${built.max != null ? `<span class="ms-ylab" style="top:2px">${metric.fmt(built.max)}</span><span class="ms-ylab" style="bottom:2px">${metric.fmt(built.min)}</span>` : ''}
+          <div class="ms-xline" id="msX" hidden></div>
+        </div>
+        <div class="ms-axis"><span>${fmtClock(new Date(t0))}</span><span>${msState.center == null ? 'now' : fmtClock(new Date(t1))}</span></div>
+        ${stats}${dips}
+        <a class="ms-link" href="/data?focus=${encodeURIComponent(focusIso)}&span=${Math.round(msState.spanMs / 60000)}">Open in the Data workbench →</a>`);
+
+      el('msSeg').addEventListener('click', event => {
+        const span = event.target.dataset && event.target.dataset.span;
+        if (!span) return;
+        msState.spanMs = Number(span);
+        msState.center = null;   // picking a span returns to "ends now"
+        renderMetricSheet();
+      });
+      const dipRack = el('sheetBody').querySelector('.ms-dips');
+      if (dipRack) dipRack.addEventListener('click', event => {
+        const target = event.target.closest('[data-dip]');
+        if (!target) return;
+        msState.center = Number(target.dataset.dip);
+        msState.spanMs = 30 * 60 * 1000;
+        renderMetricSheet();
+      });
+      const chart = el('msChart');
+      const scrub = event => {
+        const rect = chart.getBoundingClientRect();
+        const frac = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+        const t = t0 + frac * (t1 - t0);
+        const p = nearestPoint(points[msState.key], t);
+        const gap = gapAt(t);
+        el('msValue').innerHTML = (p ? metric.fmt(p.y) : '—') + `<small> ${metric.unit}</small>`;
+        el('msWhen').textContent = p
+          ? `at ${fmtClock(new Date(t))}`
+          : `${gap ? (gap.kind === 'collector' ? 'collector was off' : 'sock was off') : 'no reading'} at ${fmtClock(new Date(t))}`;
+        const x = el('msX'); x.hidden = false; x.style.left = (frac * 100) + '%';
+      };
+      chart.addEventListener('pointerdown', event => {
+        try { chart.setPointerCapture(event.pointerId); } catch (error) { /* fine */ }
+        scrub(event);
+      });
+      chart.addEventListener('pointermove', scrub);
+    }
+    METRICS.forEach(m => {
+      const button = document.querySelector(`.vital-expand[data-expand="${m.key}"]`);
+      if (!button) return;
+      button.addEventListener('pointerdown', event => event.stopPropagation());
+      button.addEventListener('click', event => { event.stopPropagation(); openMetricSheet(m.key); });
+    });
 
     // ---- live vitals + narrative --------------------------------------------
     const bandText = (band, unit) => band
