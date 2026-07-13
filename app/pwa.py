@@ -65,16 +65,33 @@ self.addEventListener('activate', event => {
   );
 });
 
+function refreshCache(request, cacheKey) {
+  return fetch(request).then(response => {
+    // Redirected responses are auth bounces (e.g. / -> /login); caching the
+    // login page under an app path would poison every later visit.
+    if (response.ok && !response.redirected) {
+      const copy = response.clone();
+      caches.open(CACHE_NAME).then(cache => cache.put(cacheKey || request, copy));
+    }
+    return response;
+  });
+}
+
 function networkFirst(request, cacheKey) {
-  return fetch(request)
-    .then(response => {
-      if (response.ok) {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(cacheKey || request, copy));
-      }
-      return response;
-    })
+  return refreshCache(request, cacheKey)
     .catch(() => caches.match(cacheKey || request).then(cached => cached || Response.error()));
+}
+
+// Serve the cached page instantly and refresh it in the background — tab
+// switches paint at once instead of waiting a server round trip. Pages are
+// static shells (all data arrives via /api/*, which is never cached here),
+// so a slightly stale shell is always safe.
+function staleWhileRevalidate(request, cacheKey) {
+  return caches.match(cacheKey).then(cached => {
+    const network = networkFirst(request, cacheKey);
+    if (cached) { network.catch(() => {}); return cached; }
+    return network;
+  });
 }
 
 self.addEventListener('fetch', event => {
@@ -87,7 +104,7 @@ self.addEventListener('fetch', event => {
   if (url.pathname.startsWith('/share/')) return;
 
   if (request.mode === 'navigate') {
-    event.respondWith(networkFirst(request, '/'));
+    event.respondWith(staleWhileRevalidate(request, url.pathname));
     return;
   }
 

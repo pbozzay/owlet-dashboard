@@ -111,7 +111,10 @@ SHELL_JS = """<script>
   }
   function loadShellAccounts() {
     return Promise.all([
-      fetch('/api/accounts').then(function (r) { return r.json(); }),
+      fetch('/api/accounts').then(function (r) {
+        if (r.status === 401) { window.location.href = '/login'; throw new Error('unauthenticated'); }
+        return r.json();
+      }),
       fetch('/api/devices').then(function (r) { return r.json(); })
     ]).then(function (results) {
       shellAccounts = results[0].accounts || [];
@@ -249,6 +252,15 @@ SHELL_JS = """<script>
   pollFreshness();
   setInterval(pollFreshness, 10000);
   setInterval(paintDot, 1000);
+
+  // Warm the other tabs into the service-worker cache so the first switch
+  // paints instantly too.
+  setTimeout(function () {
+    if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return;
+    ['/', '/night', '/rhythms', '/data'].forEach(function (path) {
+      if (window.location.pathname !== path) fetch(path, { credentials: 'same-origin' }).catch(function () {});
+    });
+  }, 2500);
   var dot = document.getElementById('shellDot');
   if (dot) dot.addEventListener('click', function () { window.location.reload(); });
 })();
