@@ -81,6 +81,9 @@ def build_rollups(readings: list[OwletReading], bucket: Bucket = "hour") -> list
                 "total_samples": len(rows),
                 "offline_samples": len(rows) - len(valid_rows),
                 "offline_seconds": offline_seconds,
+                # Battery reports even while the sock is off/charging, so it
+                # aggregates over all rows, not just valid vitals.
+                "avg_battery": _avg([row.battery for row in rows if row.battery is not None]),
                 "avg_heart_rate": _avg([row.heart_rate for row in valid_rows]),
                 "avg_oxygen_saturation": _avg([row.oxygen_saturation for row in valid_rows]),
                 "min_oxygen_saturation": _min([row.oxygen_saturation for row in valid_rows]),

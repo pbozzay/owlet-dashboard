@@ -88,6 +88,8 @@ SHELL_JS = """<script>
   if (profileButton && profileMenu) {
     profileButton.addEventListener('click', function (event) {
       event.stopPropagation();
+      if (typeof closeBell === 'function') closeBell();
+      if (typeof closeBatt === 'function') closeBatt();
       profileMenu.hidden = !profileMenu.hidden;
       profileButton.setAttribute('aria-expanded', String(!profileMenu.hidden));
     });
@@ -249,7 +251,7 @@ SHELL_JS = """<script>
     if (bellButton) bellButton.setAttribute('aria-expanded', 'false');
   }
   function openBell() {
-    closeProfile();
+    closeProfile(); closeBatt();
     bellPop.hidden = false;
     bellButton.setAttribute('aria-expanded', 'true');
     byId('bellList').innerHTML = '<div class="bell-empty">Loading…</div>';
@@ -285,6 +287,80 @@ SHELL_JS = """<script>
     });
     document.addEventListener('keydown', function (event) {
       if (event.key === 'Escape') closeBell();
+    });
+  }
+
+  // ---- battery: top-bar glyph + charge/drain detail popover ----
+  var battButton = byId('shellBattery');
+  var battPop = byId('battPop');
+  var battLevel = null;
+  function paintBattery() {
+    if (!battButton) return;
+    var pct = byId('shellBattPct'), fill = byId('shellBattFill');
+    if (battLevel == null) {
+      pct.textContent = '—';
+      fill.style.width = '0%';
+      battButton.className = 'shell-batt';
+      return;
+    }
+    var level = Math.round(battLevel);
+    pct.textContent = level + '%';
+    fill.style.width = Math.max(6, Math.min(100, level)) + '%';
+    battButton.className = 'shell-batt ' + (level <= 20 ? 'low' : level <= 50 ? 'mid' : 'good');
+    battButton.title = 'Battery ' + level + '%';
+  }
+  function closeBatt() {
+    if (!battPop) return;
+    battPop.hidden = true;
+    if (battButton) battButton.setAttribute('aria-expanded', 'false');
+  }
+  function openBatt() {
+    closeProfile(); closeBell();
+    battPop.hidden = false;
+    battButton.setAttribute('aria-expanded', 'true');
+    byId('battBody').innerHTML = '<div class="bell-empty">Reading the last few hours…</div>';
+    fetch('/api/rollups?bucket=5m&hours=6&limit=200')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var series = (data.rollups || [])
+          .map(function (row) { return { t: Date.parse(row.bucket_start), y: row.avg_battery }; })
+          .filter(function (pt) { return pt.y != null; });
+        if (series.length < 3) {
+          byId('battBody').innerHTML = '<div class="bell-empty">Not enough recent readings to measure a trend.</div>';
+          return;
+        }
+        // slope over the most recent ~45 minutes
+        var tail = series.slice(-9);
+        var hours = (tail[tail.length - 1].t - tail[0].t) / 3600000;
+        var rate = hours > 0 ? (tail[tail.length - 1].y - tail[0].y) / hours : 0;
+        var state = rate > 1 ? 'charging' : rate < -0.5 ? 'draining' : 'holding steady';
+        var lines = [
+          '<div class="batt-row"><span>Charge now</span><b>' + (battLevel != null ? Math.round(battLevel) + '%' : '—') + '</b></div>',
+          '<div class="batt-row"><span>State</span><b>' + state + '</b></div>',
+          '<div class="batt-row"><span>Rate</span><b>' + (rate > 0 ? '+' : '') + rate.toFixed(1) + '%/h</b></div>',
+        ];
+        if (state === 'charging' && battLevel != null && rate > 0) {
+          lines.push('<div class="batt-row"><span>Full in</span><b>~' + Math.max(1, Math.round(((100 - battLevel) / rate) * 60)) + ' min</b></div>');
+        } else if (state === 'draining' && battLevel != null && rate < 0) {
+          lines.push('<div class="batt-row"><span>Empty in</span><b>~' + (battLevel / -rate).toFixed(1) + ' h</b></div>');
+        }
+        byId('battBody').innerHTML = lines.join('')
+          + '<p class="batt-note">Rate is measured over the last 45 minutes of readings.</p>';
+      })
+      .catch(function () {
+        byId('battBody').innerHTML = '<div class="bell-empty">Could not load battery history.</div>';
+      });
+  }
+  if (battButton && battPop) {
+    battButton.addEventListener('click', function (event) {
+      event.stopPropagation();
+      if (battPop.hidden) openBatt(); else closeBatt();
+    });
+    document.addEventListener('click', function (event) {
+      if (!battPop.hidden && !battPop.contains(event.target) && !battButton.contains(event.target)) closeBatt();
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') closeBatt();
     });
   }
 
@@ -364,6 +440,7 @@ SHELL_JS = """<script>
     fetch('/api/widget?hours=1').then(function (r) { return r.json(); }).then(function (widget) {
       if (widget.updated_at) lastReadingAt = Date.parse(widget.updated_at);
       sockReporting = widget.sock_reporting !== false;
+      if (typeof widget.battery === 'number') { battLevel = widget.battery; paintBattery(); }
       if (typeof widget.unread_notifications === 'number' && (bellPop == null || bellPop.hidden)) {
         unreadCount = widget.unread_notifications;
         paintBell();
@@ -438,6 +515,17 @@ def render_shell(
         <div id="bellPop" class="bell-pop card" role="menu" aria-label="Notifications" hidden>
           <div class="bp-head"><b>Notifications</b><span class="bp-meta">newest first · opening marks read</span></div>
           <div id="bellList" class="bell-list"></div>
+        </div>
+      </span>
+      <span class="batt-wrap">
+        <button id="shellBattery" class="shell-batt" type="button" aria-haspopup="true"
+          aria-expanded="false" title="Battery">
+          <span class="batt-shell" aria-hidden="true"><span id="shellBattFill" class="batt-fill"></span></span>
+          <span id="shellBattPct" class="batt-pct">—</span>
+        </button>
+        <div id="battPop" class="bell-pop card" role="menu" aria-label="Battery" hidden>
+          <div class="bp-head"><b>Battery</b><span class="bp-meta" id="battMeta"></span></div>
+          <div id="battBody" class="batt-body"></div>
         </div>
       </span>
       <button id="profileMenuToggle" class="profile-chip" type="button" aria-haspopup="menu"

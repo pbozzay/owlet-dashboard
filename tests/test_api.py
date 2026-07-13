@@ -764,10 +764,8 @@ async def test_dashboard_endpoint_serves_html(tmp_path):
     assert "minBarLength: 2" in response.text
     assert '<span class="control-section-title">View</span>' not in response.text
     assert "refreshNote" not in response.text
-    assert "batteryStatus" in response.text
-    assert "battery_minutes" in response.text
-    assert "pill.dataset.detail" in response.text
-    assert "batteryStatus').addEventListener('click'" in response.text
+    assert "batteryStatus" not in response.text  # battery lives in the shell top bar now
+    assert 'id="shellBattery"' in response.text
     assert "latestBattery" not in response.text
     assert "lowOxygen" not in response.text
     assert "oxygen-value.good" in response.text

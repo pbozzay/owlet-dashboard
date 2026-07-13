@@ -45,14 +45,6 @@ DATA_HEAD = r"""  <meta name="theme-color" content="#122033" />
     .control-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .refresh-cluster { margin-left: auto; justify-content: flex-end; }
     .toolbar-right { position: relative; }
-    .battery-pill { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; background: var(--inset); color: var(--text); }
-    .battery-shell { width: 28px; height: 15px; border: 2px solid currentColor; border-radius: 4px; padding: 2px; position: relative; display: inline-flex; align-items: stretch; }
-    .battery-shell::after { content: ''; position: absolute; right: -5px; top: 4px; width: 3px; height: 5px; border-radius: 0 2px 2px 0; background: currentColor; }
-    .battery-fill { display: block; min-width: 2px; border-radius: 2px; background: currentColor; }
-    .battery-pill.good { color: var(--good); background: color-mix(in srgb, var(--good) 10%, transparent); border-color: color-mix(in srgb, var(--good) 30%, transparent); }
-    .battery-pill.mid { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
-    .battery-pill.low { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); border-color: color-mix(in srgb, var(--bad) 30%, transparent); }
-    .battery-pill.unknown { color: var(--muted); }
     .refresh-cluster #refresh { min-width: 112px; }
     .mobile-label { display: none; }
     label { color: var(--muted); font-size: .85rem; font-weight: 600; }
@@ -236,10 +228,6 @@ DATA_HEAD = r"""  <meta name="theme-color" content="#122033" />
       button.icon-button { width: 34px; height: 34px; }
       .challenge-button { white-space: nowrap; }
       .challenge-count { min-width: 17px; height: 17px; padding: 0 4px; margin-left: 2px; font-size: .64rem; }
-      .battery-pill { gap: 4px; min-height: 32px; padding-inline: .42rem; }
-      .battery-shell { width: 22px; height: 13px; border-width: 1.5px; padding: 2px; }
-      .battery-shell::after { right: -4px; top: 4px; width: 2px; height: 4px; }
-      #batteryLabel { font-size: .72rem; }
       .refresh-cluster #refresh { min-width: 34px; width: 40px; padding-inline: 0; }
       .chart-stack, .grid { gap: 8px; }
       .glance-strip { gap: 7px; margin: 8px 0; }
@@ -296,10 +284,6 @@ DATA_BODY = r"""
       <div class="control-group refresh-cluster toolbar-right">
         <button id="dailyInsightsToggle" class="daily-insights-button" type="button" aria-label="Daily insights"><span class="desktop-label">Daily insights</span><span class="mobile-label" aria-hidden="true">📊</span></button>
         <button id="challengesToggle" class="challenge-button" type="button" aria-expanded="false" aria-label="O₂ challenges"><span class="desktop-label">O₂ challenges</span><span class="mobile-label" aria-hidden="true">O₂ Ch.</span> <span id="challengeCount" class="challenge-count">0</span></button>
-        <button id="batteryStatus" class="battery-pill unknown" type="button" title="Battery details">
-          <span class="battery-shell" aria-hidden="true"><span id="batteryFill" class="battery-fill" style="width: 0%;"></span></span>
-          <span id="batteryLabel">—</span>
-        </button>
         <div id="challengesPanel" class="challenge-popover hidden" role="dialog" aria-modal="true" aria-label="Oxygen challenges">
           <div class="panel-title">
             <h2>Oxygen challenges</h2>
@@ -917,45 +901,12 @@ DATA_BODY = r"""
       return '30m';
     }
 
-    function batteryClass(level) {
-      const value = Number(level);
-      if (!Number.isFinite(value)) return 'unknown';
-      if (value <= 20) return 'low';
-      if (value <= 45) return 'mid';
-      return 'good';
-    }
-
     function oxygenValueClass(level) {
       const value = Number(level);
       if (!Number.isFinite(value)) return 'unknown';
       if (value >= 92) return 'good';
       if (value >= 86) return 'caution';
       return 'danger';
-    }
-
-    function batteryTime(minutes) {
-      const value = Number(minutes);
-      if (!Number.isFinite(value) || value <= 0) return 'estimate unavailable';
-      const hrs = Math.floor(value / 60);
-      const mins = Math.round(value % 60);
-      if (hrs <= 0) return `${mins}m remaining`;
-      return `${hrs}h ${mins}m remaining`;
-    }
-
-    function renderBatteryStatus(latest) {
-      const level = latest?.battery;
-      const minutes = latest?.battery_minutes;
-      const numeric = Number(level);
-      const cls = batteryClass(level);
-      const pill = el('batteryStatus');
-      pill.className = `battery-pill ${cls}`;
-      el('batteryLabel').textContent = Number.isFinite(numeric) ? `${Math.round(numeric)}%` : '—';
-      el('batteryFill').style.width = Number.isFinite(numeric) ? `${Math.max(4, Math.min(100, numeric))}%` : '0%';
-      pill.title = Number.isFinite(numeric)
-        ? `Battery ${Math.round(numeric)}% · ${batteryTime(minutes)}`
-        : 'Battery unavailable';
-      pill.dataset.detail = pill.title;
-      pill.setAttribute('aria-label', pill.title);
     }
 
     function updateRefreshButton(text = null) {
@@ -1689,7 +1640,6 @@ DATA_BODY = r"""
       const dotClass = offlineNow ? 'offline' : (health.collecting ? 'good' : '');
       const titleDot = el('titleStatusDot');
       if (titleDot) titleDot.className = `status-dot title-status-dot ${dotClass}`;
-      renderBatteryStatus(latest);
     }
 
     function renderInsights() {
@@ -1706,7 +1656,6 @@ DATA_BODY = r"""
       el('avgHr').textContent = hrCompare.current === null ? '—' : fmt(hrCompare.current.toFixed(0), ' bpm');
       el('latestState').textContent = latest ? latest.sleep_state_label : '—';
       el('latestMove').textContent = latest ? num(latest.movement) : '—';
-      renderBatteryStatus(latest);
 
       const breathing = insights.breathing;
       el('o2Compare').textContent = `${comparisonText(oxygenCompare, 1, ' pts')} vs same time yesterday`;
@@ -3107,7 +3056,6 @@ DATA_BODY = r"""
 
 
 
-    el('batteryStatus').addEventListener('click', () => alert(el('batteryStatus').dataset.detail || 'Battery unavailable'));
 
     el('accountSelect')?.addEventListener('change', async event => {
       setUrlAccount(event.target.value);

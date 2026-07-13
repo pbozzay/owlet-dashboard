@@ -30,6 +30,16 @@ RHYTHMS_HEAD = """<style>
     .grad i:first-child { border-radius: 3px 0 0 3px; }
     .grad i:last-child { border-radius: 0 3px 3px 0; }
     .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+    .wear-bars { display: flex; align-items: flex-end; gap: 8px; margin: 12px 0 4px;
+      min-height: 96px; }
+    .wear-bars .wb { flex: 1; display: grid; justify-items: center; gap: 4px;
+      align-content: end; }
+    .wear-bars i { display: block; width: 100%; max-width: 34px;
+      border-radius: 5px 5px 2px 2px; background: var(--accent-soft);
+      border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+    .wear-bars b { font-size: 10.5px; color: var(--dim); font-weight: 500;
+      font-variant-numeric: tabular-nums; }
+    .wear-bars span { font-size: 10px; color: var(--faint); }
     .tile { padding: 20px; }
     .tile h3 { font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
       color: var(--faint); font-weight: 700; margin: 0 0 10px; }
@@ -229,7 +239,55 @@ RHYTHMS_SCRIPTS = """<script>
           Give it a night or two — each day of readings adds a row here.</div>`;
         return;
       }
-      el('content').innerHTML = renderActogram(days) + renderTiles(days, rollups);
+      el('content').innerHTML = renderActogram(days) + renderTiles(days, rollups)
+        + renderBatteryWear(rollups);
+    }
+
+    // Per-day discharge rate: how hard the battery works, and whether that is
+    // creeping up as the hardware ages. Only draining stretches count —
+    // charging and idle time are excluded.
+    function renderBatteryWear(rollups) {
+      const byDay = new Map();
+      let prev = null;
+      for (const row of rollups) {
+        if (row.avg_battery == null) { prev = null; continue; }
+        const t = new Date(row.bucket_start);
+        if (prev && row.avg_battery < prev.level) {
+          const key = t.toISOString().slice(0, 10);
+          const rec = byDay.get(key) || { drop: 0, hours: 0, date: new Date(t.getFullYear(), t.getMonth(), t.getDate()) };
+          rec.drop += prev.level - row.avg_battery;
+          rec.hours += (t - prev.t) / 3600000;
+          byDay.set(key, rec);
+        }
+        prev = { level: row.avg_battery, t };
+      }
+      const daysList = [...byDay.values()]
+        .filter(d => d.hours >= 2)              // need a real stretch to rate
+        .sort((a, b) => a.date - b.date)
+        .slice(-14)
+        .map(d => ({ ...d, rate: d.drop / d.hours }));
+      if (daysList.length < 2) return '';
+      const maxRate = Math.max(...daysList.map(d => d.rate));
+      const bars = daysList.map(d => {
+        const height = Math.max(6, (d.rate / maxRate) * 74);
+        const label = 'SMTWTFS'[d.date.getDay()];
+        return `<div class="wb"><b>${d.rate.toFixed(1)}</b>
+          <i style="height:${height.toFixed(0)}px"></i><span>${label}</span></div>`;
+      }).join('');
+      const half = Math.floor(daysList.length / 2);
+      const avg = list => list.reduce((a, d) => a + d.rate, 0) / list.length;
+      const earlier = avg(daysList.slice(0, half)), recent = avg(daysList.slice(half));
+      const delta = earlier > 0 ? Math.round(((recent - earlier) / earlier) * 100) : 0;
+      const note = Math.abs(delta) < 8
+        ? 'Holding steady — the battery drains about as fast as it did two weeks ago.'
+        : delta > 0
+          ? `Draining ${delta}% faster than the earlier half of this window — worth watching as the sock ages.`
+          : `Draining ${-delta}% slower than the earlier half of this window.`;
+      return `<section><h2 class="section-title">Battery wear</h2>
+        <div class="tile card"><h3>Discharge rate per day</h3>
+          <div class="wear-bars">${bars}</div>
+          <p>%/hour while draining. ${note}</p>
+        </div></section>`;
     }
     boot();
   </script>"""

@@ -57,6 +57,10 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .chartzone .ghostline, .ms-chartwrap .ghostline { stroke: var(--faint);
       stroke-width: 1.4; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke;
       opacity: .75; }
+    /* amber = the sock isn't on her properly (same language as the title dot);
+       grey stays for charging and collector-off */
+    .chartzone .ghostline.warn, .ms-chartwrap .ghostline.warn { stroke: var(--awake); }
+    .gaplabels span.warn { color: var(--awake); }
     /* hypnogram: rounded state bars in three lanes, tracker-style, with thin
        gradient connectors between stages the way Apple draws transitions */
     /* Butt caps: rounded ones extend half the bar width past each end and
@@ -387,10 +391,11 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           const mid = (Math.max(g.start, t0) + Math.min(g.end, t1)) / 2;
           const yFrac = ghostYs && ghostYs[g.start] != null ? ghostYs[g.start] : null;
           const top = yFrac == null ? 'top:5px' : `top:max(2px, calc(${(yFrac * 100).toFixed(1)}% - 16px))`;
-          return `<span style="left:${(((mid - t0) / (t1 - t0)) * 100).toFixed(2)}%;${top}">${esc(g.label)}</span>`;
+          return `<span class="${gapWarn(g) ? 'warn' : ''}" style="left:${(((mid - t0) / (t1 - t0)) * 100).toFixed(2)}%;${top}">${esc(g.label)}</span>`;
         }).join('');
     }
     function gapAt(t) { return gaps.find(g => t >= g.start && t <= g.end) || null; }
+    const gapWarn = g => g.label === 'disconnected' || g.label === 'sock off';
     function lastPointBefore(pts, t) {
       if (!pts.length || pts[0].x > t) return null;
       let lo = 0, hi = pts.length - 1;
@@ -503,7 +508,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           const x0 = opts.clip ? clampX(xOf(g.start)) : xOf(g.start);
           const x1 = opts.clip ? clampX(xOf(g.end)) : xOf(g.end);
           if (x1 - x0 < 0.5) return '';
-          return `<line class="ghostline" x1="${x0.toFixed(2)}" x2="${x1.toFixed(2)}" y1="${gy.toFixed(2)}" y2="${gy.toFixed(2)}"/>`;
+          return `<line class="ghostline${gapWarn(g) ? ' warn' : ''}" x1="${x0.toFixed(2)}" x2="${x1.toFixed(2)}" y1="${gy.toFixed(2)}" y2="${gy.toFixed(2)}"/>`;
         }).join('');
       const zone = (metric && metric.zone) || (() => 'var(--accent)');
       const segs = [];
@@ -578,7 +583,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           const x1 = opts.clip ? clampX(xOf(g.end)) : xOf(g.end);
           if (x1 - x0 < 0.5) return '';
           const y = lanes[anchor.level].toFixed(2);
-          return `<line class="ghostline" x1="${x0.toFixed(2)}" x2="${x1.toFixed(2)}" y1="${y}" y2="${y}"/>`;
+          return `<line class="ghostline${gapWarn(g) ? ' warn' : ''}" x1="${x0.toFixed(2)}" x2="${x1.toFixed(2)}" y1="${y}" y2="${y}"/>`;
         }).join('');
       return { markup: defs + ghosts + eventMarks + connectors.join('') + bars, ghostYs };
     }
@@ -829,21 +834,6 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         </div>`).join('');
       openSheet('O₂ dips today', rows +
         '<p class="note">Each row is a stretch of 5-minute buckets whose lowest reading fell under 90%. "Inspect" opens the raw data zoomed to that moment.</p>');
-    }
-
-    let batterySheetData = null;
-    function batterySheet() {
-      const b = batterySheetData;
-      if (!b) return openSheet('Battery', '<p class="note">No battery data yet.</p>');
-      const rows = [
-        `<div class="row"><span>Charge now</span><b>${b.text}</b></div>`,
-        b.charging ? '<div class="row"><span>State</span><b>charging</b></div>' : '',
-        b.hoursLeft != null && b.hoursLeft !== Infinity && !b.charging
-          ? `<div class="row"><span>Projected runtime</span><b>~${Math.round(b.hoursLeft)}h</b></div>` : '',
-        b.sub ? `<div class="row"><span>Tonight</span><b>${b.sub}</b></div>` : '',
-      ].join('');
-      openSheet('Battery', rows +
-        '<p class="note">Runtime is projected from the drain rate over the last hour of readings, and compared against the hours until 7 AM.</p>');
     }
 
     // ---- care events ---------------------------------------------------------
@@ -1172,27 +1162,6 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         inDip = low;
       });
 
-      // --- battery night-readiness ----------------------------------------
-      const batterySamples = readings.filter(r => r.battery != null)
-        .map(r => ({ x: Date.parse(r.recorded_at), y: r.battery }));
-      const battery = I.batteryProjection(batterySamples);
-      const morning = new Date(); morning.setDate(morning.getDate() + (morning.getHours() >= 7 ? 1 : 0)); morning.setHours(7, 0, 0, 0);
-      const hoursToMorning = (morning - Date.now()) / 3600000;
-      let batteryText = '—', batterySub = '', batteryClass = '';
-      if (battery) {
-        batteryText = `${Math.round(battery.level)}%`;
-        if (battery.charging) { batterySub = 'charging'; batteryClass = 'good'; }
-        else if (battery.hoursLeft === Infinity) { batterySub = 'barely draining'; batteryClass = 'good'; }
-        else if (battery.hoursLeft > hoursToMorning + 2) { batterySub = `~${Math.round(battery.hoursLeft)}h left — fine for tonight`; batteryClass = 'good'; }
-        else { batterySub = `~${Math.round(battery.hoursLeft)}h left — charge before bed`; batteryClass = 'warn'; }
-      } else if (widget.battery != null) {
-        batteryText = `${Math.round(widget.battery)}%`;
-      }
-      batterySheetData = battery || widget.battery != null
-        ? { text: batteryText, sub: batterySub, charging: !!(battery && battery.charging),
-            hoursLeft: battery ? battery.hoursLeft : null }
-        : null;
-
       // --- bedtime context (evenings) ---------------------------------------
       let bedtimeLine = '';
       const nowDate = new Date();
@@ -1227,7 +1196,6 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         <div class="strip">
           <button class="chip card" id="chipSleep"><b>${fmtDur(sleepToday)}</b><span>sleep today</span><span class="sub">tap for sessions</span></button>
           <button class="chip card ${dipsToday ? 'warn' : 'good'}" id="chipDips"><b>${dipsToday}</b><span>O₂ dips today</span><span class="sub">tap for detail</span></button>
-          <button class="chip card ${batteryClass}" id="chipBattery"><b>${batteryText}</b><span>battery</span><span class="sub">${batterySub}</span></button>
           <button class="chip card" id="chipTemp"><b>${latest.temp != null ? latest.temp.toFixed(1) + '°' : '—'}</b><span>skin temp</span><span class="sub">${tempRangeText || 'tap for history'}</span></button>
           <button class="chip card" id="chipEvents"><b>⚑ Log</b><span>event</span>
             <span class="sub">${lastEvent ? 'last: ' + esc(lastEvent.kind) + ' ' + fmtClock(new Date(lastEvent.x)) : 'O₂ on/off, sock off…'}</span></button>
@@ -1241,7 +1209,6 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       el('chipSleep').addEventListener('click', openSleepSheet);
       el('chipTemp').addEventListener('click', () => openMetricSheet('temp'));
       el('chipDips').addEventListener('click', dipsSheet);
-      el('chipBattery').addEventListener('click', batterySheet);
       el('chipEvents').addEventListener('click', eventsSheet);
     }
 
