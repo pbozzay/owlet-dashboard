@@ -41,6 +41,11 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .chartzone line.evline, .ms-chartwrap line.evline { stroke: var(--warn);
       stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; opacity: .85; }
     .chartzone .evflag, .ms-chartwrap .evflag { fill: var(--warn); }
+    /* offline ghost: holds the last reading's level through a gap, dashed grey
+       so it can't be mistaken for live data */
+    .chartzone .ghostline, .ms-chartwrap .ghostline { stroke: var(--faint);
+      stroke-width: 1.4; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke;
+      opacity: .75; }
     /* no-data bands: quiet grey = collector wasn't running, warm = sock off/charging */
     .gapband.collector { fill: color-mix(in srgb, var(--ink) 7%, transparent); }
     .gapband.sock { fill: color-mix(in srgb, var(--awake) 10%, transparent); }
@@ -295,6 +300,12 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       return out;
     }
     function gapAt(t) { return gaps.find(g => t >= g.start && t <= g.end) || null; }
+    function lastPointBefore(pts, t) {
+      if (!pts.length || pts[0].x > t) return null;
+      let lo = 0, hi = pts.length - 1;
+      while (lo < hi) { const mid = (lo + hi + 1) >> 1; (pts[mid].x <= t ? lo = mid : hi = mid - 1); }
+      return pts[lo];
+    }
     function loadedStart() { return Date.now() - loadedHours * 3600 * 1000; }
     async function extendHistory() {
       const next = HISTORY_STEPS.find(h => h > loadedHours);
@@ -386,6 +397,19 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           .map(v => `<line class="threshold" x1="0" x2="${w}" y1="${yOf(v).toFixed(2)}" y2="${yOf(v).toFixed(2)}"/>`)
           .join('');
       }
+      // Hold the last reading's level through each offline stretch as a dashed
+      // grey line, so the gap reads as "signal lost here" rather than nothing.
+      const ghosts = gaps
+        .filter(g => g.end >= dataStart && g.start <= dataEnd && g.end - g.start > GAP_MS)
+        .map(g => {
+          const prior = lastPointBefore(points[key], g.start + 1000);
+          if (!prior) return '';
+          const gy = Math.max(2, Math.min(h - 2, yOf(prior.y)));
+          const x0 = opts.clip ? clampX(xOf(g.start)) : xOf(g.start);
+          const x1 = opts.clip ? clampX(xOf(g.end)) : xOf(g.end);
+          if (x1 - x0 < 0.5) return '';
+          return `<line class="ghostline" x1="${x0.toFixed(2)}" x2="${x1.toFixed(2)}" y1="${gy.toFixed(2)}" y2="${gy.toFixed(2)}"/>`;
+        }).join('');
       const zone = (metric && metric.zone) || (() => 'var(--accent)');
       const segs = [];
       let run = { color: zone(pts[0].y), coords: [`${xOf(pts[0].x).toFixed(2)},${yOf(pts[0].y).toFixed(2)}`] };
@@ -401,7 +425,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const lines = segs.filter(s => s.coords.length > 1)
         .map(s => `<polyline points="${s.coords.join(' ')}" style="stroke:${s.color}"/>`)
         .join('');
-      return { markup: bands + thresholds + eventMarks + lines, min: domainMin, max: domainMax };
+      return { markup: bands + thresholds + ghosts + eventMarks + lines, min: domainMin, max: domainMax };
     }
 
     function renderChart(metric) {
