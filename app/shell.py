@@ -49,19 +49,30 @@ SHELL_JS = """<script>
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
     applyTheme(currentSetting());
   });
+  function persistThemePreference(next, accountId) {
+    // keepalive: applyTheme() reloads chart pages immediately, and without it
+    // the PATCH gets cancelled mid-flight — the server preference never
+    // updates and the shell syncs the old theme right back after reload.
+    return fetch('/api/accounts/' + accountId, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dashboard_preferences: { theme: next } }),
+      keepalive: true
+    }).catch(function () {});
+  }
   document.querySelectorAll('[data-theme-set]').forEach(function (button) {
     button.addEventListener('click', function () {
       var next = button.dataset.themeSet;
       localStorage.setItem('owletTheme', next);
-      applyTheme(next);
-      fetch('/api/accounts').then(function (r) { return r.json(); }).then(function (data) {
-        var account = (data.accounts || [])[0];
-        if (!account) return;
-        fetch('/api/accounts/' + account.id, {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dashboard_preferences: { theme: next } })
-        });
-      }).catch(function () {});
+      var account = shellAccounts[0];
+      if (account) {
+        persistThemePreference(next, account.id);
+        applyTheme(next);
+      } else {
+        fetch('/api/accounts').then(function (r) { return r.json(); }).then(function (data) {
+          var found = (data.accounts || [])[0];
+          if (found) return persistThemePreference(next, found.id);
+        }).catch(function () {}).then(function () { applyTheme(next); });
+      }
     });
   });
 

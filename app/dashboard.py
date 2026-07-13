@@ -67,7 +67,7 @@ DATA_HEAD = r"""  <meta name="theme-color" content="#122033" />
     .grid { display: grid; gap: 14px; }
     .grid > * { min-width: 0; }
     .chart-stack { display: grid; gap: 14px; }
-    .chart-panel { padding: 14px; }
+    .chart-panel { padding: 18px 18px 14px; }
     .chart-frame { position: relative; width: 100%; }
     .chart-frame.main { height: 370px; }
     .chart-frame.companion { height: 190px; }
@@ -197,6 +197,8 @@ DATA_HEAD = r"""  <meta name="theme-color" content="#122033" />
     .trend-stable, .trend-flat { color: var(--accent); }
     .trend-unknown { color: var(--muted); }
     .panel-title { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 8px; }
+    /* Chart/panel headers use the same quiet uppercase label as the other views. */
+    .panel-title h2 { font-size: 11px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); }
     .small { color: var(--muted); font-size: .86rem; }
     .insight-text { font-size: 1.08rem; font-weight: 600; line-height: 1.35; margin: 12px 0; }
     .details-grid { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); margin-top: 14px; }
@@ -524,12 +526,36 @@ DATA_BODY = r"""
 
   <script>
     (function themeCharts() {
+      // Quiet, token-driven chart chrome so the graphs read like the rest of
+      // the app: hairline series, faint horizontal grid only, inverted-card
+      // tooltips (same treatment as the sleep-strip tooltip).
       const styles = getComputedStyle(document.documentElement);
       const ink = styles.getPropertyValue('--ink').trim() || '#122033';
+      const bg = styles.getPropertyValue('--bg').trim() || '#faf7f2';
+      const dim = styles.getPropertyValue('--dim').trim() || '#78716c';
+      const faint = styles.getPropertyValue('--faint').trim() || '#a8a29e';
       const line = styles.getPropertyValue('--surface-line').trim() || '#e2e8f0';
       if (window.Chart) {
-        Chart.defaults.color = ink;
+        Chart.defaults.color = dim;
         Chart.defaults.borderColor = line;
+        Chart.defaults.font.size = 11;
+        Chart.defaults.elements.line.borderWidth = 1.7;
+        Chart.defaults.elements.line.borderJoinStyle = 'round';
+        Chart.defaults.elements.line.borderCapStyle = 'round';
+        Chart.defaults.scale.grid.drawTicks = false;
+        Chart.defaults.scale.ticks.color = faint;
+        const tooltip = Chart.defaults.plugins.tooltip;
+        tooltip.backgroundColor = ink;
+        tooltip.titleColor = bg;
+        tooltip.bodyColor = bg;
+        tooltip.borderColor = line;
+        tooltip.borderWidth = 1;
+        tooltip.cornerRadius = 10;
+        tooltip.padding = 10;
+        tooltip.boxPadding = 5;
+        tooltip.usePointStyle = true;
+        tooltip.titleMarginBottom = 7;
+        tooltip.titleFont = { size: 11, weight: '700' };
       }
       window.__onThemeChange = () => window.location.reload();
     })();
@@ -2008,7 +2034,7 @@ DATA_BODY = r"""
       return {
         position: overrides.position || (mobile ? 'chartArea' : 'bottom'),
         align: overrides.align || 'start',
-        labels: { boxWidth: mobile ? 8 : 12, boxHeight: mobile ? 8 : 12, padding: mobile ? 6 : 12, usePointStyle: true, font: { size: mobile ? 10 : 12 } },
+        labels: { boxWidth: 6, boxHeight: 6, padding: mobile ? 8 : 14, usePointStyle: true, font: { size: mobile ? 10 : 11 } },
         onClick(event, legendItem, legend) {
           Chart.defaults.plugins.legend.onClick.call(this, event, legendItem, legend);
           persistChartVisibility(legend.chart);
@@ -2043,7 +2069,7 @@ DATA_BODY = r"""
         limits: { x: { min: 'original', max: 'original' } },
         pan: { enabled: true, mode: 'x', threshold: mobile ? 4 : 8, onPanComplete: ({ chart }) => { syncZoomFrom(chart); loadOlderHistoryIfNeeded().catch(console.error); } },
         zoom: {
-          drag: { enabled: !mobile, backgroundColor: 'rgba(37, 99, 235, .12)', borderColor: 'rgba(37, 99, 235, .55)', borderWidth: 1 },
+          drag: { enabled: !mobile, backgroundColor: seriesAlpha(SERIES.o2, '1f'), borderColor: seriesAlpha(SERIES.o2, '8c'), borderWidth: 1 },
           wheel: { enabled: true, speed: 0.08 },
           pinch: { enabled: true },
           mode: 'x',
@@ -2056,13 +2082,17 @@ DATA_BODY = r"""
       const mobile = window.matchMedia('(max-width: 640px)').matches;
       const scales = { x: xScaleOptions({ hideTicks: options.hideXTicks }), ...extraScales };
       Object.entries(scales).forEach(([key, scale]) => {
+        // Quiet axes everywhere: no spine, no vertical grid, faint horizontal
+        // rules only, and no boxed axis titles (the legend carries the units).
+        scale.border = { display: false, ...(scale.border || {}) };
+        scale.grid = { drawTicks: false, ...(key === 'x' ? { display: false } : {}), ...(scale.grid || {}) };
+        if (scale.title && !options.keepAxisTitles) scale.title.display = false;
         if (key === 'x') return;
-        scale.ticks = { callback: axisTick, ...(scale.ticks || {}) };
+        scale.ticks = { callback: axisTick, padding: 6, maxTicksLimit: mobile ? 5 : 6, ...(scale.ticks || {}) };
       });
       if (mobile) {
         Object.entries(scales).forEach(([key, scale]) => {
-          if (key !== 'x' && scale.title && !options.keepAxisTitles) scale.title.display = false;
-          scale.ticks = { ...(scale.ticks || {}), font: { size: 10 }, padding: 2, maxTicksLimit: 6 };
+          scale.ticks = { ...(scale.ticks || {}), font: { size: 10 }, padding: 2 };
         });
       }
       return {
@@ -2277,8 +2307,18 @@ DATA_BODY = r"""
       return el('chartLayout')?.value === 'split' ? 'split' : 'combined';
     }
 
+    // Same zone language as the Today page: amber under 90%, red under 86%,
+    // grey where the sock reported nothing (zeroed no-signal readings).
+    const o2ZoneColor = value => value <= 0 ? SERIES.prior
+      : value < 86 ? SERIES.bad
+      : value < 90 ? SERIES.awake
+      : SERIES.o2;
     function readingLineDataset(id, label, key, color, axis, hiddenDefault) {
-      return { id, label, data: readingSeries(key), borderColor: color, backgroundColor: `${color}20`, yAxisID: axis, hidden: preferredDatasetHidden(id, hiddenDefault), spanGaps: false, pointRadius: 0, tension: .25 };
+      const dataset = { id, label, data: readingSeries(key), borderColor: color, backgroundColor: `${color}20`, yAxisID: axis, hidden: preferredDatasetHidden(id, hiddenDefault), spanGaps: false, pointRadius: 0, tension: .25 };
+      if (key === 'oxygen_saturation') {
+        dataset.segment = { borderColor: ctx => o2ZoneColor(Math.min(ctx.p0.parsed.y, ctx.p1.parsed.y)) };
+      }
+      return dataset;
     }
 
     function notificationsDataset() {
