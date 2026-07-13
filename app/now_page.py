@@ -14,8 +14,16 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
       flex-wrap: wrap; gap: 8px 16px; margin-bottom: 22px; }
     .status-line { font-size: 17px; color: var(--dim); line-height: 1.5; margin: 0;
       max-width: 70ch; flex: 1 1 320px; }
-    /* On phones the picker takes its own row instead of squeezing the text. */
-    @media (max-width: 640px) { .status-line { flex-basis: 100%; } }
+    .status-line .st-short { display: none; }
+    /* Phones: one line — short status text beside a compact picker. */
+    @media (max-width: 640px) {
+      .today-head { flex-wrap: nowrap; align-items: center; }
+      .status-line { flex: 1 1 auto; min-width: 0; font-size: 15px; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; }
+      .status-line .st-full { display: none; }
+      .status-line .st-short { display: inline; }
+      .range-seg button, .range-seg .rs-custom { font-size: 11px; padding: 4px 7px; }
+    }
     .status-line b { color: var(--ink); font-weight: 600; }
     .range-seg { display: flex; background: var(--accent-soft); border-radius: 999px;
       padding: 3px; margin-left: auto; flex: 0 0 auto; }
@@ -24,6 +32,10 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
       font-variant-numeric: tabular-nums; }
     .range-seg button.active { background: var(--surface); color: var(--accent);
       box-shadow: 0 2px 8px rgba(0, 0, 0, .12); }
+    .range-seg .rs-custom { font-size: 12px; font-weight: 600; color: var(--accent);
+      background: var(--surface); padding: 5px 11px; border-radius: 999px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, .12); }
+    .range-seg .rs-custom[hidden] { display: none; }
     .hero { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
     @media (max-width: 640px) { .hero { grid-template-columns: 1fr; } }
     .hero-minor { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 8px; }
@@ -225,6 +237,7 @@ NOW_BODY = (
         <button type="button" data-mins="360">6h</button>
         <button type="button" data-mins="720">12h</button>
         <button type="button" data-mins="1440">24h</button>
+        <span class="rs-custom" id="rangeCustom" hidden>Custom</span>
       </div>
     </div>
     <div class="hero">"""
@@ -635,9 +648,13 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
 
     // ---- window picker (top right): sets the span all four charts show ----
     function paintRangeSeg() {
+      let preset = false;
       el('rangeSeg').querySelectorAll('button').forEach(button => {
-        button.classList.toggle('active', Number(button.dataset.mins) * 60 * 1000 === windowMs);
+        const hit = Number(button.dataset.mins) * 60 * 1000 === windowMs;
+        button.classList.toggle('active', hit);
+        preset = preset || hit;
       });
+      el('rangeCustom').hidden = preset;
     }
     paintRangeSeg();
     el('rangeSeg').addEventListener('click', async event => {
@@ -652,6 +669,28 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       await ensureHistoryHours(Math.ceil(windowMs / 3600000));
       renderCharts();
     });
+
+    // ---- zoom: wheel and pinch; the picker shows "Custom" off-preset ----
+    const MIN_WINDOW_MS = 10 * 60 * 1000, MAX_WINDOW_MS = 24 * 3600 * 1000;
+    function zoomAround(anchorT, factor) {
+      const next = Math.min(MAX_WINDOW_MS, Math.max(MIN_WINDOW_MS, windowMs * factor));
+      if (next === windowMs) return;
+      const end = chartEnd();
+      const frac = (end - anchorT) / windowMs;   // anchor's distance from the right edge
+      windowMs = next;
+      let newEnd = anchorT + frac * windowMs;
+      const nowMs = Date.now();
+      viewEnd = newEnd >= nowMs - 5000 ? null : Math.min(newEnd, nowMs);
+      paintRangeSeg();
+      renderCharts();
+      ensureHistoryHours(Math.ceil((Date.now() - (chartEnd() - windowMs)) / 3600000));
+    }
+    let pendingZoom = null;
+    function scheduleZoom(anchorT, factor) {
+      if (pendingZoom) { pendingZoom.factor *= factor; pendingZoom.anchorT = anchorT; return; }
+      pendingZoom = { anchorT, factor };
+      requestAnimationFrame(() => { const z = pendingZoom; pendingZoom = null; zoomAround(z.anchorT, z.factor); });
+    }
 
     // ---- inspect (tap / hold) ----------------------------------------------
     function nearestPoint(pts, t) {
@@ -701,8 +740,24 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       if (event.button != null && event.button !== 0) return;
       stopMomentum(); clearTimeout(inspectFade);
       try { card.setPointerCapture(event.pointerId); } catch (error) { /* keep the gesture even if capture fails */ }
+      if (gesture && gesture.card === card && gesture.pointerId !== event.pointerId && gesture.mode !== 'pinch') {
+        // Second finger: the gesture becomes a pinch on the shared window.
+        clearTimeout(holdTimer); clearInspect();
+        const rect = card.getBoundingClientRect();
+        const firstX = gesture.hist.length ? gesture.hist[gesture.hist.length - 1].x : gesture.x0;
+        const midFrac = Math.min(1, Math.max(0, (((firstX + event.clientX) / 2) - rect.left) / rect.width));
+        gesture = {
+          mode: 'pinch', card, rect,
+          pts: new Map([[gesture.pointerId, firstX], [event.pointerId, event.clientX]]),
+          startDist: Math.max(24, Math.abs(firstX - event.clientX)),
+          startWindow: windowMs,
+          anchorT: chartEnd() - windowMs + midFrac * windowMs,
+          startEnd: chartEnd(),
+        };
+        return;
+      }
       gesture = {
-        mode: 'pending', card,
+        mode: 'pending', card, pointerId: event.pointerId,
         x0: event.clientX, y0: event.clientY,
         end0: chartEnd(),
         msPerPx: windowMs / card.getBoundingClientRect().width,
@@ -713,6 +768,25 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     }
     function onMove(event) {
       if (!gesture) return;
+      if (gesture.mode === 'pinch') {
+        if (!gesture.pts.has(event.pointerId)) return;
+        gesture.pts.set(event.pointerId, event.clientX);
+        const xs = [...gesture.pts.values()];
+        if (xs.length < 2) return;
+        const dist = Math.max(24, Math.abs(xs[0] - xs[1]));
+        const next = Math.min(MAX_WINDOW_MS, Math.max(MIN_WINDOW_MS, gesture.startWindow * (gesture.startDist / dist)));
+        const frac = (gesture.startEnd - gesture.anchorT) / gesture.startWindow;
+        windowMs = next;
+        const newEnd = gesture.anchorT + frac * windowMs;
+        const nowMs = Date.now();
+        viewEnd = newEnd >= nowMs - 5000 ? null : Math.min(newEnd, nowMs);
+        paintRangeSeg();
+        if (!gesture.renderQueued) {
+          gesture.renderQueued = true;
+          requestAnimationFrame(() => { if (gesture) gesture.renderQueued = false; renderCharts(); });
+        }
+        return;
+      }
       const dx = event.clientX - gesture.x0, dy = event.clientY - gesture.y0;
       const now = performance.now();
       gesture.hist.push({ x: event.clientX, t: now });
@@ -739,6 +813,15 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     function onUp(event) {
       clearTimeout(holdTimer);
       if (!gesture) return;
+      if (gesture.mode === 'pinch') {
+        gesture.pts.delete(event.pointerId);
+        if (gesture.pts.size < 2) {
+          gesture = null;
+          ensureHistoryHours(Math.ceil((Date.now() - (chartEnd() - windowMs)) / 3600000));
+          renderCharts();
+        }
+        return;
+      }
       const mode = gesture.mode, hist = gesture.hist, msPerPx = gesture.msPerPx;
       gesture = null;
       if (mode === 'pending') {           // plain tap: linger, then return to live
@@ -785,6 +868,13 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       card.addEventListener('pointermove', onMove);
       card.addEventListener('pointerup', onUp);
       card.addEventListener('pointercancel', onUp);
+      card.addEventListener('wheel', event => {
+        event.preventDefault();
+        const rect = card.getBoundingClientRect();
+        const frac = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+        const anchorT = chartEnd() - windowMs + frac * windowMs;
+        scheduleZoom(anchorT, Math.exp(event.deltaY * 0.0016));
+      }, { passive: false });
     });
 
     // ---- detail sheet --------------------------------------------------------
@@ -1189,7 +1279,12 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         const nth = sleepRunsToday ? ` — sleep #${sleepRunsToday} today` : '';
         status = `<b>${capitalized(deviceName)}</b> is ${stateText || 'doing fine'}, ${sessionText}${nth}.${bedtimeLine}`;
       }
-      el('statusLine').innerHTML = status;
+      const shortState = offline ? "isn't reporting"
+        : currentRun && currentRun.state === 'asleep' ? 'is asleep'
+        : latest.sleepLevel === 'light' || latest.sleepLevel === 'deep' ? 'is asleep'
+        : 'is awake';
+      el('statusLine').innerHTML = `<span class="st-full">${status}</span>`
+        + `<span class="st-short"><b>${capitalized(deviceName)}</b> ${shortState}</span>`;
 
       const lastEvent = careEvents[0];
       el('belowHero').innerHTML = `

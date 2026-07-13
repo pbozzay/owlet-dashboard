@@ -87,6 +87,14 @@ def build_rollups(readings: list[OwletReading], bucket: Bucket = "hour") -> list
                 "avg_heart_rate": _avg([row.heart_rate for row in valid_rows]),
                 "avg_oxygen_saturation": _avg([row.oxygen_saturation for row in valid_rows]),
                 "min_oxygen_saturation": _min([row.oxygen_saturation for row in valid_rows]),
+                "low_oxygen_seconds": sum(
+                    duration for reading, duration in valid_pairs
+                    if reading.oxygen_saturation is not None and reading.oxygen_saturation < 90
+                ),
+                "critical_oxygen_seconds": sum(
+                    duration for reading, duration in valid_pairs
+                    if reading.oxygen_saturation is not None and reading.oxygen_saturation < 86
+                ),
                 "avg_movement": _avg(movement_values),
                 "max_movement": _max(movement_values),
                 "avg_skin_temperature": _avg(skin_temperature_values),
