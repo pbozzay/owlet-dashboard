@@ -820,6 +820,12 @@ def _public_dashboard_preferences_patch(value: object) -> dict[str, object] | No
     baby_name = value.get("baby_name")
     if isinstance(baby_name, str):
         allowed["baby_name"] = baby_name.strip()[:40]
+    if "o2_alert_threshold" in value:
+        raw_threshold = value.get("o2_alert_threshold")
+        if raw_threshold in (None, 0, "", "0"):
+            allowed["o2_alert_threshold"] = None
+        elif isinstance(raw_threshold, (int, float)) and 80 <= int(raw_threshold) <= 95:
+            allowed["o2_alert_threshold"] = int(raw_threshold)
     return allowed
 
 

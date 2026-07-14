@@ -808,6 +808,34 @@ class ReadingStore:
             await db.commit()
             return cursor.rowcount or 0
 
+    async def insert_custom_notification(
+        self,
+        *,
+        account_id: int,
+        device_serial: str,
+        recorded_at,
+        event_type: str,
+        severity: str,
+        title: str,
+        message: str,
+        heart_rate: float | None = None,
+        oxygen_saturation: float | None = None,
+    ) -> None:
+        await self.init()
+        moment = recorded_at.isoformat() if hasattr(recorded_at, "isoformat") else str(recorded_at)
+        async with self._connect() as db:
+            await db.execute(
+                """
+                INSERT OR IGNORE INTO notifications (
+                    account_id, device_serial, recorded_at, event_type, severity,
+                    title, message, heart_rate, oxygen_saturation, details_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '{}')
+                """,
+                (account_id, device_serial, moment, event_type, severity, title, message,
+                 heart_rate, oxygen_saturation),
+            )
+            await db.commit()
+
     async def create_care_event(
         self,
         *,

@@ -8,6 +8,7 @@ from typing import Any
 
 from app.models import OwletReading
 from app.owlet_client import OwletClient
+from app.quality import is_offline_reading
 from app.store import ReadingStore
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,8 @@ class Poller:
         self.token_snapshot = token_snapshot
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
+        self._last_alert_o2: float | None = None
+        self._last_alert_at = 0.0
 
     def start(self) -> None:
         if self._task is None or self._task.done():
@@ -50,6 +53,7 @@ class Poller:
             try:
                 reading = await self.read_once()
                 await self.store.insert_reading(reading, account_id=self.account_id)
+                await self._check_custom_alert(reading)
                 await self._persist_tokens()
                 logger.info(
                     "stored owlet reading serial=%s hr=%s spo2=%s",
@@ -62,6 +66,43 @@ class Poller:
             except Exception:
                 logger.exception("Owlet poll failed; will retry")
             await asyncio.sleep(self.interval_seconds)
+
+    async def _check_custom_alert(self, reading: OwletReading) -> None:
+        """User-configurable low-O2 alert: crossing below the account's chosen
+        threshold writes a critical notification row, which the shell then
+        surfaces as a bell item, badge, toast, and system notification."""
+        if self.account_id is None:
+            return
+        if is_offline_reading(reading) or reading.oxygen_saturation is None:
+            self._last_alert_o2 = None
+            return
+        value = float(reading.oxygen_saturation)
+        previous = self._last_alert_o2
+        self._last_alert_o2 = value
+        try:
+            account = await self.store.get_account(self.account_id)
+        except KeyError:
+            return
+        prefs = account.get("dashboard_preferences") or {}
+        threshold = prefs.get("o2_alert_threshold")
+        if not isinstance(threshold, (int, float)) or threshold <= 0:
+            return
+        crossed = value < threshold and (previous is None or previous >= threshold)
+        rate_limited = (asyncio.get_event_loop().time() - self._last_alert_at) < 600
+        if not crossed or rate_limited:
+            return
+        self._last_alert_at = asyncio.get_event_loop().time()
+        await self.store.insert_custom_notification(
+            account_id=self.account_id,
+            device_serial=reading.device_serial,
+            recorded_at=reading.recorded_at,
+            event_type="custom_low_oxygen",
+            severity="critical",
+            title=f"O2 below {int(threshold)}%",
+            message=f"SpO2 read {value:.0f}%, under your {int(threshold)}% alert level.",
+            heart_rate=reading.heart_rate,
+            oxygen_saturation=value,
+        )
 
     async def _persist_tokens(self) -> None:
         if self.account_id is None or self.token_snapshot is None:

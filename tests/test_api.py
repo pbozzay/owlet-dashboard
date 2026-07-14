@@ -1019,3 +1019,53 @@ async def test_notifications_read_tracking(tmp_path):
         assert after["unread_total"] == 0
         assert all(item["read_at"] for item in after["items"])
         assert client.get("/api/widget?hours=1").json()["unread_notifications"] == 0
+
+
+@pytest.mark.asyncio
+async def test_custom_low_oxygen_alert_fires_once_per_crossing(tmp_path):
+    from app.poller import Poller
+
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    account = await store.create_account(email="alert@example.test")
+    await store.update_account_preferences(
+        account["id"], dashboard_preferences={"o2_alert_threshold": 90}
+    )
+    poller = Poller(store, read_once=None, account_id=account["id"])
+
+    def reading(o2, ts):
+        return normalize_reading(
+            {"heart_rate": 120, "oxygen_saturation": o2, "battery": 80, "last_updated": ts},
+            "AC123",
+        )
+
+    await poller._check_custom_alert(reading(95, "2026-07-13T01:00:00Z"))
+    await poller._check_custom_alert(reading(89, "2026-07-13T01:00:05Z"))  # crossing -> alert
+    await poller._check_custom_alert(reading(88, "2026-07-13T01:00:10Z"))  # still low -> no repeat
+    notifications = await store.get_notifications(hours=None, account_ids=[account["id"]])
+    customs = [n for n in notifications["items"] if n["event_type"] == "custom_low_oxygen"]
+    assert len(customs) == 1
+    assert customs[0]["severity"] == "critical"
+    assert "below 90%" in customs[0]["title"]
+
+    # threshold preference round-trips through the PATCH whitelist
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    owned = await store.create_account(email="mine@x.y", user_id=user["id"])
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+    with client_for(app, session) as client:
+        updated = client.patch(
+            f"/api/accounts/{owned['id']}",
+            json={"dashboard_preferences": {"o2_alert_threshold": 88}},
+        ).json()["account"]
+        assert updated["dashboard_preferences"]["o2_alert_threshold"] == 88
+        cleared = client.patch(
+            f"/api/accounts/{owned['id']}",
+            json={"dashboard_preferences": {"o2_alert_threshold": None}},
+        ).json()["account"]
+        assert cleared["dashboard_preferences"].get("o2_alert_threshold") is None
+        rejected = client.patch(
+            f"/api/accounts/{owned['id']}",
+            json={"dashboard_preferences": {"o2_alert_threshold": 40}},
+        ).json()["account"]
+        assert rejected["dashboard_preferences"].get("o2_alert_threshold") is None

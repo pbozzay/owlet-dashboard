@@ -159,7 +159,13 @@ body.themed * { box-sizing: border-box; }
 .batt-row:last-of-type { border-bottom: 0; }
 .batt-row b { font-variant-numeric: tabular-nums; }
 .batt-note { color: var(--faint); font-size: 11px; margin: 8px 0 0; line-height: 1.4; }
-#battSeg { margin: 8px 0 4px; }
+.pp-hint { display: block; color: var(--faint); font-size: 11px; margin-top: 6px;
+  line-height: 1.45; }
+.batt-wear-box { margin-top: 16px; padding: 12px 12px 10px;
+  border: 1px solid var(--surface-line); border-radius: 14px;
+  background: color-mix(in srgb, var(--ink) 3%, transparent); }
+.batt-wear-box .bp-head { margin-bottom: 8px; }
+#battSeg { margin: 0 0 4px; }
 .bw-bars { display: flex; align-items: flex-end; gap: 6px; min-height: 78px; margin-top: 8px; }
 .bw-bars .bwb { flex: 1; display: grid; justify-items: center; gap: 3px; align-content: end; }
 .bw-bars i { display: block; width: 100%; max-width: 26px; border-radius: 4px 4px 2px 2px;

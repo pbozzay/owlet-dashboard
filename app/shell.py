@@ -125,6 +125,10 @@ SHELL_JS = """<script>
     if (byId('babyNameSetting') && document.activeElement !== byId('babyNameSetting')) {
       byId('babyNameSetting').value = babyName || '';
     }
+    if (byId('o2AlertSetting')) {
+      var threshold = account && account.dashboard_preferences && account.dashboard_preferences.o2_alert_threshold;
+      byId('o2AlertSetting').value = threshold ? String(threshold) : '';
+    }
   }
   function loadShellAccounts() {
     return Promise.all([
@@ -175,6 +179,13 @@ SHELL_JS = """<script>
   if (byId('babyNameSetting')) byId('babyNameSetting').addEventListener('change', function (event) {
     patchSelectedAccount({ dashboard_preferences: { baby_name: event.target.value.trim() } })
       .then(function () { loadShellAccounts(); });
+  });
+  if (byId('o2AlertSetting')) byId('o2AlertSetting').addEventListener('change', function (event) {
+    var value = event.target.value;
+    patchSelectedAccount({ dashboard_preferences: { o2_alert_threshold: value ? Number(value) : null } });
+    if (value && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(function () {});
+    }
   });
   if (byId('accountSelect')) byId('accountSelect').addEventListener('change', function () {
     renderShellMenu([]);
@@ -464,6 +475,14 @@ SHELL_JS = """<script>
     var lastToasted = Number(localStorage.getItem('owletLastToastId') || 0);
     if (latest.id <= lastToasted) return;
     localStorage.setItem('owletLastToastId', String(latest.id));
+    if (latest.severity === 'critical' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification(latest.title, {
+          body: (latest.message || '') + ' · ' + notificationTime(latest.recorded_at),
+          tag: 'owlet-' + latest.id,
+        });
+      } catch (error) { /* some platforms only allow SW notifications */ }
+    }
     if (bellPop && !bellPop.hidden) return;   // already looking at the list
     showToast(latest);
   }
@@ -603,15 +622,17 @@ def render_shell(
         <div id="battPop" class="bell-pop card" role="menu" aria-label="Battery" hidden>
           <div class="bp-head"><b>Battery</b><span class="bp-meta" id="battMeta"></span></div>
           <div id="battBody" class="batt-body"></div>
-          <div class="bp-head" style="margin-top:16px"><b>Wear history</b>
-            <span class="bp-meta">%/h while draining</span></div>
-          <div class="pp-seg" id="battSeg" role="group" aria-label="Wear grouping">
-            <button type="button" data-group="day" class="active">Days</button>
-            <button type="button" data-group="week">Weeks</button>
-            <button type="button" data-group="month">Months</button>
+          <div class="batt-wear-box">
+            <div class="bp-head"><b>Wear history</b>
+              <span class="bp-meta">%/h while draining</span></div>
+            <div class="pp-seg" id="battSeg" role="group" aria-label="Wear grouping">
+              <button type="button" data-group="day" class="active">Days</button>
+              <button type="button" data-group="week">Weeks</button>
+              <button type="button" data-group="month">Months</button>
+            </div>
+            <div id="battWear" class="bw-bars"></div>
+            <p id="battWearNote" class="batt-note"></p>
           </div>
-          <div id="battWear" class="bw-bars"></div>
-          <p id="battWearNote" class="batt-note"></p>
         </div>
       </span>
       <button id="profileMenuToggle" class="profile-chip" type="button" aria-haspopup="menu"
@@ -641,6 +662,18 @@ def render_shell(
           <span class="pp-label">Baby's name</span>
           <input id="babyNameSetting" type="text" maxlength="40" placeholder="e.g. Hazel"
             autocomplete="off" />
+        </div>
+        <div class="pp-section">
+          <span class="pp-label">Low-O₂ alert</span>
+          <select id="o2AlertSetting">
+            <option value="">Off</option>
+            <option value="92">Below 92%</option>
+            <option value="90">Below 90%</option>
+            <option value="88">Below 88%</option>
+            <option value="86">Below 86%</option>
+          </select>
+          <small class="pp-hint">Crossing below rings the bell, shows a toast, and — if you allow
+            notifications — pings your device while the dashboard is open in any tab.</small>
         </div>
         <div class="pp-section">
           <span class="pp-label">Update every</span>
