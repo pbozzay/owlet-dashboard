@@ -318,6 +318,7 @@ SHELL_JS = """<script>
     closeProfile(); closeBell();
     battPop.hidden = false;
     battButton.setAttribute('aria-expanded', 'true');
+    loadBattWear(battWearGroup);
     byId('battBody').innerHTML = '<div class="bell-empty">Reading the last few hours…</div>';
     fetch('/api/rollups?bucket=5m&hours=6&limit=200')
       .then(function (r) { return r.json(); })
@@ -351,6 +352,82 @@ SHELL_JS = """<script>
         byId('battBody').innerHTML = '<div class="bell-empty">Could not load battery history.</div>';
       });
   }
+  // ---- wear history: discharge rate grouped by day / week / month ----
+  var battWearCache = {};
+  var battWearGroup = 'day';
+  function battGroupInfo(t, group) {
+    if (group === 'day') {
+      var d = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+      return { key: String(d.getTime()), label: 'SMTWTFS'[t.getDay()], order: d.getTime() };
+    }
+    if (group === 'week') {
+      var monday = new Date(t.getFullYear(), t.getMonth(), t.getDate() - ((t.getDay() + 6) % 7));
+      return { key: String(monday.getTime()), label: (monday.getMonth() + 1) + '/' + monday.getDate(), order: monday.getTime() };
+    }
+    var first = new Date(t.getFullYear(), t.getMonth(), 1);
+    return { key: String(first.getTime()), label: first.toLocaleDateString([], { month: 'short' }), order: first.getTime() };
+  }
+  function renderBattWear(rollups, group) {
+    var byKey = new Map();
+    var prev = null;
+    rollups.forEach(function (row) {
+      if (row.avg_battery == null) { prev = null; return; }
+      var t = new Date(row.bucket_start);
+      if (prev && row.avg_battery < prev.level) {
+        var info = battGroupInfo(t, group);
+        var rec = byKey.get(info.key) || { drop: 0, hours: 0, label: info.label, order: info.order };
+        rec.drop += prev.level - row.avg_battery;
+        rec.hours += (t - prev.t) / 3600000;
+        byKey.set(info.key, rec);
+      }
+      prev = { level: row.avg_battery, t: t };
+    });
+    var keep = group === 'day' ? 14 : group === 'week' ? 12 : 6;
+    var list = Array.from(byKey.values())
+      .filter(function (d) { return d.hours >= 2; })
+      .sort(function (a, b) { return a.order - b.order; })
+      .slice(-keep)
+      .map(function (d) { return { label: d.label, rate: d.drop / d.hours }; });
+    var wear = byId('battWear'), note = byId('battWearNote');
+    if (!list.length) {
+      wear.innerHTML = '<div class="bell-empty">Not enough draining time in this window yet.</div>';
+      note.textContent = '';
+      return;
+    }
+    var maxRate = Math.max.apply(null, list.map(function (d) { return d.rate; }));
+    wear.innerHTML = list.map(function (d) {
+      return '<div class="bwb"><b>' + d.rate.toFixed(1) + '</b>'
+        + '<i style="height:' + Math.max(5, (d.rate / maxRate) * 56).toFixed(0) + 'px"></i>'
+        + '<span>' + d.label + '</span></div>';
+    }).join('');
+    var mean = list.reduce(function (a, d) { return a + d.rate; }, 0) / list.length;
+    note.textContent = 'Averaging ' + mean.toFixed(1) + '%/h while draining across '
+      + list.length + ' ' + group + (list.length === 1 ? '' : 's')
+      + '. A rising trend means the battery is aging.';
+  }
+  function loadBattWear(group) {
+    battWearGroup = group;
+    if (byId('battSeg')) byId('battSeg').querySelectorAll('button').forEach(function (button) {
+      button.classList.toggle('active', button.dataset.group === group);
+    });
+    var hours = group === 'day' ? 336 : group === 'week' ? 2016 : 4380;
+    if (battWearCache[group]) { renderBattWear(battWearCache[group], group); return; }
+    byId('battWear').innerHTML = '<div class="bell-empty">Reading history…</div>';
+    fetch('/api/rollups?bucket=30m&hours=' + hours + '&limit=100000')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        battWearCache[group] = data.rollups || [];
+        if (battWearGroup === group) renderBattWear(battWearCache[group], group);
+      })
+      .catch(function () {
+        byId('battWear').innerHTML = '<div class="bell-empty">Could not load history.</div>';
+      });
+  }
+  if (byId('battSeg')) byId('battSeg').addEventListener('click', function (event) {
+    var group = event.target.dataset && event.target.dataset.group;
+    if (group) loadBattWear(group);
+  });
+
   if (battButton && battPop) {
     battButton.addEventListener('click', function (event) {
       event.stopPropagation();
@@ -526,6 +603,15 @@ def render_shell(
         <div id="battPop" class="bell-pop card" role="menu" aria-label="Battery" hidden>
           <div class="bp-head"><b>Battery</b><span class="bp-meta" id="battMeta"></span></div>
           <div id="battBody" class="batt-body"></div>
+          <div class="bp-head" style="margin-top:16px"><b>Wear history</b>
+            <span class="bp-meta">%/h while draining</span></div>
+          <div class="pp-seg" id="battSeg" role="group" aria-label="Wear grouping">
+            <button type="button" data-group="day" class="active">Days</button>
+            <button type="button" data-group="week">Weeks</button>
+            <button type="button" data-group="month">Months</button>
+          </div>
+          <div id="battWear" class="bw-bars"></div>
+          <p id="battWearNote" class="batt-note"></p>
         </div>
       </span>
       <button id="profileMenuToggle" class="profile-chip" type="button" aria-haspopup="menu"

@@ -561,6 +561,7 @@ RHYTHMS_SCRIPTS = """<script>
     function renderTiles(days, rollups) {
       const nights = nightlyAnalysis(days);
       if (!nights.length) return '';
+      const provisional = nights.length < 5;
       const week = nights.slice(-7), prior = nights.slice(-14, -7);
 
       const sleepNow = avg(week.map(n => n.sleep));
@@ -579,7 +580,8 @@ RHYTHMS_SCRIPTS = """<script>
       const o2Prior = avg(rollups.slice(0, -336).map(r => r.avg_oxygen_saturation).filter(v => v != null));
 
       const deltaBadge = (delta, unit, invert = false) => {
-        if (delta === null || Math.abs(delta) < 0.05) return '<span class="delta flat">→ steady</span>';
+        if (delta === null) return '';
+        if (Math.abs(delta) < 0.05) return '<span class="delta flat">→ steady</span>';
         const good = invert ? delta < 0 : delta > 0;
         const arrow = delta > 0 ? '↑' : '↓';
         return `<span class="delta ${good ? 'up' : 'down'}">${arrow} ${unit}</span>`;
@@ -588,12 +590,14 @@ RHYTHMS_SCRIPTS = """<script>
       const tiles = [];
       tiles.push(`<div class="tile card"><h3>Sleep per night</h3>
         <b>${sleepNow != null ? fmtDur(sleepNow) : '—'}</b>${deltaBadge(sleepDelta, sleepDelta != null ? fmtDur(Math.abs(sleepDelta)) + ' vs last week' : '')}
-        <p>Average over the last ${week.length} night${week.length === 1 ? '' : 's'}${prior.length ? ', compared with the week before' : ''}.</p></div>`);
+        <p>${provisional ? 'So far — average of' : 'Average over the last'} ${week.length} night${week.length === 1 ? '' : 's'}${prior.length ? ', compared with the week before' : ''}.</p></div>`);
       tiles.push(`<div class="tile card"><h3>Typical bedtime</h3>
         <b>${bedAvg != null ? fmtClock(bedAvg % (24 * 60)) : '—'}</b>
-        <p>${bedSpread != null ? (bedSpread <= 30
-          ? `Remarkably consistent — within ±${Math.round(bedSpread)} minutes. A rhythm is forming.`
-          : `Still drifting by about ±${Math.round(bedSpread)} minutes night to night.`)
+        <p>${provisional
+          ? `Based on ${bedtimes.length || week.length} night${(bedtimes.length || week.length) === 1 ? '' : 's'} — too early to call it a rhythm.`
+          : bedSpread != null ? (bedSpread <= 30
+            ? `Remarkably consistent — within ±${Math.round(bedSpread)} minutes. A rhythm is forming.`
+            : `Still drifting by about ±${Math.round(bedSpread)} minutes night to night.`)
           : 'First sustained sleep after 6 PM.'}</p></div>`);
       tiles.push(`<div class="tile card"><h3>Longest stretch</h3>
         <b>${longest ? fmtDur(longest) : '—'}</b>
@@ -601,54 +605,11 @@ RHYTHMS_SCRIPTS = """<script>
       tiles.push(`<div class="tile card"><h3>Oxygen baseline</h3>
         <b>${o2Week != null ? o2Week.toFixed(1) + '<small>%</small>' : '—'}</b>${o2Prior != null && o2Week != null ? deltaBadge(o2Week - o2Prior, Math.abs(o2Week - o2Prior).toFixed(1) + ' pts vs last week') : ''}
         <p>Average SpO₂ across the whole week, day and night.</p></div>`);
-      return section('What the pattern says', `<div class="tiles">${tiles.join('')}</div>`);
-    }
-
-    // ----- battery wear -----------------------------------------------------------
-    // Per-day discharge rate: how hard the battery works, and whether that is
-    // creeping up as the hardware ages. Only draining stretches count —
-    // charging and idle time are excluded.
-    function renderBatteryWear(rollups) {
-      const byDay = new Map();
-      let prev = null;
-      for (const row of rollups) {
-        if (row.avg_battery == null) { prev = null; continue; }
-        const t = new Date(row.bucket_start);
-        if (prev && row.avg_battery < prev.level) {
-          const key = t.toISOString().slice(0, 10);
-          const rec = byDay.get(key) || { drop: 0, hours: 0, date: new Date(t.getFullYear(), t.getMonth(), t.getDate()) };
-          rec.drop += prev.level - row.avg_battery;
-          rec.hours += (t - prev.t) / 3600000;
-          byDay.set(key, rec);
-        }
-        prev = { level: row.avg_battery, t };
-      }
-      const daysList = [...byDay.values()]
-        .filter(d => d.hours >= 2)              // need a real stretch to rate
-        .sort((a, b) => a.date - b.date)
-        .slice(-14)
-        .map(d => ({ ...d, rate: d.drop / d.hours }));
-      if (daysList.length < 2) return '';
-      const maxRate = Math.max(...daysList.map(d => d.rate));
-      const bars = daysList.map(d => {
-        const height = Math.max(6, (d.rate / maxRate) * 74);
-        return `<div class="wb"><b>${d.rate.toFixed(1)}</b>
-          <i style="height:${height.toFixed(0)}px"></i><span>${DOW[d.date.getDay()]}</span></div>`;
-      }).join('');
-      const half = Math.floor(daysList.length / 2);
-      const rateAvg = list => list.reduce((a, d) => a + d.rate, 0) / list.length;
-      const earlier = rateAvg(daysList.slice(0, half)), recent = rateAvg(daysList.slice(half));
-      const delta = earlier > 0 ? Math.round(((recent - earlier) / earlier) * 100) : 0;
-      const note = Math.abs(delta) < 8
-        ? 'Holding steady — the battery drains about as fast as it did two weeks ago.'
-        : delta > 0
-          ? `Draining ${delta}% faster than the earlier half of this window — worth watching as the sock ages.`
-          : `Draining ${-delta}% slower than the earlier half of this window.`;
-      return section('Battery wear',
-        `<div class="tile card"><h3>Discharge rate per day</h3>
-          <div class="wear-bars">${bars}</div>
-          <p>%/hour while draining. ${note}</p>
-        </div>`);
+      const heading = provisional ? 'What the pattern says — so far' : 'What the pattern says';
+      const caveat = provisional
+        ? `<p class="lede" style="font-size:13px; margin:0 0 14px; color:var(--faint)">Only ${nights.length} night${nights.length === 1 ? '' : 's'} of data — these numbers firm up after a full week.</p>`
+        : '';
+      return section(heading, caveat + `<div class="tiles">${tiles.join('')}</div>`);
     }
 
     async function boot() {
@@ -690,7 +651,6 @@ RHYTHMS_SCRIPTS = """<script>
         renderO2Report(rollups5, o2iv),
         renderFeedResponse(rollups5, careEvents),
         renderChallengeLedger(challenges),
-        renderBatteryWear(rollups),
       ].join('');
     }
     boot();

@@ -159,6 +159,16 @@ body.themed * { box-sizing: border-box; }
 .batt-row:last-of-type { border-bottom: 0; }
 .batt-row b { font-variant-numeric: tabular-nums; }
 .batt-note { color: var(--faint); font-size: 11px; margin: 8px 0 0; line-height: 1.4; }
+#battSeg { margin: 8px 0 4px; }
+.bw-bars { display: flex; align-items: flex-end; gap: 6px; min-height: 78px; margin-top: 8px; }
+.bw-bars .bwb { flex: 1; display: grid; justify-items: center; gap: 3px; align-content: end; }
+.bw-bars i { display: block; width: 100%; max-width: 26px; border-radius: 4px 4px 2px 2px;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+.bw-bars b { font-size: 9.5px; color: var(--dim); font-weight: 600;
+  font-variant-numeric: tabular-nums; }
+.bw-bars span { font-size: 9px; color: var(--faint); white-space: nowrap; }
+.bw-bars .bell-empty { flex: 1; }
 @media (max-width: 420px) { .batt-pct { display: none; } .shell-batt { padding: 0 6px; } }
 
 /* live alert toasts (bottom corner; above the tab bar on phones) */
