@@ -40,7 +40,9 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     @media (max-width: 640px) { .hero { grid-template-columns: 1fr; } }
     .hero-minor { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 8px; }
     .vital { padding: 22px 22px 76px; position: relative; overflow: hidden;
-      touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: crosshair; }
+      touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: grab; }
+    .vital.dragging { cursor: grabbing; }
+    .vital.placing { cursor: crosshair; }
     .vital .label { font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
       color: var(--faint); font-weight: 700; }
     .vital .value { font-size: clamp(56px, 9vw, 84px); line-height: 1.02;
@@ -104,8 +106,7 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
       border-color: color-mix(in srgb, var(--o2-on) 40%, transparent); }
     .vital-o2toggle.arming { color: #fff; background: var(--accent);
       border-color: var(--accent); }
-    .vital.placing { outline: 2px solid var(--accent); outline-offset: -1px;
-      cursor: crosshair; }
+    .vital.placing { outline: 2px solid var(--accent); outline-offset: -1px; }
     .place-hint { position: absolute; left: 50%; top: 44px; transform: translateX(-50%);
       z-index: 3; background: var(--accent); color: #fff; font-size: 11px;
       font-weight: 600; padding: 5px 12px; border-radius: 999px; white-space: nowrap;
@@ -458,7 +459,10 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         const rows = await fetch(`/api/readings?hours=${next}&limit=40000`).then(r => r.json());
         histReadings = rows; loadedHours = next;
         rebuildPoints();
-        if (!gesture) renderCharts();
+        // Re-render immediately, even mid-drag — pan position derives from
+        // viewEnd, so re-anchoring under the finger is seamless, and the
+        // freshly loaded points appear while the graph is still moving.
+        renderCharts();
       } catch (error) { /* keep what we have */ }
       loadingHistory = false;
     }
@@ -512,7 +516,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     // A single rect carries the whole on/off timeline: a horizontal gradient
     // encodes the states (oxygen blue / grey) with soft stops at each
     // transition, and a vertical mask fades it out rising from the floor.
-    function o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, clip, pid) {
+    function o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, clip, pid, clipPoly) {
       if (!o2HasLog) return '';
       const xOf = t => ((t - t0) / (t1 - t0)) * w;
       const span = dataEnd - dataStart;
@@ -536,16 +540,24 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const x0 = xOf(dataStart), x1 = xOf(Math.min(dataEnd, Date.now()));
       if (x1 - x0 < 0.5) return '';
       const rect = `x="${x0.toFixed(1)}" y="0" width="${(x1 - x0).toFixed(1)}" height="${h}"`;
+      // Clipped to the area under the data line when there is one (the wisp
+      // "bumps up to each point"); otherwise a short floor-hugging fade.
+      const vStops = clipPoly
+        ? '<stop offset="0" stop-color="#fff" stop-opacity=".40"/>'
+          + '<stop offset=".55" stop-color="#fff" stop-opacity=".14"/>'
+          + '<stop offset="1" stop-color="#fff" stop-opacity=".04"/>'
+        : '<stop offset="0" stop-color="#fff" stop-opacity=".30"/>'
+          + '<stop offset=".28" stop-color="#fff" stop-opacity=".08"/>'
+          + '<stop offset=".5" stop-color="#fff" stop-opacity="0"/>';
+      const clipDef = clipPoly ? `<clipPath id="${pid}-o2c"><polygon points="${clipPoly}"/></clipPath>` : '';
+      const clipAttr = clipPoly ? ` clip-path="url(#${pid}-o2c)"` : '';
       return `<defs>
         <linearGradient id="${pid}-o2h" x1="0" y1="0" x2="1" y2="0">${stops}</linearGradient>
-        <linearGradient id="${pid}-o2v" x1="0" y1="1" x2="0" y2="0">
-          <stop offset="0" stop-color="#fff" stop-opacity=".34"/>
-          <stop offset=".45" stop-color="#fff" stop-opacity=".12"/>
-          <stop offset=".85" stop-color="#fff" stop-opacity="0"/>
-        </linearGradient>
+        <linearGradient id="${pid}-o2v" x1="0" y1="1" x2="0" y2="0">${vStops}</linearGradient>
         <mask id="${pid}-o2m"><rect ${rect} fill="url(#${pid}-o2v)"/></mask>
+        ${clipDef}
       </defs>
-      <rect ${rect} fill="url(#${pid}-o2h)" mask="url(#${pid}-o2m)"/>`;
+      <rect ${rect} fill="url(#${pid}-o2h)" mask="url(#${pid}-o2m)"${clipAttr}/>`;
     }
 
     // ---- hero charts: virtualized pan window -------------------------------
@@ -588,9 +600,12 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         .map(e => `<line class="evline" x1="${xOf(e.x).toFixed(2)}" x2="${xOf(e.x).toFixed(2)}" y1="0" y2="${h}"><title>${esc(e.kind)}</title></line>`
           + `<circle class="evflag" cx="${xOf(e.x).toFixed(2)}" cy="3" r="2"/>`)
         .join('');
-      const o2Overlay = o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip, (opts.idPrefix || 'h') + '-' + key);
       const pts = downsample(points[key].filter(p => p.x >= dataStart && p.x <= dataEnd));
-      if (pts.length < 2) return { markup: o2Overlay + eventMarks, min: null, max: null, ghostYs: {} };
+      const overlayId = (opts.idPrefix || 'h') + '-' + key;
+      if (pts.length < 2) {
+        const bare = o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip, overlayId, null);
+        return { markup: bare + eventMarks, min: null, max: null, ghostYs: {} };
+      }
       let min = Infinity, max = -Infinity;
       for (const p of pts) { if (p.y < min) min = p.y; if (p.y > max) max = p.y; }
       // Anchor the O₂ domain near the 90% line so a dip to 85 reads as a real
@@ -638,6 +653,10 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const lines = segs.filter(s => s.coords.length > 1)
         .map(s => `<polyline points="${s.coords.join(' ')}" style="stroke:${s.color}"/>`)
         .join('');
+      const clipPoly = `${xOf(pts[0].x).toFixed(1)},${h} `
+        + pts.map(p => `${xOf(p.x).toFixed(1)},${yOf(p.y).toFixed(1)}`).join(' ')
+        + ` ${xOf(pts[pts.length - 1].x).toFixed(1)},${h}`;
+      const o2Overlay = o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip, overlayId, clipPoly);
       return { markup: o2Overlay + thresholds + ghosts + eventMarks + lines, min: domainMin, max: domainMax, ghostYs };
     }
 
@@ -650,7 +669,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         .map(e => `<line class="evline" x1="${xOf(e.x).toFixed(2)}" x2="${xOf(e.x).toFixed(2)}" y1="0" y2="${h}"><title>${esc(e.kind)}</title></line>`
           + `<circle class="evflag" cx="${xOf(e.x).toFixed(2)}" cy="3" r="2"/>`)
         .join('');
-      const o2Overlay = o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip, (opts.idPrefix || 'hyp') + '-slp');
+      const o2Overlay = o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip, (opts.idPrefix || 'hyp') + '-slp', null);
       const lanes = { awake: h * 0.2, light: h * 0.5, deep: h * 0.8 };
       // Gradients keyed to lane positions (userSpaceOnUse), so a connector
       // blends from one stage's color into the next no matter its direction —
@@ -863,6 +882,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       if (gesture && gesture.card === card && gesture.pointerId !== event.pointerId && gesture.mode !== 'pinch') {
         // Second finger: the gesture becomes a pinch on the shared window.
         clearTimeout(holdTimer); clearInspect();
+        card.classList.remove('dragging');
         const rect = card.getBoundingClientRect();
         const firstX = gesture.hist.length ? gesture.hist[gesture.hist.length - 1].x : gesture.x0;
         const midFrac = Math.min(1, Math.max(0, (((firstX + event.clientX) / 2) - rect.left) / rect.width));
@@ -914,6 +934,8 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       if (gesture.mode === 'pending') {
         if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
           gesture.mode = 'pan'; clearTimeout(holdTimer); clearInspect();
+          gesture.card.classList.add('dragging');
+          extendHistory();   // start pulling history the moment a drag begins
         } else if (Math.abs(dy) > 16) {   // vertical intent: hand back to the page
           clearTimeout(holdTimer); clearInspect(); gesture = null; return;
         }
@@ -949,6 +971,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         commitO2At(event.clientX);
         return;
       }
+      gesture.card.classList.remove('dragging');
       const mode = gesture.mode, hist = gesture.hist, msPerPx = gesture.msPerPx;
       gesture = null;
       if (mode === 'pending') {           // plain tap: linger, then return to live
@@ -1563,7 +1586,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         return;
       }
       await refresh();
-      if (windowMs > 3600000) ensureHistoryHours(Math.ceil(windowMs / 3600000));
+      ensureHistoryHours(Math.max(3, Math.ceil(windowMs / 3600000)));
       rollupsReady.then(refresh);
       setInterval(refresh, Math.max(5, pollSeconds) * 1000);
       setInterval(async () => {  // refresh baselines occasionally
