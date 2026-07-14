@@ -383,6 +383,30 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       // drop sub-45s flickers — Owlet's state flaps sample to sample
       return out.filter(r => r.end - r.start >= 45 * 1000);
     }
+    // How long the current asleep/awake stretch has run, straight from the
+    // readings (rollup sessions lag and often read 'settling in'). Adjacent
+    // runs of the same family merge across brief gaps; if the stretch reaches
+    // the edge of the loaded buffer, the rollup session extends it further
+    // back when it agrees on the state.
+    function currentStateSince(rollupRun) {
+      if (!sleepRuns.length) return null;
+      const last = sleepRuns[sleepRuns.length - 1];
+      if (Date.now() - last.end > GAP_MS * 2) return null;   // no live state
+      const asleep = last.level !== 'awake';
+      let start = last.start;
+      for (let i = sleepRuns.length - 2; i >= 0; i--) {
+        const run = sleepRuns[i];
+        if ((run.level !== 'awake') !== asleep) break;
+        if (start - run.end > GAP_MS * 4) break;
+        start = run.start;
+      }
+      if (rollupRun && rollupRun.state !== 'nodata'
+        && (rollupRun.state === 'asleep') === asleep
+        && rollupRun.start < start && start - loadedStart() < 10 * 60 * 1000) {
+        start = rollupRun.start;
+      }
+      return { asleep, start };
+    }
     function sleepLevelAt(t) {
       const run = sleepRuns.find(r => t >= r.start - GAP_MS && t <= r.end + GAP_MS);
       return run ? run.level : null;
@@ -602,8 +626,9 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         .join('');
       const pts = downsample(points[key].filter(p => p.x >= dataStart && p.x <= dataEnd));
       const overlayId = (opts.idPrefix || 'h') + '-' + key;
+      const wantsO2 = key === 'o2' || key === 'hr';   // the vitals oxygen influences
       if (pts.length < 2) {
-        const bare = o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip, overlayId, null);
+        const bare = wantsO2 ? o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip, overlayId, null) : '';
         return { markup: bare + eventMarks, min: null, max: null, ghostYs: {} };
       }
       let min = Infinity, max = -Infinity;
@@ -656,7 +681,9 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const clipPoly = `${xOf(pts[0].x).toFixed(1)},${h} `
         + pts.map(p => `${xOf(p.x).toFixed(1)},${yOf(p.y).toFixed(1)}`).join(' ')
         + ` ${xOf(pts[pts.length - 1].x).toFixed(1)},${h}`;
-      const o2Overlay = o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip, overlayId, clipPoly);
+      const o2Overlay = wantsO2
+        ? o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip, overlayId, clipPoly)
+        : '';
       return { markup: o2Overlay + thresholds + ghosts + eventMarks + lines, min: domainMin, max: domainMax, ghostYs };
     }
 
@@ -669,7 +696,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         .map(e => `<line class="evline" x1="${xOf(e.x).toFixed(2)}" x2="${xOf(e.x).toFixed(2)}" y1="0" y2="${h}"><title>${esc(e.kind)}</title></line>`
           + `<circle class="evflag" cx="${xOf(e.x).toFixed(2)}" cy="3" r="2"/>`)
         .join('');
-      const o2Overlay = o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip, (opts.idPrefix || 'hyp') + '-slp', null);
+      const o2Overlay = '';
       const lanes = { awake: h * 0.2, light: h * 0.5, deep: h * 0.8 };
       // Gradients keyed to lane positions (userSpaceOnUse), so a connector
       // blends from one stage's color into the next no matter its direction —
@@ -1474,9 +1501,12 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       latest.sleepLevel = latestRow && !offline
         ? ({ '8': 'light', '15': 'deep' }[String(latestRow.sleep_state)] || 'awake')
         : null;
-      sleepSessionText = currentRun && currentRun.state !== 'nodata'
-        ? `${currentRun.state === 'asleep' ? 'asleep' : 'awake'} for ${fmtDur((Date.now() - currentRun.start) / 1000)}`
-        : 'settling in';
+      const liveRun = currentStateSince(currentRun);
+      sleepSessionText = liveRun
+        ? `${liveRun.asleep ? 'asleep' : 'awake'} for ${fmtDur((Date.now() - liveRun.start) / 1000)}`
+        : currentRun && currentRun.state !== 'nodata'
+          ? `${currentRun.state === 'asleep' ? 'asleep' : 'awake'} for ${fmtDur((Date.now() - currentRun.start) / 1000)}`
+          : 'settling in';
       const recent = readings.slice(-24).filter(r => !isOffline(r));
       latest.move = !offline && recent.length
         ? recent.reduce((a, r) => a + (r.movement || 0), 0) / recent.length
@@ -1520,14 +1550,17 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       if (offline) {
         status = `<b>${capitalized(deviceName)}</b>'s sock isn't reporting right now — it may be off or charging.`;
       } else {
-        const sessionText = currentRun && currentRun.state !== 'nodata'
-          ? `${currentRun.state === 'asleep' ? 'asleep' : 'awake'} for <b>${fmtDur((Date.now() - currentRun.start) / 1000)}</b>`
-          : 'settling in';
+        const sessionText = liveRun
+          ? `${liveRun.asleep ? 'asleep' : 'awake'} for <b>${fmtDur((Date.now() - liveRun.start) / 1000)}</b>`
+          : currentRun && currentRun.state !== 'nodata'
+            ? `${currentRun.state === 'asleep' ? 'asleep' : 'awake'} for <b>${fmtDur((Date.now() - currentRun.start) / 1000)}</b>`
+            : 'settling in';
         const nth = sleepRunsToday ? ` — sleep #${sleepRunsToday} today` : '';
         const o2Note = o2State.on ? ` On <b>${o2State.flow ? esc(o2State.flow) + ' ' : ''}O₂</b>.` : '';
         status = `<b>${capitalized(deviceName)}</b> is ${stateText || 'doing fine'}, ${sessionText}${nth}.${o2Note}${bedtimeLine}`;
       }
       const shortState = offline ? "isn't reporting"
+        : liveRun ? (liveRun.asleep ? 'is asleep' : 'is awake')
         : currentRun && currentRun.state === 'asleep' ? 'is asleep'
         : latest.sleepLevel === 'light' || latest.sleepLevel === 'deep' ? 'is asleep'
         : 'is awake';
