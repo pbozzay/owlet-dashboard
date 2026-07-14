@@ -1121,6 +1121,37 @@ async def test_night_and_readiness_preferences_whitelist(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_birth_date_preference_whitelist(tmp_path):
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    owned = await store.create_account(email="mine@x.y", user_id=user["id"])
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+    future = (datetime.now(timezone.utc).date() + timedelta(days=30)).isoformat()
+    with client_for(app, session) as client:
+        set_ok = client.patch(
+            f"/api/accounts/{owned['id']}",
+            json={"dashboard_preferences": {"birth_date": "2026-05-01"}},
+        ).json()["account"]
+        assert set_ok["dashboard_preferences"]["birth_date"] == "2026-05-01"
+
+        # future dates, junk, and absurdly old dates are rejected (prior value kept)
+        for bad in (future, "not-a-date", "1990-01-01", "2026-13-40"):
+            kept = client.patch(
+                f"/api/accounts/{owned['id']}",
+                json={"dashboard_preferences": {"birth_date": bad}},
+            ).json()["account"]
+            assert kept["dashboard_preferences"]["birth_date"] == "2026-05-01"
+
+        cleared = client.patch(
+            f"/api/accounts/{owned['id']}",
+            json={"dashboard_preferences": {"birth_date": None}},
+        ).json()["account"]
+        assert cleared["dashboard_preferences"].get("birth_date") is None
+
+
+@pytest.mark.asyncio
 async def test_readiness_report_fires_once_and_summarizes_day(tmp_path):
     from app.poller import Poller
 

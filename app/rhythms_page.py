@@ -300,6 +300,19 @@ RHYTHMS_SCRIPTS = """<script>
     // ----- nights helper (user's night window, keyed by the evening's date) ----
     // Defaults 7 PM → 7 AM; overwritten from preferences in boot().
     let NIGHT = { start: 19 * 60, end: 7 * 60 };
+    let BIRTH = null;   // ISO 'YYYY-MM-DD' once known, for age-adjusted framing
+
+    function ageContext() {
+      if (!BIRTH) return '';
+      const birth = new Date(BIRTH + 'T00:00:00');
+      if (isNaN(birth)) return '';
+      const days = Math.floor((Date.now() - birth) / 86400000);
+      if (days < 0) return '';
+      const weeks = Math.floor(days / 7), months = Math.floor(days / 30.44);
+      if (weeks < 6) return ` At ${weeks} week${weeks === 1 ? '' : 's'} old, a clear day-night rhythm usually hasn't emerged yet — it typically begins around 6 weeks.`;
+      if (weeks <= 16) return ` At ${weeks} weeks she's right in the 6–16 week window when the body clock switches on and night sleep consolidates fastest.`;
+      return ` At ${months} month${months === 1 ? '' : 's'}, a consolidated night is typical — steadier and higher is better.`;
+    }
     function nightWindowFrom(prefs) {
       const toMin = (value, fallback) => {
         const m = /^([01]?\\d|2[0-3]):([0-5]\\d)$/.exec(value || '');
@@ -314,6 +327,57 @@ RHYTHMS_SCRIPTS = """<script>
       if (mins >= NIGHT.start) return new Date(d.getFullYear(), d.getMonth(), d.getDate());
       if (mins < NIGHT.end) return new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1);
       return null;
+    }
+
+    // ----- circadian consolidation: how much sleep has moved into the night ----
+    // A newborn sleeps evenly around the clock (~50% at night). As the melatonin
+    // rhythm switches on (~6–16 weeks), more sleep migrates into the night. This
+    // charts that migration — the strongest science-to-signal fit we have.
+    function renderCircadian(r5, name) {
+      const byDay = new Map();
+      for (const row of r5) {
+        const sleep = row.sleep_seconds || 0;
+        const signal = sleep + (row.awake_seconds || 0);
+        if (signal <= 0) continue;
+        const t = new Date(row.bucket_start);
+        const key = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+        const mins = t.getHours() * 60 + t.getMinutes();
+        const isNight = mins >= NIGHT.start || mins < NIGHT.end;
+        const rec = byDay.get(key) || { date: new Date(t.getFullYear(), t.getMonth(), t.getDate()), night: 0, day: 0, buckets: 0 };
+        if (isNight) rec.night += sleep; else rec.day += sleep;
+        rec.buckets += 1;
+        byDay.set(key, rec);
+      }
+      const days = [...byDay.values()]
+        .filter(d => (d.night + d.day) >= 3 * 3600 && d.buckets >= 96) // ≥3h sleep, ≥8h signal
+        .map(d => ({ date: d.date, share: d.night / (d.night + d.day) }))
+        .sort((a, b) => a.date - b.date).slice(-56);
+      if (days.length < 5) return '';
+      const W = 360, H = 100, lo = 0.4, hi = 1.0;
+      const x = i => (i / (days.length - 1)) * W;
+      const y = v => H - ((Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)) * H;
+      const line = days.map((d, i) => `${x(i).toFixed(1)},${y(d.share).toFixed(1)}`).join(' ');
+      const evenY = y(0.5).toFixed(1);
+      const half = Math.max(1, Math.floor(days.length / 3));
+      const early = avg(days.slice(0, half).map(d => d.share));
+      const late = avg(days.slice(-half).map(d => d.share));
+      const who = name ? name + '’s' : 'her';
+      let note = `About ${Math.round(late * 100)}% of ${who} sleep now lands at night`;
+      if (early != null && late != null && late - early > 0.04) note += `, up from ${Math.round(early * 100)}% at the start of this window — her body clock is organizing.`;
+      else if (early != null && late != null && early - late > 0.04) note += `, down from ${Math.round(early * 100)}% here — single weeks bounce around, so watch the longer trend.`;
+      else note += `, holding about steady across this window.`;
+      return section('Day-night rhythm',
+        `<div class="tile card"><h3>Share of sleep that happens at night — last ${days.length} days</h3>
+        <div class="drift-wrap">
+          <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+            <line x1="0" x2="${W}" y1="${evenY}" y2="${evenY}" class="drift-hair"/>
+            <polyline points="${line}" class="drift-line"/>
+          </svg>
+          <span class="drift-ylab" style="top:0">100%</span>
+          <span class="drift-ylab" style="bottom:0">40%</span>
+        </div>
+        <div class="drift-axis"><span>${days[0].date.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span><span>${days[days.length - 1].date.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span></div>
+        <p>The dashed line is 50% — sleep spread evenly around the clock, like a newborn with no rhythm yet. As the body clock matures, more sleep climbs above it into the night. ${note}${ageContext()}</p></div>`);
     }
 
     // ----- day prep vs night sleep ---------------------------------------------
@@ -723,6 +787,7 @@ RHYTHMS_SCRIPTS = """<script>
         const prefs = (account && account.dashboard_preferences) || {};
         deviceName = prefs.baby_name || null;
         NIGHT = nightWindowFrom(prefs);
+        BIRTH = prefs.birth_date || null;
       } catch (error) {
         el('content').innerHTML = '<div class="empty">Could not load readings — is the collector running?</div>';
         return;
@@ -738,6 +803,7 @@ RHYTHMS_SCRIPTS = """<script>
       const o2iv = o2Intervals(careEvents, t0, t1);
       el('content').innerHTML = [
         renderActogram(days, o2iv),
+        renderCircadian(rollups5, deviceName),
         renderDipMap(days, o2iv),
         renderTiles(days, rollups),
         renderDayPrep(rollups5),

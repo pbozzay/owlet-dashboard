@@ -5,7 +5,7 @@ import logging
 import secrets
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path as FilePath
 from typing import Literal
 
@@ -843,6 +843,14 @@ def _public_dashboard_preferences_patch(value: object) -> dict[str, object] | No
     baby_name = value.get("baby_name")
     if isinstance(baby_name, str):
         allowed["baby_name"] = baby_name.strip()[:40]
+    if "birth_date" in value:
+        raw_birth = value.get("birth_date")
+        if raw_birth in (None, ""):
+            allowed["birth_date"] = None
+        else:
+            birth = _valid_birth_date(raw_birth)
+            if birth is not None:
+                allowed["birth_date"] = birth
     if "o2_alert_threshold" in value:
         raw_threshold = value.get("o2_alert_threshold")
         if raw_threshold in (None, 0, "", "0"):
@@ -880,6 +888,20 @@ def _valid_clock(value: object) -> str | None:
     if 0 <= hour <= 23 and 0 <= minute <= 59:
         return f"{hour:02d}:{minute:02d}"
     return None
+
+
+def _valid_birth_date(value: object) -> str | None:
+    """Accept an ISO 'YYYY-MM-DD' date that isn't in the future or absurdly old."""
+    if not isinstance(value, str):
+        return None
+    try:
+        birth = date.fromisoformat(value)
+    except ValueError:
+        return None
+    today = datetime.now(timezone.utc).date()
+    if birth > today or birth < today - timedelta(days=366 * 6):
+        return None
+    return birth.isoformat()
 
 
 def _public_account(account: dict[str, object]) -> dict[str, object]:

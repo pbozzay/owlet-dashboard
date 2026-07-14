@@ -130,6 +130,11 @@ SHELL_JS = """<script>
       byId('o2AlertSetting').value = threshold ? String(threshold) : '';
     }
     var prefs = (account && account.dashboard_preferences) || {};
+    if (byId('birthDateSetting') && document.activeElement !== byId('birthDateSetting')) {
+      byId('birthDateSetting').value = prefs.birth_date || '';
+      var hint = byId('birthDateHint');
+      if (hint && prefs.birth_date) hint.textContent = babyAgeText(prefs.birth_date) + ' old.';
+    }
     if (byId('nightStartSetting')) byId('nightStartSetting').value = prefs.night_start || '19:00';
     if (byId('nightEndSetting')) byId('nightEndSetting').value = prefs.night_end || '07:00';
     if (byId('readinessSetting')) byId('readinessSetting').value = prefs.readiness_report_time || '';
@@ -189,6 +194,22 @@ SHELL_JS = """<script>
   });
   if (byId('babyNameSetting')) byId('babyNameSetting').addEventListener('change', function (event) {
     patchSelectedAccount({ dashboard_preferences: { baby_name: event.target.value.trim() } })
+      .then(function () { loadShellAccounts(); });
+  });
+  function babyAgeText(iso) {
+    var birth = new Date(iso + 'T00:00:00');
+    if (isNaN(birth)) return '';
+    var days = Math.floor((Date.now() - birth) / 86400000);
+    if (days < 0) return '';
+    if (days < 14) return days + (days === 1 ? ' day' : ' days');
+    if (days < 8 * 7) { var w = Math.floor(days / 7); return w + (w === 1 ? ' week' : ' weeks'); }
+    var months = Math.floor(days / 30.44);
+    if (months < 24) return months + (months === 1 ? ' month' : ' months');
+    var years = Math.floor(days / 365.25);
+    return years + (years === 1 ? ' year' : ' years');
+  }
+  if (byId('birthDateSetting')) byId('birthDateSetting').addEventListener('change', function (event) {
+    patchSelectedAccount({ dashboard_preferences: { birth_date: event.target.value || null } })
       .then(function () { loadShellAccounts(); });
   });
   function updateNotifHint() {
@@ -895,6 +916,12 @@ def render_shell(
           <span class="pp-label">Baby's name</span>
           <input id="babyNameSetting" type="text" maxlength="40" placeholder="e.g. Hazel"
             autocomplete="off" />
+        </div>
+        <div class="pp-section">
+          <span class="pp-label">Date of birth</span>
+          <input id="birthDateSetting" type="date" autocomplete="off" />
+          <small class="pp-hint" id="birthDateHint">Owlet's API doesn't share this — set it here so
+            milestones and "normal for her age" can be age-adjusted.</small>
         </div>
         <div class="pp-section">
           <span class="pp-label">Low-O₂ alert</span>
