@@ -543,11 +543,11 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       // Clipped to the area under the data line when there is one (the wisp
       // "bumps up to each point"); otherwise a short floor-hugging fade.
       const vStops = clipPoly
-        ? '<stop offset="0" stop-color="#fff" stop-opacity=".40"/>'
-          + '<stop offset=".55" stop-color="#fff" stop-opacity=".14"/>'
-          + '<stop offset="1" stop-color="#fff" stop-opacity=".04"/>'
-        : '<stop offset="0" stop-color="#fff" stop-opacity=".30"/>'
-          + '<stop offset=".28" stop-color="#fff" stop-opacity=".08"/>'
+        ? '<stop offset="0" stop-color="#fff" stop-opacity=".18"/>'
+          + '<stop offset=".55" stop-color="#fff" stop-opacity=".06"/>'
+          + '<stop offset="1" stop-color="#fff" stop-opacity=".02"/>'
+        : '<stop offset="0" stop-color="#fff" stop-opacity=".14"/>'
+          + '<stop offset=".28" stop-color="#fff" stop-opacity=".04"/>'
           + '<stop offset=".5" stop-color="#fff" stop-opacity="0"/>';
       const clipDef = clipPoly ? `<clipPath id="${pid}-o2c"><polygon points="${clipPoly}"/></clipPath>` : '';
       const clipAttr = clipPoly ? ` clip-path="url(#${pid}-o2c)"` : '';
