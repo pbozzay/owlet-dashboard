@@ -200,6 +200,11 @@ body.themed * { box-sizing: border-box; }
   color: var(--faint); font-weight: 700; margin: 0 0 4px;
   border-bottom: 1px solid var(--surface-line); padding-bottom: 7px; }
 .sg-device { grid-column: 1 / -1; }
+.sg-signin { grid-column: 1 / -1; }
+.signin-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0 18px; align-items: end; }
+.signin-save .pp-link-btn { width: 100%; text-align: center; box-sizing: border-box; }
+.pp-label small { color: var(--faint); text-transform: none; letter-spacing: 0; }
 .pp-settings-btn { display: flex; align-items: center; gap: 9px; width: 100%;
   font: inherit; font-size: 13.5px; font-weight: 600; color: var(--ink); cursor: pointer;
   background: var(--surface); border: 1px solid var(--surface-line);

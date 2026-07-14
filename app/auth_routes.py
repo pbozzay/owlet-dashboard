@@ -110,3 +110,42 @@ async def logout(request: Request):
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie(SESSION_COOKIE, path="/")
     return response
+
+
+async def _verified_user(request: Request, current_password: str) -> dict:
+    """Re-authenticate for account-credential changes: a live session cookie
+    alone must never be enough to take over the login."""
+    if not _limiter(request).allow(f"credchange:{_client_ip(request)}", max_hits=8, window_seconds=300):
+        raise HTTPException(status_code=429, detail="Too many attempts; wait a few minutes")
+    user = await require_user(request)
+    if not verify_password(user["password_hash"], current_password or ""):
+        raise HTTPException(status_code=403, detail="Current password is wrong")
+    return user
+
+
+@router.post("/auth/change-email")
+async def change_email(request: Request):
+    payload = await request.json()
+    user = await _verified_user(request, str(payload.get("current_password") or ""))
+    email = str(payload.get("email") or "").strip()
+    if "@" not in email or len(email) < 6 or len(email) > 254:
+        raise HTTPException(status_code=400, detail="That doesn't look like an email address")
+    try:
+        await _auth(request).update_email(user["id"], email)
+    except ValueError:
+        raise HTTPException(status_code=409, detail="That email is already registered") from None
+    return {"ok": True, "email": email.lower()}
+
+
+@router.post("/auth/change-password")
+async def change_password(request: Request):
+    payload = await request.json()
+    user = await _verified_user(request, str(payload.get("current_password") or ""))
+    new_password = str(payload.get("new_password") or "")
+    if not (MIN_PASSWORD <= len(new_password) <= MAX_PASSWORD):
+        raise HTTPException(status_code=400, detail="Password must be 8-128 characters")
+    auth = _auth(request)
+    await auth.update_password(user["id"], hash_password(new_password))
+    raw = request.cookies.get(SESSION_COOKIE) or ""
+    dropped = await auth.delete_other_sessions(user["id"], hash_token(raw))
+    return {"ok": True, "other_sessions_signed_out": dropped}

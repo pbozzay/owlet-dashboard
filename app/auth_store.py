@@ -108,6 +108,40 @@ class AuthStore:
             )
             return _row_to_user(await cursor.fetchone())
 
+    async def update_email(self, user_id: int, email: str) -> None:
+        await self.init()
+        normalized = email.strip().lower()
+        async with self._connect() as db:
+            try:
+                await db.execute(
+                    "UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (normalized, user_id),
+                )
+            except aiosqlite.IntegrityError as exc:
+                raise ValueError("email already registered") from exc
+            await db.commit()
+
+    async def update_password(self, user_id: int, password_hash: str) -> None:
+        await self.init()
+        async with self._connect() as db:
+            await db.execute(
+                "UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (password_hash, user_id),
+            )
+            await db.commit()
+
+    async def delete_other_sessions(self, user_id: int, keep_token_hash: str) -> int:
+        """Sign out every other device — a changed password must orphan any
+        session an old credential holder might still have open."""
+        await self.init()
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "DELETE FROM sessions WHERE user_id = ? AND token_hash != ?",
+                (user_id, keep_token_hash),
+            )
+            await db.commit()
+            return cursor.rowcount or 0
+
     async def create_session(
         self, user_id: int, token_hash: str, *, ttl_days: int = 30, user_agent: str = ""
     ) -> None:

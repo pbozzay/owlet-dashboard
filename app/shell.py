@@ -110,7 +110,65 @@ SHELL_JS = """<script>
     document.body.style.overflow = 'hidden';
     populateTimezones();
     loadDevicePanel();
+    loadSigninEmail();
   }
+  function loadSigninEmail() {
+    var input = byId('loginEmailSetting');
+    // re-fetch until a value actually lands — a latched empty field would
+    // make every save look like an email change
+    if (!input || input.dataset.saved) return;
+    fetch('/api/me').then(function (r) { return r.json(); }).then(function (data) {
+      if (data.email) {
+        input.dataset.saved = data.email;
+        if (document.activeElement !== input && !input.value) input.value = data.email;
+      }
+    }).catch(function () {});
+  }
+  if (byId('saveSignin')) byId('saveSignin').addEventListener('click', function () {
+    var hint = byId('signinHint');
+    var current = byId('currentPasswordSetting').value;
+    var email = byId('loginEmailSetting').value.trim();
+    var savedEmail = byId('loginEmailSetting').dataset.saved || '';
+    var newPassword = byId('newPasswordSetting').value;
+    var wantsEmail = email && email.toLowerCase() !== savedEmail.toLowerCase();
+    var wantsPassword = newPassword.length > 0;
+    var say = function (text, bad) {
+      hint.textContent = text;
+      hint.style.color = bad ? 'var(--bad)' : 'var(--good)';
+    };
+    if (!wantsEmail && !wantsPassword) { say('Nothing to change — edit the email or set a new password first.', true); return; }
+    if (!current) { say('Enter your current password to confirm the change.', true); return; }
+    var post = function (url, body) {
+      return fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (data) {
+          if (!r.ok) throw new Error(data.detail || ('Failed (' + r.status + ')'));
+          return data;
+        });
+      });
+    };
+    var steps = Promise.resolve();
+    if (wantsEmail) steps = steps.then(function () {
+      return post('/auth/change-email', { current_password: current, email: email })
+        .then(function (data) { byId('loginEmailSetting').dataset.saved = data.email; });
+    });
+    if (wantsPassword) steps = steps.then(function () {
+      return post('/auth/change-password', { current_password: current, new_password: newPassword });
+    });
+    byId('saveSignin').disabled = true;
+    steps.then(function () {
+      byId('currentPasswordSetting').value = '';
+      byId('newPasswordSetting').value = '';
+      say(wantsPassword
+        ? 'Saved. Other devices were signed out — use the new password there.'
+        : 'Saved. Use the new email next time you sign in.', false);
+      loadShellAccounts();
+    }).catch(function (error) {
+      say(error.message, true);
+    }).then(function () { byId('saveSignin').disabled = false; });
+  });
   function closeSettingsModal() {
     if (!settingsBackdrop || settingsBackdrop.hidden) return;
     settingsBackdrop.hidden = true;
@@ -1215,6 +1273,29 @@ def render_shell(
             <small class="pp-hint">Smoothing calms the line; dips still show at full depth in dip
               counts and reports.</small>
           </div>
+        </section>
+        <section class="sg sg-signin">
+          <h4>Sign-in</h4>
+          <div class="signin-grid">
+            <div class="pp-section">
+              <span class="pp-label">Email</span>
+              <input id="loginEmailSetting" type="email" autocomplete="username" />
+            </div>
+            <div class="pp-section">
+              <span class="pp-label">New password <small style="font-weight:400">(leave blank to keep)</small></span>
+              <input id="newPasswordSetting" type="password" minlength="8" maxlength="128"
+                autocomplete="new-password" placeholder="••••••••" />
+            </div>
+            <div class="pp-section">
+              <span class="pp-label">Current password <small style="font-weight:400">(required to save)</small></span>
+              <input id="currentPasswordSetting" type="password" autocomplete="current-password" />
+            </div>
+            <div class="pp-section signin-save">
+              <span class="pp-label">&nbsp;</span>
+              <button id="saveSignin" class="pp-link-btn" type="button">Save sign-in changes</button>
+            </div>
+          </div>
+          <small class="pp-hint" id="signinHint">Changing the password signs out every other device.</small>
         </section>
         <section class="sg sg-device">
           <h4>Device</h4>

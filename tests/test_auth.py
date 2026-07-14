@@ -61,6 +61,73 @@ def test_signup_validation_and_login_failures(app_bundle):
         assert "error" in wrong.headers["location"]
 
 
+def test_change_email_and_password(app_bundle):
+    app, *_ = app_bundle
+    with client_for(app) as client:
+        client.post("/auth/signup", data={"email": "parent@example.com", "password": "hunter22"})
+
+        # wrong current password -> rejected, nothing changes
+        rejected = client.post(
+            "/auth/change-email",
+            json={"current_password": "nope", "email": "new@example.com"},
+        )
+        assert rejected.status_code == 403
+
+        # email change
+        changed = client.post(
+            "/auth/change-email",
+            json={"current_password": "hunter22", "email": "New@Example.com"},
+        )
+        assert changed.status_code == 200 and changed.json()["email"] == "new@example.com"
+        assert client.get("/api/me").json()["email"] == "new@example.com"
+
+        # a second signed-in device...
+        with client_for(app) as other:
+            other.post(
+                "/auth/login", data={"email": "new@example.com", "password": "hunter22"}
+            )
+            assert other.get("/api/readings").status_code == 200
+
+            # ...gets signed out when the password changes here
+            weak = client.post(
+                "/auth/change-password",
+                json={"current_password": "hunter22", "new_password": "short"},
+            )
+            assert weak.status_code == 400
+            changed = client.post(
+                "/auth/change-password",
+                json={"current_password": "hunter22", "new_password": "hunter2222"},
+            )
+            assert changed.status_code == 200
+            assert changed.json()["other_sessions_signed_out"] == 1
+            assert other.get("/api/readings").status_code == 401   # kicked
+        assert client.get("/api/readings").status_code == 200       # this session survives
+
+        # old password dead, new one works
+        with client_for(app) as fresh:
+            old = fresh.post(
+                "/auth/login",
+                data={"email": "new@example.com", "password": "hunter22"},
+                follow_redirects=False,
+            )
+            assert "error" in old.headers["location"]
+            good = fresh.post(
+                "/auth/login",
+                data={"email": "new@example.com", "password": "hunter2222"},
+                follow_redirects=False,
+            )
+            assert good.headers["location"] == "/"
+
+        # duplicate email is a conflict
+        with client_for(app) as second_user:
+            second_user.post("/auth/signup", data={"email": "b@example.com", "password": "hunter22"})
+            conflict = second_user.post(
+                "/auth/change-email",
+                json={"current_password": "hunter22", "email": "new@example.com"},
+            )
+            assert conflict.status_code == 409
+
+
 def test_login_rate_limited(app_bundle):
     app, *_ = app_bundle
     with client_for(app) as client:
