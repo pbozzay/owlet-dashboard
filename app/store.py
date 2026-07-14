@@ -13,10 +13,84 @@ from app.oxygen_challenges import challenge_analysis, parse_time, reading_in_any
 from app.quality import is_offline_reading
 
 
+# Per-reading raw storage keeps only what changes and what downstream code
+# reads back: the REAL_TIME_VITALS value string (the actual sensor payload),
+# the alert flags/mask (notification re-derivation + json_extract queries),
+# and the sock/base state flags. The static Ayla envelope — ~86% of every
+# payload, byte-identical across readings — lives once in device_snapshots.
+_SLIM_RAW_KEYS = (
+    "alerts_mask",
+    "critical_oxygen_alert",
+    "low_oxygen_alert",
+    "high_oxygen_alert",
+    "critical_battery_alert",
+    "low_battery_alert",
+    "low_heart_rate_alert",
+    "high_heart_rate_alert",
+    "lost_power_alert",
+    "wellness_alert",
+    "sock_disconnected",
+    "sock_off",
+    "sock_connection",
+    "base_station_on",
+    "alert_paused_status",
+    "readings_flag",
+    "monitoring_start_time",
+)
+
+# Properties whose values change reading-to-reading; everything else in the
+# payload is static device/config state that belongs in the snapshot.
+_DYNAMIC_PAYLOAD_KEYS = frozenset(
+    (*_SLIM_RAW_KEYS, "REAL_TIME_VITALS", "MOBILE_VITALS", "MONITORING_SUMMARY",
+     "RED_ALERT_SUMMARY", "last_updated", "battery", "battery_percentage",
+     "battery_minutes", "heart_rate", "oxygen_saturation", "oxygen_10_av",
+     "movement", "movement_bucket", "signal_strength", "skin_temperature",
+     "sleep_state", "charging", "ALRT_PAUSE_CMD", "BATTERY_STATUS",
+     "BASE_MON_STATUS", "base_battery_status", "LOW_INTEG_READ")
+)
+
+
+def slim_raw(raw: dict[str, Any]) -> dict[str, Any]:
+    if not raw:
+        return {}
+    slim: dict[str, Any] = {}
+    rtv = raw.get("REAL_TIME_VITALS")
+    value = rtv.get("value") if isinstance(rtv, dict) else rtv
+    if isinstance(value, str | dict) and value:
+        slim["REAL_TIME_VITALS"] = {"value": value}
+    for key in _SLIM_RAW_KEYS:
+        if key in raw:
+            scalar = raw[key]
+            if isinstance(scalar, dict) and "value" in scalar:
+                scalar = scalar.get("value")
+            if scalar is not None:
+                slim[key] = scalar
+    return slim
+
+
+def snapshot_signature(raw: dict[str, Any]) -> str:
+    """Stable fingerprint of the payload's static portion. When it changes
+    (firmware update, settings change, new base), we re-store the snapshot."""
+    static: dict[str, Any] = {}
+    for key, value in raw.items():
+        if key in _DYNAMIC_PAYLOAD_KEYS:
+            continue
+        if isinstance(value, dict):
+            value = {
+                k: v
+                for k, v in value.items()
+                if k not in ("data_updated_at", "key", "acked_at", "ack_status",
+                             "ack_message", "generated_at")
+            }
+        static[key] = value
+    return json.dumps(static, sort_keys=True, default=str)
+
+
 class ReadingStore:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
         self._schema_ready = False
+        self._snapshot_signatures: dict[tuple[int, str], str] = {}
 
     def _connect(self):
         """WAL + busy-timeout on every connection: long analytic reads must not
@@ -61,12 +135,31 @@ class ReadingStore:
                     sleep_state TEXT,
                     skin_temperature REAL,
                     raw_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    battery_minutes REAL,
+                    movement_bucket REAL,
+                    oxygen_10_av REAL,
+                    signal_strength REAL,
+                    charging INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_readings_recorded_at ON readings(recorded_at)"
+            )
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS device_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id INTEGER NOT NULL,
+                    device_serial TEXT NOT NULL,
+                    signature TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(account_id, device_serial)
+                )
+                """
             )
             await db.execute(
                 """
@@ -141,6 +234,7 @@ class ReadingStore:
         await self._ensure_account_preference_schema(db)
         default_account_id = await self._legacy_default_account_id(db)
         await self._ensure_readings_account_schema(db, default_account_id)
+        await self._ensure_readings_vitals_columns(db)
         await self._ensure_notifications_account_schema(db, default_account_id)
         await self._ensure_challenges_account_schema(db, default_account_id)
         await db.execute(
@@ -198,6 +292,18 @@ class ReadingStore:
             # Only populated in desktop mode, so a dead refresh token never
             # strands a single-user local install. Never exposed via the API.
             await db.execute("ALTER TABLE accounts ADD COLUMN owlet_password TEXT")
+
+    async def _ensure_readings_vitals_columns(self, db: aiosqlite.Connection) -> None:
+        columns = await self._table_columns(db, "readings")
+        for name, decl in (
+            ("battery_minutes", "REAL"),
+            ("movement_bucket", "REAL"),
+            ("oxygen_10_av", "REAL"),
+            ("signal_strength", "REAL"),
+            ("charging", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if name not in columns:
+                await db.execute(f"ALTER TABLE readings ADD COLUMN {name} {decl}")
 
     async def _table_columns(self, db: aiosqlite.Connection, table: str) -> list[str]:
         cursor = await db.execute(f"PRAGMA table_info({table})")
@@ -485,8 +591,9 @@ class ReadingStore:
                 """
                 INSERT INTO readings (
                     account_id, device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
-                    movement, sleep_state, skin_temperature, raw_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    movement, sleep_state, skin_temperature, raw_json,
+                    battery_minutes, movement_bucket, oxygen_10_av, signal_strength, charging
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(account_id, device_serial, recorded_at) DO UPDATE SET
                     heart_rate=excluded.heart_rate,
                     oxygen_saturation=excluded.oxygen_saturation,
@@ -494,7 +601,12 @@ class ReadingStore:
                     movement=excluded.movement,
                     sleep_state=excluded.sleep_state,
                     skin_temperature=excluded.skin_temperature,
-                    raw_json=excluded.raw_json
+                    raw_json=excluded.raw_json,
+                    battery_minutes=excluded.battery_minutes,
+                    movement_bucket=excluded.movement_bucket,
+                    oxygen_10_av=excluded.oxygen_10_av,
+                    signal_strength=excluded.signal_strength,
+                    charging=excluded.charging
                 """,
                 (
                     account_id,
@@ -506,11 +618,86 @@ class ReadingStore:
                     reading.movement,
                     reading.sleep_state,
                     reading.skin_temperature,
-                    json.dumps(reading.raw, default=str),
+                    json.dumps(slim_raw(reading.raw), default=str),
+                    reading.battery_minutes,
+                    reading.movement_bucket,
+                    reading.oxygen_10_av,
+                    reading.signal_strength,
+                    1 if reading.charging else 0,
                 ),
             )
             await self._insert_notification_rows(db, reading, account_id=account_id)
             await db.commit()
+        await self._maybe_update_device_snapshot(reading, account_id)
+
+    async def _maybe_update_device_snapshot(self, reading: OwletReading, account_id: int) -> None:
+        """Keep one full copy of the device payload per sock, re-written only
+        when its static portion (firmware, config, MACs...) actually changes."""
+        if not reading.raw:
+            return
+        signature = snapshot_signature(reading.raw)
+        if signature == "{}":
+            return  # already-slim payload (imports/tests) — nothing static to keep
+        cache_key = (account_id, reading.device_serial)
+        if self._snapshot_signatures.get(cache_key) == signature:
+            return
+        async with self._connect() as db:
+            cursor = await db.execute(
+                "SELECT signature FROM device_snapshots WHERE account_id = ? AND device_serial = ?",
+                (account_id, reading.device_serial),
+            )
+            row = await cursor.fetchone()
+            if not row or row[0] != signature:
+                await db.execute(
+                    """
+                    INSERT INTO device_snapshots (account_id, device_serial, signature, payload_json)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(account_id, device_serial) DO UPDATE SET
+                        signature=excluded.signature,
+                        payload_json=excluded.payload_json,
+                        updated_at=CURRENT_TIMESTAMP
+                    """,
+                    (account_id, reading.device_serial, signature,
+                     json.dumps(reading.raw, default=str)),
+                )
+                await db.commit()
+        self._snapshot_signatures[cache_key] = signature
+
+    async def get_device_snapshot(
+        self, account_ids: list[int] | None = None, device_serial: str | None = None
+    ) -> dict[str, Any] | None:
+        await self.init()
+        if account_ids is not None and not account_ids:
+            return None
+        where: list[str] = []
+        params: list[Any] = []
+        if account_ids is not None:
+            placeholders = ",".join("?" for _ in account_ids)
+            where.append(f"account_id IN ({placeholders})")
+            params.extend(account_ids)
+        if device_serial:
+            where.append("device_serial = ?")
+            params.append(device_serial)
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        async with self._connect() as db:
+            cursor = await db.execute(
+                f"""
+                SELECT account_id, device_serial, payload_json, created_at, updated_at
+                FROM device_snapshots {clause}
+                ORDER BY updated_at DESC LIMIT 1
+                """,
+                params,
+            )
+            row = await cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "account_id": int(row[0]),
+            "device_serial": row[1],
+            "payload": json.loads(row[2]) if row[2] else {},
+            "created_at": row[3],
+            "updated_at": row[4],
+        }
 
     async def _latest_timestamp(
         self,
@@ -577,7 +764,8 @@ class ReadingStore:
             cursor = await db.execute(
                 f"""
                 SELECT device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
-                       movement, sleep_state, skin_temperature, raw_json
+                       movement, sleep_state, skin_temperature, raw_json,
+                       battery_minutes, movement_bucket, oxygen_10_av, signal_strength, charging
                 FROM readings
                 {where}
                 ORDER BY recorded_at ASC
@@ -611,7 +799,8 @@ class ReadingStore:
             cursor = await db.execute(
                 f"""
                 SELECT device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
-                       movement, sleep_state, skin_temperature, raw_json
+                       movement, sleep_state, skin_temperature, raw_json,
+                       battery_minutes, movement_bucket, oxygen_10_av, signal_strength, charging
                 FROM readings
                 WHERE {' AND '.join(where_parts)}
                 ORDER BY recorded_at ASC
@@ -667,7 +856,8 @@ class ReadingStore:
                        json_extract(raw_json, '$.SOCK_DISCON_ALRT.value'),
                        json_extract(raw_json, '$.sock_off'),
                        json_extract(raw_json, '$.SOCK_OFF.value'),
-                       json_extract(raw_json, '$.alerts_mask')
+                       json_extract(raw_json, '$.alerts_mask'),
+                       battery_minutes, movement_bucket, oxygen_10_av, signal_strength, charging
                 FROM readings
                 {where}
                 ORDER BY recorded_at ASC
@@ -1230,7 +1420,8 @@ class ReadingStore:
         cursor = await db.execute(
             """
             SELECT account_id, device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
-                   movement, sleep_state, skin_temperature, raw_json
+                   movement, sleep_state, skin_temperature, raw_json,
+                   battery_minutes, movement_bucket, oxygen_10_av, signal_strength, charging
             FROM readings
             ORDER BY account_id ASC, device_serial ASC, recorded_at ASC
             """
@@ -1275,7 +1466,8 @@ class ReadingStore:
         cursor = await db.execute(
             """
             SELECT device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
-                   movement, sleep_state, skin_temperature, raw_json
+                   movement, sleep_state, skin_temperature, raw_json,
+                   battery_minutes, movement_bucket, oxygen_10_av, signal_strength, charging
             FROM readings
             WHERE account_id = ? AND device_serial = ? AND recorded_at < ?
             ORDER BY recorded_at DESC
@@ -1346,14 +1538,19 @@ class ReadingStore:
 
     def _row_to_reading(self, row: tuple[Any, ...]) -> OwletReading:
         raw = json.loads(row[8]) if row[8] else {}
+        battery_minutes = row[9] if row[9] is not None else _raw_metric(raw, "battery_minutes", "btt", "BATTERY_MINUTES")
         return OwletReading(
             device_serial=row[0],
             recorded_at=row[1],
             heart_rate=row[2],
             oxygen_saturation=row[3],
             battery=row[4],
-            battery_minutes=_raw_metric(raw, "battery_minutes", "btt", "BATTERY_MINUTES"),
+            battery_minutes=battery_minutes,
             movement=row[5],
+            movement_bucket=row[10],
+            oxygen_10_av=row[11],
+            signal_strength=row[12],
+            charging=bool(row[13]),
             sleep_state=row[6],
             sock_disconnected=raw_flag_active(raw, "sock_disconnected", "SOCK_DISCON_ALRT") or raw_alert_mask_has(raw, 16),
             sock_off=raw_flag_active(raw, "sock_off", "SOCK_OFF") or raw_alert_mask_has(raw, 64),
@@ -1376,7 +1573,11 @@ class ReadingStore:
             sock_disconnected=_sqlite_bool(row[8]) or _sqlite_bool(row[9]) or _mask_has(alerts_mask, 16),
             sock_off=_sqlite_bool(row[10]) or _sqlite_bool(row[11]) or _mask_has(alerts_mask, 64),
             skin_temperature=row[7],
-            battery_minutes=None,
+            battery_minutes=row[13],
+            movement_bucket=row[14],
+            oxygen_10_av=row[15],
+            signal_strength=row[16],
+            charging=bool(row[17]),
             raw={},
         )
 

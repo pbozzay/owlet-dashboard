@@ -368,16 +368,23 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const cut = liveReadings.length ? Date.parse(liveReadings[0].recorded_at) : Infinity;
       return histReadings.filter(r => Date.parse(r.recorded_at) < cut).concat(liveReadings);
     }
+    // Display prefs (settings modal): the chart can ride Owlet's smoothed O₂
+    // line or its normalized 0–100 activity level instead of the raw feeds.
+    let DISPLAY = { o2: 'raw', move: 'raw' };
     function rebuildPoints() {
       const rows = allReadings();
       const valid = rows.filter(r => !isOffline(r));
+      const o2Of = r => DISPLAY.o2 === 'smoothed' && r.oxygen_10_av > 0
+        ? r.oxygen_10_av : r.oxygen_saturation;
+      const moveOf = r => DISPLAY.move === 'bucket' && r.movement_bucket != null
+        ? r.movement_bucket : (r.movement || 0);
       points.hr = valid.filter(r => r.heart_rate > 0)
         .map(r => ({ x: Date.parse(r.recorded_at), y: r.heart_rate }));
-      points.o2 = valid.filter(r => r.oxygen_saturation > 0)
-        .map(r => ({ x: Date.parse(r.recorded_at), y: r.oxygen_saturation }));
+      points.o2 = valid.filter(r => o2Of(r) > 0)
+        .map(r => ({ x: Date.parse(r.recorded_at), y: o2Of(r) }));
       points.temp = valid.filter(r => r.skin_temperature > 0)
         .map(r => ({ x: Date.parse(r.recorded_at), y: r.skin_temperature }));
-      points.move = valid.map(r => ({ x: Date.parse(r.recorded_at), y: r.movement || 0 }));
+      points.move = valid.map(r => ({ x: Date.parse(r.recorded_at), y: moveOf(r) }));
       gaps = computeGaps(rows);
       sleepRuns = computeSleepRuns(rows);
     }
@@ -428,12 +435,15 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const out = [];
       let sockRun = null;
       // Rows keep flowing while the sock itself is silent, so we can usually
-      // say WHY: battery climbing = charging, explicit disconnect flag, or
-      // plain sock-off. No rows at all = the collector wasn't running.
+      // say WHY: the sock's own charging flag (exact), battery climbing as a
+      // fallback for old rows without it, explicit disconnect flag, or plain
+      // sock-off. No rows at all = the collector wasn't running.
       const finishSockRun = run => {
-        run.label = run.battery0 != null && run.battery1 != null && run.battery1 - run.battery0 > 1
+        run.label = run.charging
           ? 'charging'
-          : (run.disconnected ? 'disconnected' : 'sock off');
+          : run.battery0 != null && run.battery1 != null && run.battery1 - run.battery0 > 1
+            ? 'charging'
+            : (run.disconnected ? 'disconnected' : 'sock off');
         return run;
       };
       for (let i = 0; i < rows.length; i++) {
@@ -444,12 +454,13 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         }
         if (isOffline(rows[i])) {
           const battery = rows[i].battery;
-          if (!sockRun) sockRun = { start: t, end: t, kind: 'sock', battery0: battery, battery1: battery, disconnected: false };
+          if (!sockRun) sockRun = { start: t, end: t, kind: 'sock', battery0: battery, battery1: battery, disconnected: false, charging: false };
           else {
             sockRun.end = t;
             if (battery != null) { sockRun.battery1 = battery; if (sockRun.battery0 == null) sockRun.battery0 = battery; }
           }
           if (rows[i].sock_disconnected) sockRun.disconnected = true;
+          if (rows[i].charging) sockRun.charging = true;
         } else if (sockRun) { out.push(finishSockRun(sockRun)); sockRun = null; }
       }
       if (sockRun) { sockRun.end = Date.now(); out.push(finishSockRun(sockRun)); }
@@ -1742,6 +1753,10 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         const prefs = (account && account.dashboard_preferences) || {};
         if (prefs.baby_name) deviceName = prefs.baby_name;
         NIGHT = nightWindowFrom(prefs);
+        DISPLAY = {
+          o2: prefs.o2_display === 'smoothed' ? 'smoothed' : 'raw',
+          move: prefs.movement_source === 'bucket' ? 'bucket' : 'raw'
+        };
         if (account && account.poll_interval_seconds) pollSeconds = account.poll_interval_seconds;
       } catch (error) {
         el('statusLine').textContent = 'Could not load readings — is the collector running?';
@@ -1756,6 +1771,16 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         if (data) rollups = data.rollups || rollups;
       }, 5 * 60 * 1000);
       setInterval(loadEvents, 5 * 60 * 1000);
+      document.addEventListener('owlet:prefs-changed', event => {
+        const prefs = (event.detail && event.detail.dashboard_preferences) || null;
+        if (!prefs) return;
+        DISPLAY = {
+          o2: prefs.o2_display === 'smoothed' ? 'smoothed' : 'raw',
+          move: prefs.movement_source === 'bucket' ? 'bucket' : 'raw'
+        };
+        rebuildPoints();
+        if (!gesture) renderCharts();
+      });
     }
     boot();
   </script>"""

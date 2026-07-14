@@ -4,8 +4,9 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.models import OwletReading
 from app.owlet_client import OwletClient
@@ -16,6 +17,21 @@ logger = logging.getLogger(__name__)
 
 ReadOnce = Callable[[], Awaitable[OwletReading]]
 TokenSnapshot = Callable[[], dict[str, Any]]
+
+
+def _account_tz(prefs: dict[str, Any]) -> tzinfo:
+    """The family's local time: an explicit IANA zone wins (DST-proof); else
+    the browser-synced UTC offset; else UTC."""
+    name = prefs.get("timezone")
+    if isinstance(name, str) and name:
+        try:
+            return ZoneInfo(name)
+        except (KeyError, ValueError, ZoneInfoNotFoundError):
+            pass
+    offset = prefs.get("tz_offset_minutes")
+    if isinstance(offset, (int, float)):
+        return timezone(timedelta(minutes=int(offset)))
+    return timezone.utc
 
 
 def _parse_clock(value: Any) -> tuple[int, int] | None:
@@ -161,9 +177,7 @@ class Poller:
         report_time = _parse_clock(prefs.get("readiness_report_time"))
         if report_time is None:
             return
-        offset = prefs.get("tz_offset_minutes")
-        tz = timezone(timedelta(minutes=int(offset) if isinstance(offset, (int, float)) else 0))
-        now_local = datetime.now(tz)
+        now_local = datetime.now(_account_tz(prefs))
         fire_local = now_local.replace(
             hour=report_time[0], minute=report_time[1], second=0, microsecond=0
         )

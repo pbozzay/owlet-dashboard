@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path as FilePath
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Body, Depends, FastAPI, Form, HTTPException, Path, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -49,6 +50,8 @@ def _reading_response(row, *, include_raw: bool = False) -> dict[str, object]:
         payload["heart_rate"] = 0
         payload["oxygen_saturation"] = 0
         payload["movement"] = 0
+        payload["movement_bucket"] = 0
+        payload["oxygen_10_av"] = 0
     return payload
 
 
@@ -412,6 +415,49 @@ def create_app(
     async def shared_devices(token: str = Path(min_length=20)):
         _require_share_token(token, settings)
         return {"devices": await store.list_devices()}
+
+    @app.get("/api/device-info")
+    async def device_info(
+        account: int | None = Query(default=None, ge=1),
+        device: str | None = Query(default=None),
+        user: dict = Depends(require_user),
+    ):
+        """Static device facts from the latest snapshot: firmware, hardware,
+        radio MACs — the once-per-change copy of the Ayla payload."""
+        snapshot = await store.get_device_snapshot(
+            account_ids=await _scope(user, account), device_serial=device
+        )
+        if snapshot is None:
+            return {"info": None}
+        payload = snapshot["payload"]
+
+        def prop(name: str) -> object | None:
+            value = payload.get(name)
+            return value.get("value") if isinstance(value, dict) else value
+
+        def config(field: str) -> object | None:
+            raw_cfg = prop("CONFIG_STATUS")
+            if isinstance(raw_cfg, str):
+                try:
+                    return json.loads(raw_cfg).get(field)
+                except ValueError:
+                    return None
+            if isinstance(raw_cfg, dict):
+                return raw_cfg.get(field)
+            return None
+
+        return {
+            "info": {
+                "device_serial": snapshot["device_serial"],
+                "captured_at": snapshot["updated_at"],
+                "sock_firmware": prop("oem_sock_version"),
+                "base_firmware": prop("oem_base_version"),
+                "flash_firmware": prop("oem_flash_version"),
+                "hardware_version": prop("hardware_version"),
+                "sock_mac": config("smac"),
+                "base_mac": config("bmac"),
+            }
+        }
 
     @app.get("/api/readings")
     async def readings(
@@ -803,6 +849,9 @@ async def _widget_payload(
         "trend": breathing.get("direction"),
         "trend_sentence": breathing.get("plain_language"),
         "battery": latest.get("battery") if isinstance(latest, dict) else None,
+        "battery_minutes": latest.get("battery_minutes") if isinstance(latest, dict) else None,
+        "charging": bool(latest.get("charging")) if isinstance(latest, dict) else False,
+        "signal_strength": latest.get("signal_strength") if isinstance(latest, dict) else None,
         "notification_count": notifications["total"],
         "unread_notifications": notifications.get("unread_total", 0),
         "latest_notification": latest_notification,
@@ -840,6 +889,10 @@ def _public_dashboard_preferences_patch(value: object) -> dict[str, object] | No
     theme_value = value.get("theme")
     if str(theme_value) in {"auto", "light", "dark"}:
         allowed["theme"] = str(theme_value)
+    if str(value.get("movement_source")) in {"raw", "bucket"}:
+        allowed["movement_source"] = str(value.get("movement_source"))
+    if str(value.get("o2_display")) in {"raw", "smoothed"}:
+        allowed["o2_display"] = str(value.get("o2_display"))
     baby_name = value.get("baby_name")
     if isinstance(baby_name, str):
         allowed["baby_name"] = baby_name.strip()[:40]
@@ -874,6 +927,17 @@ def _public_dashboard_preferences_patch(value: object) -> dict[str, object] | No
         raw_offset = value.get("tz_offset_minutes")
         if isinstance(raw_offset, (int, float)) and -840 <= int(raw_offset) <= 840:
             allowed["tz_offset_minutes"] = int(raw_offset)
+    if "timezone" in value:
+        raw_tz = value.get("timezone")
+        if raw_tz in (None, "", "auto"):
+            allowed["timezone"] = None
+        elif isinstance(raw_tz, str) and len(raw_tz) <= 64:
+            try:
+                ZoneInfo(raw_tz)
+            except (KeyError, ValueError, ZoneInfoNotFoundError):
+                pass
+            else:
+                allowed["timezone"] = raw_tz
     return allowed
 
 

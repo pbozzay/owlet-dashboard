@@ -166,8 +166,9 @@ async def test_sock_disconnected_nonzero_vitals_are_treated_as_offline(tmp_path)
     assert readings[1]["movement"] == 0
     assert raw_readings[1]["heart_rate"] == 0
     assert raw_readings[1]["oxygen_saturation"] == 0
-    assert raw_readings[1]["raw"]["heart_rate"] == 120
-    assert raw_readings[1]["raw"]["oxygen_saturation"] == 98
+    # slimmed raw keeps the flags that explain WHY the row reads as offline
+    assert raw_readings[1]["raw"]["sock_disconnected"] is True
+    assert raw_readings[1]["raw"]["alerts_mask"] == 16
     assert summary["count"] == 3
     assert summary["valid_count"] == 2
     assert summary["offline_count"] == 1
@@ -397,7 +398,10 @@ async def test_api_returns_readings_and_summary(tmp_path):
     with client_for(app, session) as client:
         raw_readings = client.get("/api/readings?hours=24&include_raw=true").json()
 
-    assert raw_readings[0]["raw"]["heart_rate"] == 120
+    # Stored raw is slimmed to the dynamic whitelist — the static Ayla envelope
+    # (and pyowletapi's duplicate flattened vitals) no longer bloat every row.
+    assert "heart_rate" not in raw_readings[0]["raw"]
+    assert raw_readings[0]["heart_rate"] == 120   # ...because the value lives in its column
 
 
 @pytest.mark.asyncio
@@ -1118,6 +1122,105 @@ async def test_night_and_readiness_preferences_whitelist(tmp_path):
         assert prefs["night_end"] == "06:00"
         assert prefs.get("readiness_report_time") is None
         assert prefs["tz_offset_minutes"] == -300
+
+
+@pytest.mark.asyncio
+async def test_new_vitals_fields_round_trip_and_snapshot(tmp_path):
+    from app.store import slim_raw
+
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    account_id = await _default_account_id(store)
+    rtv = ('{"ox":97,"hr":140,"mv":12,"st":33,"bat":76,"btt":832,"chg":1,'
+           '"rsi":64,"ss":8,"mvb":18,"oxta":96,"alrt":0}')
+    payload = {
+        "last_updated": "2026-07-14T02:00:00Z",
+        "heart_rate": 140,
+        "oxygen_saturation": 97,
+        "battery": 76,
+        "battery_minutes": 832,
+        "movement": 12,
+        "movement_bucket": 18,
+        "oxygen_10_av": 96,
+        "signal_strength": 64,
+        "charging": 1,
+        "sleep_state": 8,
+        "REAL_TIME_VITALS": {"type": "Property", "base_type": "string",
+                             "display_name": "Real-Time Vitals", "value": rtv},
+        "oem_sock_version": {"type": "Property", "value": '{"version":"2.10.8"}'},
+        "CONFIG_STATUS": {"type": "Property", "value": '{"smac":"AA11","bmac":"BB22"}'},
+    }
+    await store.insert_reading(normalize_reading(payload, "AC123"), account_id=account_id)
+
+    rows = await store.get_readings(hours=24, account_ids=[account_id])
+    row = rows[0]
+    assert row.battery_minutes == 832
+    assert row.movement_bucket == 18
+    assert row.oxygen_10_av == 96
+    assert row.signal_strength == 64
+    assert row.charging is True
+    # analysis path carries the same columns
+    analysis = await store.get_analysis_readings(hours=24, account_ids=[account_id])
+    assert analysis[0].signal_strength == 64 and analysis[0].charging is True
+
+    # raw was slimmed but the vitals value string survives and re-normalizes
+    assert "oem_sock_version" not in row.raw
+    recovered = normalize_reading(row.raw | {"last_updated": "2026-07-14T02:00:00Z"}, "AC123")
+    assert recovered.heart_rate == 140 and recovered.oxygen_saturation == 97
+    assert recovered.movement_bucket == 18 and recovered.charging is True
+
+    # the static envelope landed in the snapshot, once
+    snapshot = await store.get_device_snapshot(account_ids=[account_id])
+    assert snapshot is not None
+    assert snapshot["payload"]["oem_sock_version"]["value"] == '{"version":"2.10.8"}'
+
+    # oxta sentinel 255 = "no smoothed reading yet"
+    assert normalize_reading({"oxygen_10_av": 255}, "AC123").oxygen_10_av is None
+    # slim_raw keeps flags out of a full payload
+    slim = slim_raw(payload | {"alerts_mask": 16, "sock_off": True})
+    assert set(slim) == {"REAL_TIME_VITALS", "alerts_mask", "sock_off"}
+
+
+@pytest.mark.asyncio
+async def test_timezone_and_display_preferences_whitelist(tmp_path):
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    owned = await store.create_account(email="mine@x.y", user_id=user["id"])
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+    with client_for(app, session) as client:
+        updated = client.patch(
+            f"/api/accounts/{owned['id']}",
+            json={"dashboard_preferences": {
+                "timezone": "America/Chicago",
+                "movement_source": "bucket",
+                "o2_display": "smoothed",
+            }},
+        ).json()["account"]
+        prefs = updated["dashboard_preferences"]
+        assert prefs["timezone"] == "America/Chicago"
+        assert prefs["movement_source"] == "bucket"
+        assert prefs["o2_display"] == "smoothed"
+
+        garbage = client.patch(
+            f"/api/accounts/{owned['id']}",
+            json={"dashboard_preferences": {
+                "timezone": "Mars/Olympus_Mons",
+                "movement_source": "psychic",
+                "o2_display": 42,
+            }},
+        ).json()["account"]
+        prefs = garbage["dashboard_preferences"]
+        assert prefs["timezone"] == "America/Chicago"     # junk leaves prior values alone
+        assert prefs["movement_source"] == "bucket"
+        assert prefs["o2_display"] == "smoothed"
+
+        cleared = client.patch(
+            f"/api/accounts/{owned['id']}",
+            json={"dashboard_preferences": {"timezone": None}},
+        ).json()["account"]
+        assert cleared["dashboard_preferences"].get("timezone") is None
 
 
 @pytest.mark.asyncio

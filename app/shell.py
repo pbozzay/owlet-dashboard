@@ -101,6 +101,140 @@ SHELL_JS = """<script>
     });
   }
 
+  // ---- settings modal ----
+  var settingsBackdrop = byId('settingsBackdrop');
+  function openSettingsModal() {
+    if (!settingsBackdrop) return;
+    closeProfile();
+    settingsBackdrop.hidden = false;
+    document.body.style.overflow = 'hidden';
+    populateTimezones();
+    loadDevicePanel();
+  }
+  function closeSettingsModal() {
+    if (!settingsBackdrop || settingsBackdrop.hidden) return;
+    settingsBackdrop.hidden = true;
+    document.body.style.overflow = '';
+  }
+  if (byId('openSettings')) byId('openSettings').addEventListener('click', openSettingsModal);
+  if (byId('settingsClose')) byId('settingsClose').addEventListener('click', closeSettingsModal);
+  if (settingsBackdrop) {
+    settingsBackdrop.addEventListener('click', function (event) {
+      if (event.target === settingsBackdrop) closeSettingsModal();
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') closeSettingsModal();
+    });
+  }
+  var timezonesReady = false;
+  function populateTimezones() {
+    var select = byId('timezoneSetting');
+    if (!select || timezonesReady) return;
+    timezonesReady = true;
+    var zones = [];
+    try { zones = Intl.supportedValuesOf('timeZone'); } catch (error) {
+      zones = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+               'America/Anchorage', 'Pacific/Honolulu', 'Europe/London', 'Europe/Paris',
+               'Europe/Berlin', 'Australia/Sydney', 'Asia/Tokyo'];
+    }
+    var guess = '';
+    try { guess = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (error) {}
+    var current = select.dataset.pendingValue || '';
+    zones.forEach(function (zone) {
+      var option = document.createElement('option');
+      option.value = zone;
+      option.textContent = zone.replace(/_/g, ' ') + (zone === guess ? ' (device)' : '');
+      select.appendChild(option);
+    });
+    if (current) select.value = current;
+  }
+
+  // ---- device panel: static facts + signal-quality day graph ----
+  var devicePanelLoaded = false;
+  var sigRollups = [];
+  var sigDayOffset = 0;
+  function loadDevicePanel() {
+    if (devicePanelLoaded) return;
+    devicePanelLoaded = true;
+    fetch('/api/device-info').then(function (r) { return r.json(); }).then(function (data) {
+      var facts = byId('deviceFacts');
+      if (!facts) return;
+      var info = data.info;
+      if (!info) { facts.innerHTML = '<small class="pp-hint">No device details yet — they appear after the first poll.</small>'; return; }
+      var version = function (value) {
+        if (value == null) return '—';
+        if (typeof value === 'string' && value.charAt(0) === '{') {
+          try {
+            var parsed = JSON.parse(value);
+            value = parsed.app || parsed.version || parsed.fw || value;
+          } catch (error) {}
+        }
+        return String(value);
+      };
+      var rows = [
+        ['Serial', info.device_serial || '—'],
+        ['Hardware', version(info.hardware_version)],
+        ['Sock firmware', version(info.sock_firmware)],
+        ['Base firmware', version(info.base_firmware)],
+        ['Sock radio', info.sock_mac || '—'],
+        ['Base radio', info.base_mac || '—'],
+        ['Captured', info.captured_at ? new Date(info.captured_at + (String(info.captured_at).includes('Z') || String(info.captured_at).includes('+') ? '' : 'Z')).toLocaleDateString() : '—']
+      ];
+      facts.innerHTML = rows.map(function (row) {
+        return '<div class="dev-row"><span>' + row[0] + '</span><b>' + escapeHtml(String(row[1])) + '</b></div>';
+      }).join('');
+    }).catch(function () {});
+    fetch('/api/rollups?bucket=5m&hours=192&limit=100000').then(function (r) { return r.json(); })
+      .then(function (data) {
+        sigRollups = (data.rollups || []).filter(function (row) { return row.avg_signal_strength != null; });
+        renderSignalDay();
+      }).catch(function () {});
+  }
+  function renderSignalDay() {
+    var svg = byId('sigChart');
+    if (!svg) return;
+    var dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+    dayStart = dayStart.getTime() - sigDayOffset * 86400000;
+    var dayEnd = dayStart + 86400000;
+    var points = sigRollups.filter(function (row) {
+      var t = Date.parse(row.bucket_start);
+      return t >= dayStart && t < dayEnd;
+    });
+    var label = sigDayOffset === 0 ? 'Today'
+      : sigDayOffset === 1 ? 'Yesterday'
+      : new Date(dayStart).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    if (byId('sigDay')) byId('sigDay').textContent = label;
+    if (byId('sigPrev')) byId('sigPrev').disabled = sigDayOffset >= 7;
+    if (byId('sigNext')) byId('sigNext').disabled = sigDayOffset <= 0;
+    var latest = sigRollups.length ? sigRollups[sigRollups.length - 1].avg_signal_strength : null;
+    if (byId('sigNow')) byId('sigNow').textContent = latest != null ? Math.round(latest) + ' / 100' : '—';
+    if (!points.length) {
+      svg.innerHTML = '<text x="160" y="40" text-anchor="middle" class="sig-empty">no signal data this day</text>';
+      return;
+    }
+    var W = 320, H = 72;
+    var x = function (t) { return ((t - dayStart) / 86400000) * W; };
+    var y = function (v) { return H - 4 - (Math.max(0, Math.min(100, v)) / 100) * (H - 8); };
+    var segments = [], run = [];
+    var last = null;
+    points.forEach(function (row) {
+      var t = Date.parse(row.bucket_start);
+      if (last != null && t - last > 15 * 60 * 1000) { if (run.length > 1) segments.push(run); run = []; }
+      run.push(x(t).toFixed(1) + ',' + y(row.avg_signal_strength).toFixed(1));
+      last = t;
+    });
+    if (run.length > 1) segments.push(run);
+    svg.innerHTML = segments.map(function (seg) {
+      return '<polyline points="' + seg.join(' ') + '" class="sig-line"/>';
+    }).join('') || '<text x="160" y="40" text-anchor="middle" class="sig-empty">not enough points</text>';
+  }
+  if (byId('sigPrev')) byId('sigPrev').addEventListener('click', function () {
+    sigDayOffset = Math.min(7, sigDayOffset + 1); renderSignalDay();
+  });
+  if (byId('sigNext')) byId('sigNext').addEventListener('click', function () {
+    sigDayOffset = Math.max(0, sigDayOffset - 1); renderSignalDay();
+  });
+
   var shellAccounts = [];
   function shellSelectedAccount() {
     var select = byId('accountSelect');
@@ -138,6 +272,13 @@ SHELL_JS = """<script>
     if (byId('nightStartSetting')) byId('nightStartSetting').value = prefs.night_start || '19:00';
     if (byId('nightEndSetting')) byId('nightEndSetting').value = prefs.night_end || '07:00';
     if (byId('readinessSetting')) byId('readinessSetting').value = prefs.readiness_report_time || '';
+    if (byId('movementSourceSetting')) byId('movementSourceSetting').value = prefs.movement_source || 'raw';
+    if (byId('o2DisplaySetting')) byId('o2DisplaySetting').value = prefs.o2_display || 'raw';
+    var tzSelect = byId('timezoneSetting');
+    if (tzSelect) {
+      tzSelect.dataset.pendingValue = prefs.timezone || '';
+      if (timezonesReady) tzSelect.value = prefs.timezone || '';
+    }
   }
   function loadShellAccounts() {
     return Promise.all([
@@ -255,6 +396,18 @@ SHELL_JS = """<script>
     if (value && 'Notification' in window && Notification.permission !== 'granted') {
       Notification.requestPermission().catch(function () {});
     }
+  });
+  if (byId('movementSourceSetting')) byId('movementSourceSetting').addEventListener('change', function (event) {
+    patchSelectedAccount({ dashboard_preferences: { movement_source: event.target.value } });
+  });
+  if (byId('o2DisplaySetting')) byId('o2DisplaySetting').addEventListener('change', function (event) {
+    patchSelectedAccount({ dashboard_preferences: { o2_display: event.target.value } });
+  });
+  if (byId('timezoneSetting')) byId('timezoneSetting').addEventListener('change', function (event) {
+    patchSelectedAccount({ dashboard_preferences: {
+      timezone: event.target.value || null,
+      tz_offset_minutes: -new Date().getTimezoneOffset()
+    } });
   });
   if (byId('accountSelect')) byId('accountSelect').addEventListener('change', function () {
     renderShellMenu([]);
@@ -375,6 +528,7 @@ SHELL_JS = """<script>
   var battButton = byId('shellBattery');
   var battPop = byId('battPop');
   var battLevel = null;
+  var battMinutes = null;   // the sock's own runtime estimate (btt)
   function paintBattery() {
     if (!battButton) return;
     var pct = byId('shellBattPct'), fill = byId('shellBattFill');
@@ -421,6 +575,10 @@ SHELL_JS = """<script>
           '<div class="batt-row"><span>State</span><b>' + state + '</b></div>',
           '<div class="batt-row"><span>Rate</span><b>' + (rate > 0 ? '+' : '') + rate.toFixed(1) + '%/h</b></div>',
         ];
+        if (battMinutes != null && battMinutes > 0 && state !== 'charging') {
+          var h = Math.floor(battMinutes / 60), m = Math.round(battMinutes % 60);
+          lines.push('<div class="batt-row"><span>Sock\\u2019s own estimate</span><b>~' + (h ? h + 'h ' + m + 'm' : m + 'm') + ' left</b></div>');
+        }
         if (state === 'charging' && battLevel != null && rate > 0) {
           lines.push('<div class="batt-row"><span>Full in</span><b>~' + Math.max(1, Math.round(((100 - battLevel) / rate) * 60)) + ' min</b></div>');
         } else if (state === 'draining' && battLevel != null && rate < 0) {
@@ -791,6 +949,7 @@ SHELL_JS = """<script>
       if (widget.updated_at) lastReadingAt = Date.parse(widget.updated_at);
       sockReporting = widget.sock_reporting !== false;
       if (typeof widget.battery === 'number') { battLevel = widget.battery; paintBattery(); }
+      battMinutes = typeof widget.battery_minutes === 'number' ? widget.battery_minutes : battMinutes;
       if (typeof widget.unread_notifications === 'number' && (bellPop == null || bellPop.hidden)) {
         unreadCount = widget.unread_notifications;
         paintBell();
@@ -912,71 +1071,11 @@ def render_shell(
               title="Link another Owlet account">Link</button>
           </div>
         </div>
-        <div class="pp-section">
-          <span class="pp-label">Baby's name</span>
-          <input id="babyNameSetting" type="text" maxlength="40" placeholder="e.g. Hazel"
-            autocomplete="off" />
-        </div>
-        <div class="pp-section">
-          <span class="pp-label">Date of birth</span>
-          <input id="birthDateSetting" type="date" autocomplete="off" />
-          <small class="pp-hint" id="birthDateHint">Owlet's API doesn't share this — set it here so
-            milestones and "normal for her age" can be age-adjusted.</small>
-        </div>
-        <div class="pp-section">
-          <span class="pp-label">Low-O₂ alert</span>
-          <select id="o2AlertSetting">
-            <option value="">Off</option>
-            <option value="92">Below 92%</option>
-            <option value="90">Below 90%</option>
-            <option value="88">Below 88%</option>
-            <option value="86">Below 86%</option>
-          </select>
-          <small class="pp-hint" id="o2AlertHint">Crossing below rings the bell, shows a toast, and — if you allow
-            notifications — pings your device while the dashboard is open in any tab.</small>
-        </div>
-        <div class="pp-section">
-          <span class="pp-label">Night runs from</span>
-          <div class="pp-row pp-clock-row">
-            <input id="nightStartSetting" type="time" value="19:00" />
-            <span class="pp-to">to</span>
-            <input id="nightEndSetting" type="time" value="07:00" />
-          </div>
-          <small class="pp-hint">Tonight and Rhythms count this span as the night; everything else is the day.</small>
-        </div>
-        <div class="pp-section">
-          <span class="pp-label">Evening prep report</span>
-          <select id="readinessSetting">
-            <option value="">Off</option>
-            <option value="17:30">5:30 PM</option>
-            <option value="18:00">6:00 PM</option>
-            <option value="18:30">6:30 PM</option>
-            <option value="18:45">6:45 PM</option>
-            <option value="19:00">7:00 PM</option>
-            <option value="19:30">7:30 PM</option>
-            <option value="20:00">8:00 PM</option>
-          </select>
-          <small class="pp-hint">A daily nudge before bedtime — awake time, naps, and feeds so far, to gauge
-            how prepped tonight looks.</small>
-        </div>
-        <div class="pp-section">
-          <span class="pp-label">Update every</span>
-          <select id="pollIntervalSetting">
-            <option value="5">5 sec</option>
-            <option value="10">10 sec</option>
-            <option value="30">30 sec</option>
-            <option value="60">1 min</option>
-            <option value="300">5 min</option>
-          </select>
-        </div>
-        <div class="pp-section">
-          <span class="pp-label">Theme</span>
-          <div class="pp-seg" role="group" aria-label="Theme">
-            <button type="button" data-theme-set="auto">Auto</button>
-            <button type="button" data-theme-set="light">Light</button>
-            <button type="button" data-theme-set="dark">Dark</button>
-          </div>
-        </div>
+        <button id="openSettings" class="pp-settings-btn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Settings
+        </button>
         <div class="pp-actions">
           <button id="installApp" class="pp-install" type="button"
             title="Install Owlet as an app">Install app</button>
@@ -1008,6 +1107,130 @@ def render_shell(
       </div>
       <div class="focus-charts" id="focusCharts"></div>
       <a id="focusDataLink" class="focus-link" href="/data">Open in the Data workbench →</a>
+    </div>
+  </div>
+  <div id="settingsBackdrop" class="focus-backdrop" hidden>
+    <div class="settings-sheet card" role="dialog" aria-modal="true" aria-label="Settings">
+      <header>
+        <div><b>Settings</b><small class="focus-readout">saved to your profile, on every device</small></div>
+        <button id="settingsClose" type="button" aria-label="Close">✕</button>
+      </header>
+      <div class="settings-grid">
+        <section class="sg">
+          <h4>Baby</h4>
+          <div class="pp-section">
+            <span class="pp-label">Baby's name</span>
+            <input id="babyNameSetting" type="text" maxlength="40" placeholder="e.g. Hazel"
+              autocomplete="off" />
+          </div>
+          <div class="pp-section">
+            <span class="pp-label">Date of birth</span>
+            <input id="birthDateSetting" type="date" autocomplete="off" />
+            <small class="pp-hint" id="birthDateHint">Owlet's API doesn't share this — set it here so
+              milestones and "normal for her age" can be age-adjusted.</small>
+          </div>
+        </section>
+        <section class="sg">
+          <h4>Night &amp; reports</h4>
+          <div class="pp-section">
+            <span class="pp-label">Night runs from</span>
+            <div class="pp-row pp-clock-row">
+              <input id="nightStartSetting" type="time" value="19:00" />
+              <span class="pp-to">to</span>
+              <input id="nightEndSetting" type="time" value="07:00" />
+            </div>
+            <small class="pp-hint">Tonight and Rhythms count this span as the night; everything else is the day.</small>
+          </div>
+          <div class="pp-section">
+            <span class="pp-label">Evening prep report</span>
+            <select id="readinessSetting">
+              <option value="">Off</option>
+              <option value="17:30">5:30 PM</option>
+              <option value="18:00">6:00 PM</option>
+              <option value="18:30">6:30 PM</option>
+              <option value="18:45">6:45 PM</option>
+              <option value="19:00">7:00 PM</option>
+              <option value="19:30">7:30 PM</option>
+              <option value="20:00">8:00 PM</option>
+            </select>
+            <small class="pp-hint">A daily nudge before bedtime — awake time, naps, and feeds so far.</small>
+          </div>
+        </section>
+        <section class="sg">
+          <h4>Alerts</h4>
+          <div class="pp-section">
+            <span class="pp-label">Low-O₂ alert</span>
+            <select id="o2AlertSetting">
+              <option value="">Off</option>
+              <option value="92">Below 92%</option>
+              <option value="90">Below 90%</option>
+              <option value="88">Below 88%</option>
+              <option value="86">Below 86%</option>
+            </select>
+            <small class="pp-hint" id="o2AlertHint">Crossing below rings the bell, shows a toast, and — if you allow
+              notifications — pings your device while the dashboard is open in any tab.</small>
+          </div>
+          <div class="pp-section">
+            <span class="pp-label">Timezone</span>
+            <select id="timezoneSetting"><option value="">Auto (this device)</option></select>
+            <small class="pp-hint">Used for the prep report schedule. Auto follows whatever device
+              last opened the dashboard.</small>
+          </div>
+        </section>
+        <section class="sg">
+          <h4>Display</h4>
+          <div class="pp-section">
+            <span class="pp-label">Theme</span>
+            <div class="pp-seg" role="group" aria-label="Theme">
+              <button type="button" data-theme-set="auto">Auto</button>
+              <button type="button" data-theme-set="light">Light</button>
+              <button type="button" data-theme-set="dark">Dark</button>
+            </div>
+          </div>
+          <div class="pp-section">
+            <span class="pp-label">Update every</span>
+            <select id="pollIntervalSetting">
+              <option value="5">5 sec</option>
+              <option value="10">10 sec</option>
+              <option value="30">30 sec</option>
+              <option value="60">1 min</option>
+              <option value="300">5 min</option>
+            </select>
+          </div>
+          <div class="pp-section">
+            <span class="pp-label">Movement chart</span>
+            <select id="movementSourceSetting">
+              <option value="raw">Raw sensor wiggle</option>
+              <option value="bucket">Owlet activity level (0–100)</option>
+            </select>
+            <small class="pp-hint">The activity level is the sock's own normalized scale — steadier,
+              comparable night to night.</small>
+          </div>
+          <div class="pp-section">
+            <span class="pp-label">Oxygen chart</span>
+            <select id="o2DisplaySetting">
+              <option value="raw">Every reading</option>
+              <option value="smoothed">Smoothed (10-reading average)</option>
+            </select>
+            <small class="pp-hint">Smoothing calms the line; dips still show at full depth in dip
+              counts and reports.</small>
+          </div>
+        </section>
+        <section class="sg sg-device">
+          <h4>Device</h4>
+          <div class="dev-facts" id="deviceFacts"><small class="pp-hint">Loading device details…</small></div>
+          <div class="dev-signal">
+            <div class="dev-sig-head"><span class="pp-label">Signal quality</span><b id="sigNow">—</b></div>
+            <div class="dev-sig-nav">
+              <button id="sigPrev" type="button" aria-label="Previous day">‹</button>
+              <span id="sigDay">Today</span>
+              <button id="sigNext" type="button" aria-label="Next day" disabled>›</button>
+            </div>
+            <svg id="sigChart" viewBox="0 0 320 72" preserveAspectRatio="none" aria-label="Signal strength through the day"></svg>
+            <div class="dev-sig-axis"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>12 AM</span></div>
+          </div>
+        </section>
+      </div>
     </div>
   </div>
   <div id="toastRack" class="toast-rack" aria-live="polite"></div>
