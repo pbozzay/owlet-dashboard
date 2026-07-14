@@ -157,6 +157,17 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .chip .sub { display: block; font-size: 11px; color: var(--faint); margin-top: 3px; }
     .chip.warn b { color: var(--warn); }
     .chip.good b { color: var(--good); }
+    .chip.o2-on { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+    .chip.o2-on b { color: var(--accent); }
+    /* on-O2 chart overlays — three candidate styles, one active at a time */
+    .chartzone .o2band, .ms-chartwrap .o2band { fill: var(--accent); opacity: .07; }
+    .chartzone .o2edge, .ms-chartwrap .o2edge { stroke: var(--accent); stroke-width: 1;
+      stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; opacity: .55; }
+    .chartzone .o2ribbon, .ms-chartwrap .o2ribbon { stroke: var(--accent); stroke-width: 3px;
+      stroke-linecap: butt; vector-effect: non-scaling-stroke; opacity: .5; }
+    .chartzone .o2flagline, .ms-chartwrap .o2flagline { stroke: var(--accent); stroke-width: 1.2;
+      vector-effect: non-scaling-stroke; opacity: .7; }
+    .chartzone .o2flagdot, .ms-chartwrap .o2flagdot { fill: var(--accent); }
     /* Reset only the button chrome — `all: unset` would also wipe the .card
        background/border/radius that these chips rely on. */
     button.chip { display: block; width: 100%; margin: 0; font: inherit;
@@ -197,20 +208,24 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .sheet .note { font-size: 12.5px; color: var(--dim); line-height: 1.5; margin: 10px 0 0; }
     .sheet .ev-del { all: unset; cursor: pointer; color: var(--faint); padding: 0 4px; }
     .sheet .ev-del:hover { color: var(--bad); }
-    .ev-presets { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-    .ev-presets button { all: unset; box-sizing: border-box; text-align: center; cursor: pointer;
+    .o2-state { text-align: center; margin-bottom: 14px; }
+    .o2-state b { display: block; font-size: 24px; letter-spacing: -.01em; }
+    .o2-state.on b { color: var(--accent); }
+    .o2-state span { font-size: 12.5px; color: var(--dim); }
+    .flow-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+      margin-bottom: 12px; }
+    .flow-presets button { all: unset; box-sizing: border-box; text-align: center; cursor: pointer;
       padding: 10px 4px; border: 1px solid var(--surface-line); border-radius: var(--radius-control);
-      font-size: 13px; font-weight: 600; color: var(--ink); }
-    .ev-presets button:hover, .ev-presets button.sel { border-color: var(--accent);
+      font-size: 13px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+    .flow-presets button:hover, .flow-presets button.sel { border-color: var(--accent);
       color: var(--accent); background: var(--accent-soft); }
-    .ev-form { display: grid; gap: 10px; }
-    .ev-form input { padding: 9px 11px; border: 1px solid var(--surface-line);
-      border-radius: var(--radius-control); background: var(--surface); color: var(--ink);
-      font-size: 13.5px; font-family: inherit; }
-    .ev-save { all: unset; box-sizing: border-box; text-align: center; cursor: pointer;
-      padding: 10px 0; border-radius: var(--radius-control); background: var(--accent);
-      color: #fff; font-size: 13.5px; font-weight: 700; }
-    .ev-save[disabled] { opacity: .5; cursor: default; }
+    .o2-action { all: unset; box-sizing: border-box; display: block; width: 100%;
+      text-align: center; cursor: pointer; padding: 12px 0;
+      border-radius: var(--radius-control); background: var(--accent); color: #fff;
+      font-size: 14px; font-weight: 700; }
+    .o2-action.stop { background: transparent; color: var(--bad);
+      border: 1px solid color-mix(in srgb, var(--bad) 40%, transparent); }
+    .o2-action[disabled] { opacity: .5; cursor: default; }
     .sheet .section-title { margin-top: 18px; }
     @media (prefers-reduced-motion: reduce) { .chartzone svg g { transition: none !important; } }
   </style>"""
@@ -443,10 +458,65 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     }
     async function loadEvents() {
       try {
-        const data = await fetch('/api/events?hours=48').then(r => r.json());
+        const data = await fetch('/api/events?hours=336&limit=2000').then(r => r.json());
         careEvents = (data.events || []).map(e => ({ ...e, x: Date.parse(e.at) }));
+        computeO2();
         if (!gesture) renderCharts();
       } catch (error) { /* non-fatal */ }
+    }
+
+    // ---- supplemental O2: state + intervals from on/off events -------------
+    let o2State = { on: false, since: null, flow: '' };
+    let o2Spans = [];
+    const O2_OVERLAY = localStorage.getItem('owletO2Overlay') || 'ribbon';   // 'band' | 'ribbon' | 'flags'
+    function computeO2() {
+      const marks = careEvents
+        .filter(e => e.kind === 'O₂ on' || e.kind === 'O₂ off')
+        .sort((a, b) => a.x - b.x);
+      const spans = [];
+      let open = null, flow = '';
+      for (const mark of marks) {
+        if (mark.kind === 'O₂ on') {
+          if (open && (mark.note || '') !== flow) {     // flow change while on
+            spans.push({ start: open.x, end: mark.x, flow });
+            open = mark;
+          } else if (!open) open = mark;
+          flow = mark.note || flow;
+        } else if (open) {
+          spans.push({ start: open.x, end: mark.x, flow });
+          open = null; flow = '';
+        }
+      }
+      if (open) spans.push({ start: open.x, end: Infinity, flow });
+      o2Spans = spans;
+      o2State = open
+        ? { on: true, since: open.x, flow }
+        : { on: false, since: marks.length ? marks[marks.length - 1].x : null, flow: '' };
+    }
+    const onO2At = t => o2Spans.some(s => t >= s.start && t <= s.end);
+    function o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, clip) {
+      const xOf = t => ((t - t0) / (t1 - t0)) * w;
+      const clampX = x => Math.max(0, Math.min(w, x));
+      return o2Spans
+        .filter(s => s.end >= dataStart && s.start <= dataEnd)
+        .map(s => {
+          const x0v = clip ? clampX(xOf(s.start)) : xOf(Math.max(s.start, dataStart - 86400e3));
+          const x1v = clip ? clampX(xOf(Math.min(s.end, Date.now()))) : xOf(Math.min(s.end, dataEnd + 86400e3, Date.now() + 3600e3));
+          if (x1v - x0v < 0.3) return '';
+          const x0 = x0v.toFixed(2), x1 = x1v.toFixed(2);
+          if (O2_OVERLAY === 'band') {
+            return `<rect class="o2band" x="${x0}" y="0" width="${(x1v - x0v).toFixed(2)}" height="${h}"/>`
+              + `<line class="o2edge" x1="${x0}" x2="${x0}" y1="0" y2="${h}"/>`
+              + `<line class="o2edge" x1="${x1}" x2="${x1}" y1="0" y2="${h}"/>`;
+          }
+          if (O2_OVERLAY === 'flags') {
+            return `<line class="o2flagline" x1="${x0}" x2="${x0}" y1="0" y2="${h}"/>`
+              + `<circle class="o2flagdot" cx="${x0}" cy="${h - 3}" r="2.2"/>`
+              + `<line class="o2flagline" x1="${x1}" x2="${x1}" y1="0" y2="${h}"/>`
+              + `<circle class="o2flagdot" cx="${x1}" cy="${h - 3}" r="2.2" opacity=".45"/>`;
+          }
+          return `<line class="o2ribbon" x1="${x0}" x2="${x1}" y1="${(h - 1.5).toFixed(1)}" y2="${(h - 1.5).toFixed(1)}"/>`;
+        }).join('');
     }
 
     // ---- hero charts: virtualized pan window -------------------------------
@@ -485,12 +555,13 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const xOf = t => ((t - t0) / (t1 - t0)) * w;
       const clampX = x => Math.max(0, Math.min(w, x));
       const eventMarks = careEvents
-        .filter(e => e.x >= dataStart && e.x <= dataEnd)
+        .filter(e => e.x >= dataStart && e.x <= dataEnd && e.kind !== 'O₂ on' && e.kind !== 'O₂ off')
         .map(e => `<line class="evline" x1="${xOf(e.x).toFixed(2)}" x2="${xOf(e.x).toFixed(2)}" y1="0" y2="${h}"><title>${esc(e.kind)}</title></line>`
           + `<circle class="evflag" cx="${xOf(e.x).toFixed(2)}" cy="3" r="2"/>`)
         .join('');
+      const o2Overlay = o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip);
       const pts = downsample(points[key].filter(p => p.x >= dataStart && p.x <= dataEnd));
-      if (pts.length < 2) return { markup: eventMarks, min: null, max: null, ghostYs: {} };
+      if (pts.length < 2) return { markup: o2Overlay + eventMarks, min: null, max: null, ghostYs: {} };
       let min = Infinity, max = -Infinity;
       for (const p of pts) { if (p.y < min) min = p.y; if (p.y > max) max = p.y; }
       // Anchor the O₂ domain near the 90% line so a dip to 85 reads as a real
@@ -538,7 +609,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const lines = segs.filter(s => s.coords.length > 1)
         .map(s => `<polyline points="${s.coords.join(' ')}" style="stroke:${s.color}"/>`)
         .join('');
-      return { markup: thresholds + ghosts + eventMarks + lines, min: domainMin, max: domainMax, ghostYs };
+      return { markup: o2Overlay + thresholds + ghosts + eventMarks + lines, min: domainMin, max: domainMax, ghostYs };
     }
 
     // Tracker-style hypnogram: rounded bars in three lanes (awake / light / deep).
@@ -546,10 +617,11 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const xOf = t => ((t - t0) / (t1 - t0)) * w;
       const clampX = x => Math.max(0, Math.min(w, x));
       const eventMarks = careEvents
-        .filter(e => e.x >= dataStart && e.x <= dataEnd)
+        .filter(e => e.x >= dataStart && e.x <= dataEnd && e.kind !== 'O₂ on' && e.kind !== 'O₂ off')
         .map(e => `<line class="evline" x1="${xOf(e.x).toFixed(2)}" x2="${xOf(e.x).toFixed(2)}" y1="0" y2="${h}"><title>${esc(e.kind)}</title></line>`
           + `<circle class="evflag" cx="${xOf(e.x).toFixed(2)}" cy="3" r="2"/>`)
         .join('');
+      const o2Overlay = o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip);
       const lanes = { awake: h * 0.2, light: h * 0.5, deep: h * 0.8 };
       // Gradients keyed to lane positions (userSpaceOnUse), so a connector
       // blends from one stage's color into the next no matter its direction —
@@ -598,7 +670,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           const y = lanes[anchor.level].toFixed(2);
           return `<line class="ghostline${gapWarn(g) ? ' warn' : ''}" x1="${x0.toFixed(2)}" x2="${x1.toFixed(2)}" y1="${y}" y2="${y}"/>`;
         }).join('');
-      return { markup: defs + ghosts + eventMarks + connectors.join('') + bars, ghostYs };
+      return { markup: defs + o2Overlay + ghosts + eventMarks + connectors.join('') + bars, ghostYs };
     }
 
     function renderChart(key) {
@@ -704,8 +776,11 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const rect = card.getBoundingClientRect();
       const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
       const t = chartEnd() - windowMs + frac * windowMs;
-      const nearEvent = careEvents.find(e => Math.abs(e.x - t) <= 3 * 60 * 1000);
-      const when = `at ${fmtClock(new Date(t))}` + (nearEvent ? ` · ⚑ ${esc(nearEvent.kind)}` : '');
+      const nearEvent = careEvents.find(e => Math.abs(e.x - t) <= 3 * 60 * 1000
+        && e.kind !== 'O₂ on' && e.kind !== 'O₂ off');
+      const when = `at ${fmtClock(new Date(t))}`
+        + (onO2At(t) ? ' · on O₂' : '')
+        + (nearEvent ? ` · ⚑ ${esc(nearEvent.kind)}` : '');
       const gap = gapAt(t);
       const gapLabel = gap ? gap.label : 'no reading';
       HERO_KEYS.forEach(key => {
@@ -893,7 +968,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const id = event.target.dataset && event.target.dataset.del;
       if (!id) return;
       const response = await fetch('/api/events/' + id, { method: 'DELETE' });
-      if (response.ok) { await loadEvents(); eventsSheet(); }
+      if (response.ok) await loadEvents();
     });
 
     function todayWindow() {
@@ -929,57 +1004,76 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         '<p class="note">Each row is a stretch of 5-minute buckets whose lowest reading fell under 90%. "Inspect" opens the raw data zoomed to that moment.</p>');
     }
 
-    // ---- care events ---------------------------------------------------------
-    const EVENT_PRESETS = ['O₂ on', 'O₂ off', 'Sock off', 'Sock on', 'Feeding', 'Medicine'];
-    function localInputValue(date) {
-      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-    }
-    function eventsSheet() {
-      const presets = EVENT_PRESETS.map(k => `<button type="button" data-kind="${esc(k)}">${esc(k)}</button>`).join('');
-      const recent = careEvents.slice(0, 12).map(e =>
-        `<div class="row">
-          <span>${fmtClock(new Date(e.x))}</span>
-          <b>${esc(e.kind)}</b>
-          <span class="mut">${esc(e.note || '')}</span>
-          <button class="ev-del" data-del="${e.id}" title="Delete">✕</button>
-        </div>`).join('');
-      openSheet('Log an event',
-        `<div class="ev-presets" id="evPresets">${presets}</div>
-        <div class="ev-form">
-          <input id="evKind" placeholder="Event (pick above or type)" maxlength="60" />
-          <input id="evWhen" type="datetime-local" value="${localInputValue(new Date())}" />
-          <input id="evNote" placeholder="Note (optional)" maxlength="200" />
-          <button class="ev-save" id="evSave" type="button">Save event</button>
-        </div>
-        ${recent ? '<h3 class="section-title">Recent</h3>' + recent : ''}
-        <p class="note">Events show up as amber dashes on the charts, and next to the time when you scrub over them.</p>`);
-      el('evPresets').addEventListener('click', event => {
-        const kind = event.target.dataset && event.target.dataset.kind;
-        if (!kind) return;
-        el('evKind').value = kind;
-        [...el('evPresets').children].forEach(b => b.classList.toggle('sel', b === event.target));
+    // ---- supplemental O2 sheet: on/off with a flow setting --------------------
+    const FLOW_PRESETS = ['1/32 L', '1/16 L', '1/8 L', '1/4 L', '1/2 L', '1 L'];
+    let pendingFlow = localStorage.getItem('owletO2Flow') || '1/16 L';
+    async function logO2(kind, note) {
+      const response = await fetch('/api/events', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, note: note || '' }),
       });
-      el('evSave').addEventListener('click', async () => {
-        const kind = el('evKind').value.trim();
-        if (!kind) { el('evKind').focus(); return; }
-        el('evSave').disabled = true;
-        const at = el('evWhen').value ? new Date(el('evWhen').value).toISOString() : undefined;
+      if (!response.ok) throw new Error(String(response.status));
+      await loadEvents();
+    }
+    function o2HistoryRows() {
+      const now = Date.now();
+      return o2Spans.slice(-6).reverse().map(span => {
+        const endText = span.end === Infinity ? 'now' : fmtClock(new Date(span.end));
+        const duration = (span.end === Infinity ? now : span.end) - span.start;
+        const day = new Date(span.start).toDateString() === new Date().toDateString()
+          ? '' : new Date(span.start).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ';
+        return `<div class="row">
+          <span>${day}${fmtClock(new Date(span.start))} – ${endText}</span>
+          <span class="mut">${esc(span.flow || '')}</span>
+          <b>${fmtDur(duration / 1000)}</b>
+        </div>`;
+      }).join('');
+    }
+    function o2Sheet() {
+      const stateBlock = o2State.on
+        ? `<div class="o2-state on"><b>On oxygen${o2State.flow ? ' · ' + esc(o2State.flow) : ''}</b>
+            <span>since ${fmtClock(new Date(o2State.since))} · ${fmtDur((Date.now() - o2State.since) / 1000)}</span></div>`
+        : `<div class="o2-state"><b>Off oxygen</b>
+            <span>${o2State.since ? 'since ' + fmtClock(new Date(o2State.since)) : 'nothing logged yet'}</span></div>`;
+      const flows = FLOW_PRESETS.map(flow =>
+        `<button type="button" data-flow="${esc(flow)}" class="${flow === pendingFlow ? 'sel' : ''}">${esc(flow)}</button>`).join('');
+      const action = o2State.on
+        ? `<button class="o2-action stop" id="o2Action" type="button">Stop oxygen</button>`
+        : `<button class="o2-action" id="o2Action" type="button">Start oxygen · ${esc(pendingFlow)}</button>`;
+      const flowLabel = o2State.on ? 'Change flow (logs the change)' : 'Flow';
+      const history = o2HistoryRows();
+      openSheet('Supplemental O₂',
+        `${stateBlock}
+        <h3 class="section-title" style="margin-bottom:8px">${flowLabel}</h3>
+        <div class="flow-presets" id="flowPresets">${flows}</div>
+        ${action}
+        ${history ? '<h3 class="section-title" style="margin-top:18px">Recent</h3>' + history : ''}
+        <p class="note">Every on/off is a logged event — the charts shade on-O₂ time, and Rhythms
+          compares how she does on oxygen vs off.</p>`);
+      el('flowPresets').addEventListener('click', async event => {
+        const flow = event.target.dataset && event.target.dataset.flow;
+        if (!flow) return;
+        pendingFlow = flow;
+        localStorage.setItem('owletO2Flow', flow);
+        if (o2State.on && flow !== o2State.flow) {
+          try { await logO2('O₂ on', flow); } catch (error) { alert('Could not log the flow change.'); }
+        }
+        o2Sheet();
+      });
+      el('o2Action').addEventListener('click', async () => {
+        el('o2Action').disabled = true;
         try {
-          const response = await fetch('/api/events', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ kind, at, note: el('evNote').value.trim() }),
-          });
-          if (!response.ok) throw new Error(String(response.status));
-          await loadEvents();
-          closeSheet();
+          if (o2State.on) await logO2('O₂ off');
+          else await logO2('O₂ on', pendingFlow);
+          o2Sheet();
         } catch (error) {
-          el('evSave').disabled = false;
-          alert('Could not save the event — try again.');
+          el('o2Action').disabled = false;
+          alert('Could not save — try again.');
         }
       });
     }
 
-    // ---- metric detail sheet: bigger chart, stats, dip zoom -------------------
+    // ---- metric detail sheet: bigger chart, stats, dip zoom -------------------    // ---- metric detail sheet: bigger chart, stats, dip zoom -------------------
     const SPANS = [
       { label: '30m', ms: 30 * 60 * 1000 },
       { label: '1h',  ms: 3600 * 1000 },
@@ -1280,23 +1374,27 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           ? `${currentRun.state === 'asleep' ? 'asleep' : 'awake'} for <b>${fmtDur((Date.now() - currentRun.start) / 1000)}</b>`
           : 'settling in';
         const nth = sleepRunsToday ? ` — sleep #${sleepRunsToday} today` : '';
-        status = `<b>${capitalized(deviceName)}</b> is ${stateText || 'doing fine'}, ${sessionText}${nth}.${bedtimeLine}`;
+        const o2Note = o2State.on ? ` On <b>${o2State.flow ? esc(o2State.flow) + ' ' : ''}O₂</b>.` : '';
+        status = `<b>${capitalized(deviceName)}</b> is ${stateText || 'doing fine'}, ${sessionText}${nth}.${o2Note}${bedtimeLine}`;
       }
       const shortState = offline ? "isn't reporting"
         : currentRun && currentRun.state === 'asleep' ? 'is asleep'
         : latest.sleepLevel === 'light' || latest.sleepLevel === 'deep' ? 'is asleep'
         : 'is awake';
       el('statusLine').innerHTML = `<span class="st-full">${status}</span>`
-        + `<span class="st-short"><b>${capitalized(deviceName)}</b> ${shortState}</span>`;
+        + `<span class="st-short"><b>${capitalized(deviceName)}</b> ${shortState}${o2State.on ? ' · O₂' : ''}</span>`;
 
-      const lastEvent = careEvents[0];
       el('belowHero').innerHTML = `
         <div class="strip">
           <button class="chip card" id="chipSleep"><b>${fmtDur(sleepToday)}</b><span>sleep today</span><span class="sub">tap for sessions</span></button>
           <button class="chip card ${dipsToday ? 'warn' : 'good'}" id="chipDips"><b>${dipsToday}</b><span>O₂ dips today</span><span class="sub">tap for detail</span></button>
           <button class="chip card" id="chipTemp"><b>${latest.temp != null ? latest.temp.toFixed(1) + '°' : '—'}</b><span>skin temp</span><span class="sub">${tempRangeText || 'tap for history'}</span></button>
-          <button class="chip card" id="chipEvents"><b>⚑ Log</b><span>event</span>
-            <span class="sub">${lastEvent ? 'last: ' + esc(lastEvent.kind) + ' ' + fmtClock(new Date(lastEvent.x)) : 'O₂ on/off, sock off…'}</span></button>
+          <button class="chip card ${o2State.on ? 'o2-on' : ''}" id="chipO2">
+            <b>${o2State.on ? 'O₂ on' : 'O₂ off'}</b>
+            <span>${o2State.on && o2State.flow ? esc(o2State.flow) : 'supplemental oxygen'}</span>
+            <span class="sub">${o2State.since
+              ? `since ${fmtClock(new Date(o2State.since))} · ${fmtDur((Date.now() - o2State.since) / 1000)}`
+              : 'tap to log on/off'}</span></button>
         </div>
         <div class="doors">
           <a class="door card" href="/night"><b>Last night's report →</b>
@@ -1307,7 +1405,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       el('chipSleep').addEventListener('click', openSleepSheet);
       el('chipTemp').addEventListener('click', () => openMetricSheet('temp'));
       el('chipDips').addEventListener('click', dipsSheet);
-      el('chipEvents').addEventListener('click', eventsSheet);
+      el('chipO2').addEventListener('click', o2Sheet);
     }
 
     async function refresh() {
