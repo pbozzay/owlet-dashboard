@@ -1046,7 +1046,8 @@ async def test_custom_low_oxygen_alert_fires_once_per_crossing(tmp_path):
     customs = [n for n in notifications["items"] if n["event_type"] == "custom_low_oxygen"]
     assert len(customs) == 1
     assert customs[0]["severity"] == "critical"
-    assert "below 90%" in customs[0]["title"]
+    assert "89%" in customs[0]["title"]
+    assert "90% alert level" in customs[0]["message"]
 
     # threshold preference round-trips through the PATCH whitelist
     auth = AuthStore(store.db_path)

@@ -98,8 +98,8 @@ class Poller:
             recorded_at=reading.recorded_at,
             event_type="custom_low_oxygen",
             severity="critical",
-            title=f"O2 below {int(threshold)}%",
-            message=f"SpO2 read {value:.0f}%, under your {int(threshold)}% alert level.",
+            title=f"O2 dipped to {value:.0f}%",
+            message=f"Below your {int(threshold)}% alert level.",
             heart_rate=reading.heart_rate,
             oxygen_saturation=value,
         )

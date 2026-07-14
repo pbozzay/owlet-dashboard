@@ -94,6 +94,18 @@ def _append_alert_mask_events(reading: OwletReading, events: list[NotificationEv
         )
 
 
+def _measured_title(reading: OwletReading, event_type: str, title: str) -> str:
+    """Lead with what was actually measured, not just which alert tripped.
+    Zero vitals mean the sock wasn't reporting, so they never decorate."""
+    if "oxygen" in event_type and reading.oxygen_saturation:
+        return f"{title} — {reading.oxygen_saturation:.0f}%"
+    if "battery" in event_type and reading.battery:
+        return f"{title} — {reading.battery:.0f}%"
+    if "heart_rate" in event_type and reading.heart_rate:
+        return f"{title} — {reading.heart_rate:.0f} bpm"
+    return title
+
+
 def _event(
     reading: OwletReading,
     event_type: str,
@@ -102,6 +114,7 @@ def _event(
     message: str,
     details: dict[str, Any] | None = None,
 ) -> NotificationEvent:
+    title = _measured_title(reading, event_type, title)
     return NotificationEvent(
         device_serial=reading.device_serial,
         recorded_at=reading.recorded_at.isoformat(),
