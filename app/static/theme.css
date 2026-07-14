@@ -211,6 +211,14 @@ body.themed * { box-sizing: border-box; }
   stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; }
 .focus-xline { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--dim);
   opacity: .8; pointer-events: none; }
+/* the focal moment: always dead center; the chip names the event */
+.focus-marker { position: absolute; top: 0; bottom: 0; width: 0; pointer-events: none;
+  border-left: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent); }
+.focus-marker span { position: absolute; top: -2px; left: 0; transform: translateX(-50%);
+  background: var(--accent); color: #fff; font-size: 9px; font-weight: 700;
+  letter-spacing: .05em; text-transform: uppercase; padding: 2px 7px;
+  border-radius: 999px; white-space: nowrap; max-width: 200px; overflow: hidden;
+  text-overflow: ellipsis; }
 .focus-axis { display: flex; justify-content: space-between; color: var(--faint);
   font-size: 10.5px; margin-top: 4px; font-variant-numeric: tabular-nums; }
 .focus-link { display: block; margin-top: 14px; text-align: center; color: var(--accent);

@@ -264,7 +264,8 @@ SHELL_JS = """<script>
     return label;
   }
   function focusLink(notification) {
-    return '/data?focus=' + encodeURIComponent(notification.recorded_at) + '&span=30';
+    return '/data?focus=' + encodeURIComponent(notification.recorded_at) + '&span=30'
+      + '&label=' + encodeURIComponent(notification.title || 'Event');
   }
   function paintBell() {
     var badge = byId('shellBellCount');
@@ -544,6 +545,21 @@ SHELL_JS = """<script>
       + '<span class="fc-ylab" style="top:3px">' + Math.round(hr.max) + '</span>'
       + '<span class="fc-ylab" style="bottom:3px">' + Math.round(hr.min) + '</span></div>';
     if (!html) html = '<div class="focus-empty">No readings in this window — the sock or collector was off.</div>';
+    else {
+      // Dip-type labels snap the marker onto the lowest raw reading near the
+      // center, so it sits exactly on the event regardless of the bucket
+      // resolution the link came from.
+      var markerFrac = 0.5;
+      if (/dip|below|low/i.test(focusState.label || '')) {
+        var lowest = null;
+        o2pts.forEach(function (p) {
+          if (Math.abs(p.x - focusState.center) <= 5 * 60000 && (lowest === null || p.y < lowest.y)) lowest = p;
+        });
+        if (lowest && lowest.y < 92) markerFrac = (lowest.x - t0) / (t1 - t0);
+      }
+      html += '<div class="focus-marker" style="left:' + (markerFrac * 100).toFixed(2) + '%"><span>'
+        + escapeHtml(focusState.label || 'this moment') + '</span></div>';
+    }
     html += '<div class="focus-xline" id="focusX" hidden></div>';
     byId('focusCharts').innerHTML = html;
     var axis = '<span>' + focusClock(t0) + '</span><span>' + focusClock(focusState.center) + '</span><span>' + focusClock(t1) + '</span>';
@@ -557,8 +573,11 @@ SHELL_JS = """<script>
       button.classList.toggle('active', Number(button.dataset.span) === focusState.span);
     });
     var when = new Date(focusState.center);
-    byId('focusTitle').textContent = 'Around ' + focusClock(focusState.center) + ' · '
+    var whenText = focusClock(focusState.center) + ' · '
       + when.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    byId('focusTitle').textContent = focusState.label
+      ? focusState.label + ' — ' + whenText
+      : 'Around ' + whenText;
     byId('focusReadout').textContent = 'touch the chart to read a moment';
     var iso = when.toISOString();
     byId('focusDataLink').href = '/data?focus=' + encodeURIComponent(iso) + '&span=' + focusState.span;
@@ -575,8 +594,8 @@ SHELL_JS = """<script>
         if (focusState === requested) byId('focusCharts').innerHTML = '<div class="focus-empty">Could not load this window.</div>';
       });
   }
-  function openFocus(centerMs, spanMin) {
-    focusState = { center: centerMs, span: spanMin, rows: [] };
+  function openFocus(centerMs, spanMin, label) {
+    focusState = { center: centerMs, span: spanMin, label: label || '', rows: [] };
     byId('focusBackdrop').hidden = false;
     renderFocus();
   }
@@ -602,13 +621,13 @@ SHELL_JS = """<script>
       if (event.defaultPrevented || event.button !== 0
         || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       var anchor = event.target.closest && event.target.closest('a[href^="/data?focus="]');
-      if (!anchor || anchor.closest('#focusBackdrop')) return;
+      if (!anchor || anchor.closest('#focusBackdrop') || anchor.hasAttribute('data-workbench')) return;
       var url = new URL(anchor.getAttribute('href'), window.location.origin);
       var center = Date.parse(url.searchParams.get('focus'));
       if (!Number.isFinite(center)) return;
       event.preventDefault();
       var span = Number(url.searchParams.get('span')) || 45;
-      openFocus(center, Math.min(360, Math.max(15, span)));
+      openFocus(center, Math.min(360, Math.max(15, span)), url.searchParams.get('label') || '');
     });
   }
   function focusScrub(event) {

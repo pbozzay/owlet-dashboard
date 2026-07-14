@@ -910,8 +910,11 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         if (t < today.start) return;
         const low = row.min_oxygen_saturation != null && row.min_oxygen_saturation < 90;
         if (low) {
-          if (!current) current = { start: t, end: t, min: row.min_oxygen_saturation };
-          else { current.end = t; current.min = Math.min(current.min, row.min_oxygen_saturation); }
+          if (!current) current = { start: t, end: t, min: row.min_oxygen_saturation, minAt: t };
+          else {
+            current.end = t;
+            if (row.min_oxygen_saturation < current.min) { current.min = row.min_oxygen_saturation; current.minAt = t; }
+          }
         } else if (current) { dips.push(current); current = null; }
       });
       if (current) dips.push(current);
@@ -920,7 +923,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         `<div class="row">
           <span>${fmtClock(d.start)}</span>
           <b style="color:${d.min < 86 ? 'var(--bad)' : 'var(--awake)'}">low ${Math.round(d.min)}%</b>
-          <a href="/data?focus=${encodeURIComponent(d.start.toISOString())}&span=45">inspect →</a>
+          <a href="/data?focus=${encodeURIComponent(new Date(d.minAt.getTime() + 150000).toISOString())}&span=45&label=${encodeURIComponent('Dip to ' + Math.round(d.min) + '%')}">inspect →</a>
         </div>`).join('');
       openSheet('O₂ dips today', rows +
         '<p class="note">Each row is a stretch of 5-minute buckets whose lowest reading fell under 90%. "Inspect" opens the raw data zoomed to that moment.</p>');
@@ -1057,7 +1060,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         </div>
         <div class="ms-axis"><span>${fmtClock(new Date(t0))}</span><span>${msState.center == null ? 'now' : fmtClock(new Date(t1))}</span></div>
         ${stats}${dips}
-        <a class="ms-link" href="/data?focus=${encodeURIComponent(focusIso)}&span=${Math.round(msState.spanMs / 60000)}">Open in the Data workbench →</a>`);
+        <a class="ms-link" data-workbench href="/data?focus=${encodeURIComponent(focusIso)}&span=${Math.round(msState.spanMs / 60000)}">Open in the Data workbench →</a>`);
 
       el('msSeg').addEventListener('click', event => {
         const span = event.target.dataset && event.target.dataset.span;

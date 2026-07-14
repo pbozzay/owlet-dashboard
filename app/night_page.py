@@ -158,8 +158,12 @@ NIGHT_SCRIPTS = """<script>
       buckets.forEach(row => {
         const low = row.min_oxygen_saturation != null && row.min_oxygen_saturation < 90;
         if (low) {
-          if (!current) current = { start: new Date(row.bucket_start), min: row.min_oxygen_saturation };
-          else current.min = Math.min(current.min, row.min_oxygen_saturation);
+          if (!current) {
+            current = { start: new Date(row.bucket_start), min: row.min_oxygen_saturation, minAt: new Date(row.bucket_start) };
+          } else if (row.min_oxygen_saturation < current.min) {
+            current.min = row.min_oxygen_saturation;
+            current.minAt = new Date(row.bucket_start);
+          }
           current.end = new Date(new Date(row.bucket_start).getTime() + BUCKET_SEC * 1000);
         } else if (current) { dips.push(current); current = null; }
       });
@@ -200,7 +204,7 @@ NIGHT_SCRIPTS = """<script>
       const nightFocus = encodeURIComponent(window.start.toISOString());
       const nightSpan = Math.round((window.end - window.start) / 60000);
       return `<div class="timeline-card card"><h2 class="section-title">The night, minute by minute
-        <a href="/data?focus=${nightFocus}&span=${nightSpan}" style="float:right;color:var(--accent);text-decoration:none;text-transform:none;letter-spacing:0">raw trace →</a></h2>
+        <a href="/data?focus=${nightFocus}&span=${nightSpan}" data-workbench style="float:right;color:var(--accent);text-decoration:none;text-transform:none;letter-spacing:0">raw trace →</a></h2>
         <div class="timeline">${spans}</div>
         <div class="tl-axis">${axis.join('')}</div>
         <div class="legend">
@@ -231,8 +235,10 @@ NIGHT_SCRIPTS = """<script>
         </div></section>`;
       }
       const items = dips.map(dip => {
-        const focus = new Date(dip.start.getTime() - 15 * 60000).toISOString();
-        return `<a class="event card" href="/data?focus=${encodeURIComponent(focus)}&span=45"
+        // center on the run's lowest bucket — the focus modal marks this moment
+        const focus = new Date(dip.minAt.getTime() + BUCKET_SEC * 500).toISOString();
+        const label = encodeURIComponent(`Dip to ${Math.round(dip.min)}%`);
+        return `<a class="event card" href="/data?focus=${encodeURIComponent(focus)}&span=45&label=${label}"
           title="Open the raw trace around this dip" style="text-decoration:none;color:inherit">
         <time>${fmtClock(dip.start)}</time>
         <span>Dip lasting about ${fmtDur(Math.max(60, (dip.end - dip.start) / 1000))}</span>

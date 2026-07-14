@@ -220,13 +220,14 @@ RHYTHMS_SCRIPTS = """<script>
       return segs ? `<tr class="ribbon-row"><td></td><td colspan="${COLS}"><div class="o2ribbon">${segs}</div></td></tr>` : '';
     }
 
-    function actogramTable(days, ivs, colorOf, titleOf) {
+    function actogramTable(days, ivs, colorOf, titleOf, labelOf) {
       const headers = ['<th></th>'];
       for (let h = 0; h < 24; h += 3) headers.push(`<th colspan="6">${fmtClock(h * 60)}</th>`);
       const rows = days.map(day => {
         const cells = day.cells.map((row, col) => {
           const focus = encodeURIComponent(new Date(day.date.getTime() + col * BUCKET_SEC * 1000).toISOString());
-          return `<td class="cell"><a href="/data?focus=${focus}&span=120" style="display:block;height:100%"><i style="background:${colorOf(row)}" title="${titleOf(day, col, row)}"></i></a></td>`;
+          const label = labelOf ? `&label=${encodeURIComponent(labelOf(day, col, row))}` : '';
+          return `<td class="cell"><a href="/data?focus=${focus}&span=120${label}" style="display:block;height:100%"><i style="background:${colorOf(row)}" title="${titleOf(day, col, row)}"></i></a></td>`;
         }).join('');
         const label = day.date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
         return `<tr><td class="day">${label}</td>${cells}</tr>` + ribbonRow(day, ivs);
@@ -265,7 +266,8 @@ RHYTHMS_SCRIPTS = """<script>
       const any = days.some(day => day.cells.some(row => row && row.min_oxygen_saturation != null));
       if (!any) return '';
       return section('Where the dips live',
-        `<div class="acto-card card">${actogramTable(days, ivs, dipColor, dipTitle)}
+        `<div class="acto-card card">${actogramTable(days, ivs, dipColor, dipTitle,
+          (day, col, row) => row && row.min_oxygen_saturation != null ? `Low ${Math.round(row.min_oxygen_saturation)}%` : 'This half-hour')}
         <div class="acto-legend">
           <span><i style="background:color-mix(in srgb, var(--good) 10%, var(--surface))"></i>Fine (≥92%)</span>
           <span><i style="background:color-mix(in srgb, var(--awake) 28%, var(--surface))"></i>Soft (90–92%)</span>
