@@ -5,7 +5,7 @@ import logging
 import secrets
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path as FilePath
 from typing import Literal
 
@@ -667,6 +667,29 @@ def create_app(
         if not deleted:
             raise HTTPException(status_code=404, detail="Challenge not found")
         return {"ok": True}
+
+    @app.get("/api/readings/window")
+    async def readings_window(
+        around: str = Query(min_length=10),
+        span: int = Query(default=45, ge=5, le=24 * 60),
+        account: int | None = Query(default=None, ge=1),
+        user: dict = Depends(require_user),
+    ):
+        """A precise slice around a moment — feeds the focus modal without
+        dragging the whole history over the wire."""
+        try:
+            center = datetime.fromisoformat(around.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid timestamp") from exc
+        if center.tzinfo is None:
+            center = center.replace(tzinfo=timezone.utc)
+        half = timedelta(minutes=span / 2)
+        rows = await store.get_readings_window(
+            start=center - half,
+            end=center + half,
+            account_ids=await _scope(user, account),
+        )
+        return [_reading_response(row) for row in rows]
 
     @app.post("/api/notifications/read")
     async def mark_notifications_read(user: dict = Depends(require_user)):

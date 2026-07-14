@@ -180,11 +180,27 @@ SHELL_JS = """<script>
     patchSelectedAccount({ dashboard_preferences: { baby_name: event.target.value.trim() } })
       .then(function () { loadShellAccounts(); });
   });
+  function updateNotifHint() {
+    var hint = byId('o2AlertHint');
+    if (!hint) return;
+    if (!('Notification' in window)) {
+      hint.textContent = 'This browser cannot show system notifications; alerts still ring the bell and toast in-app.';
+    } else if (Notification.permission === 'granted') {
+      hint.textContent = 'Crossing below rings the bell, shows a toast, and pings this device while the dashboard is open in any tab.';
+    } else if (Notification.permission === 'denied') {
+      hint.textContent = 'Notifications are blocked for this site — allow them in your browser settings to get device pings. In-app toasts still work.';
+    } else {
+      hint.textContent = 'Enabling an alert will ask permission to ping this device; the bell and in-app toasts work either way.';
+    }
+  }
+  updateNotifHint();
   if (byId('o2AlertSetting')) byId('o2AlertSetting').addEventListener('change', function (event) {
     var value = event.target.value;
     patchSelectedAccount({ dashboard_preferences: { o2_alert_threshold: value ? Number(value) : null } });
-    if (value && 'Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch(function () {});
+    if (value && 'Notification' in window && Notification.permission !== 'granted') {
+      Notification.requestPermission().then(updateNotifHint).catch(updateNotifHint);
+    } else {
+      updateNotifHint();
     }
   });
   if (byId('accountSelect')) byId('accountSelect').addEventListener('change', function () {
@@ -452,6 +468,171 @@ SHELL_JS = """<script>
     });
   }
 
+  // ---- focus modal: fast zoom on one moment; intercepts /data?focus= links ----
+  var focusState = null;   // { center: ms, span: minutes, rows: [] }
+  function closeFocus() {
+    var backdrop = byId('focusBackdrop');
+    if (backdrop) backdrop.hidden = true;
+    focusState = null;
+  }
+  function focusOffline(row) {
+    return !!(row.sock_disconnected || row.sock_off
+      || (row.heart_rate != null && row.heart_rate <= 0)
+      || (row.oxygen_saturation != null && row.oxygen_saturation <= 0));
+  }
+  function focusO2Zone(value) {
+    return value < 86 ? 'var(--bad)' : value < 90 ? 'var(--awake)' : 'var(--accent)';
+  }
+  function focusChartSvg(pts, t0, t1, height, zoneOf, isO2) {
+    if (pts.length < 2) return null;
+    var min = Infinity, max = -Infinity;
+    pts.forEach(function (p) { if (p.y < min) min = p.y; if (p.y > max) max = p.y; });
+    var loShown = min, hiShown = max;
+    if (isO2) { min = Math.min(min, 91); max = Math.max(max, 99); }
+    var pad = Math.max(0.5, (max - min) * 0.1); min -= pad; max += pad;
+    var xOf = function (tv) { return ((tv - t0) / (t1 - t0)) * 360; };
+    var yOf = function (v) { return (height - 2) - ((v - min) / (max - min)) * (height - 6); };
+    var thresholds = '';
+    if (isO2) {
+      [90, 86].forEach(function (v) {
+        if (v > min && v < max) thresholds += '<line class="threshold" x1="0" x2="360" y1="' + yOf(v).toFixed(1) + '" y2="' + yOf(v).toFixed(1) + '"/>';
+      });
+    }
+    var zone = zoneOf || function () { return 'var(--accent)'; };
+    var segs = [], run = { color: zone(pts[0].y), coords: [xOf(pts[0].x).toFixed(1) + ',' + yOf(pts[0].y).toFixed(1)] };
+    for (var i = 1; i < pts.length; i++) {
+      var gap = pts[i].x - pts[i - 1].x > 90000;
+      var color = zone(pts[i].y);
+      var coord = xOf(pts[i].x).toFixed(1) + ',' + yOf(pts[i].y).toFixed(1);
+      if (gap) { segs.push(run); run = { color: color, coords: [coord] }; continue; }
+      run.coords.push(coord);
+      if (color !== run.color) { segs.push(run); run = { color: color, coords: [coord] }; }
+    }
+    segs.push(run);
+    var lines = segs.filter(function (s) { return s.coords.length > 1; })
+      .map(function (s) { return '<polyline points="' + s.coords.join(' ') + '" style="stroke:' + s.color + '"/>'; })
+      .join('');
+    return {
+      svg: '<svg viewBox="0 0 360 ' + height + '" preserveAspectRatio="none" aria-hidden="true">' + thresholds + lines + '</svg>',
+      min: loShown, max: hiShown,
+    };
+  }
+  function focusClock(ms) {
+    var d = new Date(ms);
+    var h = d.getHours(); var m = String(d.getMinutes()).padStart(2, '0');
+    var ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+    return h + ':' + m + ' ' + ap;
+  }
+  function renderFocusCharts() {
+    var rows = focusState.rows;
+    var t0 = focusState.center - focusState.span * 30000;
+    var t1 = focusState.center + focusState.span * 30000;
+    var valid = rows.filter(function (r) { return !focusOffline(r); });
+    var o2pts = valid.filter(function (r) { return r.oxygen_saturation > 0; })
+      .map(function (r) { return { x: Date.parse(r.recorded_at), y: r.oxygen_saturation }; });
+    var hrpts = valid.filter(function (r) { return r.heart_rate > 0; })
+      .map(function (r) { return { x: Date.parse(r.recorded_at), y: r.heart_rate }; });
+    var o2 = focusChartSvg(o2pts, t0, t1, 130, focusO2Zone, true);
+    var hr = focusChartSvg(hrpts, t0, t1, 84, null, false);
+    var html = '';
+    if (o2) html += '<div class="focus-chart">' + o2.svg
+      + '<span class="fc-label">Oxygen</span>'
+      + '<span class="fc-ylab" style="top:3px">' + Math.round(o2.max) + '</span>'
+      + '<span class="fc-ylab" style="bottom:3px">' + Math.round(o2.min) + '</span></div>';
+    if (hr) html += '<div class="focus-chart">' + hr.svg
+      + '<span class="fc-label">Heart rate</span>'
+      + '<span class="fc-ylab" style="top:3px">' + Math.round(hr.max) + '</span>'
+      + '<span class="fc-ylab" style="bottom:3px">' + Math.round(hr.min) + '</span></div>';
+    if (!html) html = '<div class="focus-empty">No readings in this window — the sock or collector was off.</div>';
+    html += '<div class="focus-xline" id="focusX" hidden></div>';
+    byId('focusCharts').innerHTML = html;
+    var axis = '<span>' + focusClock(t0) + '</span><span>' + focusClock(focusState.center) + '</span><span>' + focusClock(t1) + '</span>';
+    var existing = document.getElementById('focusAxis');
+    if (!existing) byId('focusCharts').insertAdjacentHTML('afterend', '<div class="focus-axis" id="focusAxis"></div>');
+    document.getElementById('focusAxis').innerHTML = axis;
+  }
+  function renderFocus() {
+    if (!focusState) return;
+    byId('focusSeg').querySelectorAll('button').forEach(function (button) {
+      button.classList.toggle('active', Number(button.dataset.span) === focusState.span);
+    });
+    var when = new Date(focusState.center);
+    byId('focusTitle').textContent = 'Around ' + focusClock(focusState.center) + ' · '
+      + when.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    byId('focusReadout').textContent = 'touch the chart to read a moment';
+    var iso = when.toISOString();
+    byId('focusDataLink').href = '/data?focus=' + encodeURIComponent(iso) + '&span=' + focusState.span;
+    byId('focusCharts').innerHTML = '<div class="focus-empty">Loading…</div>';
+    var requested = focusState;
+    fetch('/api/readings/window?around=' + encodeURIComponent(iso) + '&span=' + focusState.span)
+      .then(function (r) { return r.json(); })
+      .then(function (rows) {
+        if (focusState !== requested) return;   // closed or changed meanwhile
+        focusState.rows = rows || [];
+        renderFocusCharts();
+      })
+      .catch(function () {
+        if (focusState === requested) byId('focusCharts').innerHTML = '<div class="focus-empty">Could not load this window.</div>';
+      });
+  }
+  function openFocus(centerMs, spanMin) {
+    focusState = { center: centerMs, span: spanMin, rows: [] };
+    byId('focusBackdrop').hidden = false;
+    renderFocus();
+  }
+  if (byId('focusBackdrop')) {
+    byId('focusClose').addEventListener('click', closeFocus);
+    byId('focusBackdrop').addEventListener('click', function (event) {
+      if (event.target === byId('focusBackdrop')) closeFocus();
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') closeFocus();
+    });
+    byId('focusSeg').addEventListener('click', function (event) {
+      var span = event.target.dataset && event.target.dataset.span;
+      if (!span || !focusState) return;
+      focusState.span = Number(span);
+      renderFocus();
+    });
+    byId('focusCharts').addEventListener('pointermove', focusScrub);
+    byId('focusCharts').addEventListener('pointerdown', focusScrub);
+    // Any focus deep-link anywhere in the app opens the modal instead of the
+    // full workbench; modified clicks and the modal's own link pass through.
+    document.addEventListener('click', function (event) {
+      if (event.defaultPrevented || event.button !== 0
+        || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      var anchor = event.target.closest && event.target.closest('a[href^="/data?focus="]');
+      if (!anchor || anchor.closest('#focusBackdrop')) return;
+      var url = new URL(anchor.getAttribute('href'), window.location.origin);
+      var center = Date.parse(url.searchParams.get('focus'));
+      if (!Number.isFinite(center)) return;
+      event.preventDefault();
+      var span = Number(url.searchParams.get('span')) || 45;
+      openFocus(center, Math.min(360, Math.max(15, span)));
+    });
+  }
+  function focusScrub(event) {
+    if (!focusState || !focusState.rows.length) return;
+    var charts = byId('focusCharts');
+    var rect = charts.getBoundingClientRect();
+    var frac = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    var t0 = focusState.center - focusState.span * 30000;
+    var t = t0 + frac * focusState.span * 60000;
+    var best = null, bestDist = Infinity;
+    focusState.rows.forEach(function (row) {
+      var dist = Math.abs(Date.parse(row.recorded_at) - t);
+      if (dist < bestDist) { bestDist = dist; best = row; }
+    });
+    var x = byId('focusX');
+    if (x) { x.hidden = false; x.style.left = (frac * 100) + '%'; }
+    if (!best || bestDist > 90000 || focusOffline(best)) {
+      byId('focusReadout').textContent = 'no reading at ' + focusClock(t);
+      return;
+    }
+    byId('focusReadout').textContent = 'O₂ ' + Math.round(best.oxygen_saturation) + '% · '
+      + Math.round(best.heart_rate) + ' bpm · ' + focusClock(Date.parse(best.recorded_at));
+  }
+
   var TOAST_FRESH_MS = 15 * 60 * 1000;
   function showToast(notification) {
     var rack = byId('toastRack');
@@ -672,7 +853,7 @@ def render_shell(
             <option value="88">Below 88%</option>
             <option value="86">Below 86%</option>
           </select>
-          <small class="pp-hint">Crossing below rings the bell, shows a toast, and — if you allow
+          <small class="pp-hint" id="o2AlertHint">Crossing below rings the bell, shows a toast, and — if you allow
             notifications — pings your device while the dashboard is open in any tab.</small>
         </div>
         <div class="pp-section">
@@ -710,6 +891,22 @@ def render_shell(
   <footer class="shell-footer">Retrospective trend viewing only — not a medical monitor or alert
     replacement. Unofficial; not affiliated with Owlet Baby Care.</footer>
   <nav class="shell-bottom" aria-label="Views">{tabs_bottom}</nav>
+  <div id="focusBackdrop" class="focus-backdrop" hidden>
+    <div class="focus-sheet card" role="dialog" aria-modal="true" aria-label="Zoomed data">
+      <header>
+        <div><b id="focusTitle">—</b><small id="focusReadout" class="focus-readout">touch the chart to read a moment</small></div>
+        <button id="focusClose" type="button" aria-label="Close">✕</button>
+      </header>
+      <div class="pp-seg" id="focusSeg" role="group" aria-label="Window">
+        <button type="button" data-span="15">15m</button>
+        <button type="button" data-span="45">45m</button>
+        <button type="button" data-span="120">2h</button>
+        <button type="button" data-span="360">6h</button>
+      </div>
+      <div class="focus-charts" id="focusCharts"></div>
+      <a id="focusDataLink" class="focus-link" href="/data">Open in the Data workbench →</a>
+    </div>
+  </div>
   <div id="toastRack" class="toast-rack" aria-live="polite"></div>
   {SHELL_JS}
   {scripts}

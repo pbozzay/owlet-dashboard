@@ -589,6 +589,39 @@ class ReadingStore:
 
         return [self._row_to_reading(row) for row in rows]
 
+    async def get_readings_window(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        limit: int = 20000,
+        account_ids: list[int] | None = None,
+    ) -> list[OwletReading]:
+        """Readings inside [start, end) — the fast path for the focus modal."""
+        await self.init()
+        if account_ids is not None and not account_ids:
+            return []
+        where_parts = ["recorded_at >= ?", "recorded_at < ?"]
+        params: list[Any] = [start.isoformat(), end.isoformat()]
+        if account_ids is not None:
+            placeholders = ",".join("?" for _ in account_ids)
+            where_parts.append(f"account_id IN ({placeholders})")
+            params.extend(account_ids)
+        async with self._connect() as db:
+            cursor = await db.execute(
+                f"""
+                SELECT device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
+                       movement, sleep_state, skin_temperature, raw_json
+                FROM readings
+                WHERE {' AND '.join(where_parts)}
+                ORDER BY recorded_at ASC
+                LIMIT ?
+                """,
+                [*params, limit],
+            )
+            rows = await cursor.fetchall()
+        return [self._row_to_reading(row) for row in rows]
+
     async def get_analysis_readings(
         self,
         hours: int | None = 24,

@@ -1069,3 +1069,28 @@ async def test_custom_low_oxygen_alert_fires_once_per_crossing(tmp_path):
             json={"dashboard_preferences": {"o2_alert_threshold": 40}},
         ).json()["account"]
         assert rejected["dashboard_preferences"].get("o2_alert_threshold") is None
+
+
+@pytest.mark.asyncio
+async def test_readings_window_returns_precise_slice(tmp_path):
+    db_path = tmp_path / "owlet.sqlite3"
+    store = ReadingStore(db_path)
+    await store.init()
+    for minute in range(0, 60, 5):
+        await _seed_reading(store, f"2026-07-02T01:{minute:02d}:00Z", hr=120 + minute, spo2=95)
+    auth = AuthStore(db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+
+    with client_for(app, session) as client:
+        rows = client.get("/api/readings/window?around=2026-07-02T01:30:00Z&span=20").json()
+        bad = client.get("/api/readings/window?around=not-a-time&span=20")
+
+    times = [row["recorded_at"] for row in rows]
+    assert times == [
+        "2026-07-02T01:20:00Z",
+        "2026-07-02T01:25:00Z",
+        "2026-07-02T01:30:00Z",
+        "2026-07-02T01:35:00Z",
+    ]
+    assert bad.status_code == 400
