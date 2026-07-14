@@ -97,10 +97,11 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .vital-o2toggle { all: unset; position: absolute; top: 10px; right: 44px; z-index: 2;
       cursor: pointer; font-size: 11px; font-weight: 700; padding: 6px 10px;
       border-radius: 999px; color: var(--faint); border: 1px solid var(--surface-line);
-      line-height: 1; }
+      line-height: 1; transition: color .35s ease, background-color .35s ease,
+      border-color .35s ease; }
     .vital-o2toggle:hover { color: var(--accent); border-color: var(--accent); }
-    .vital-o2toggle.on { color: var(--accent); background: var(--accent-soft);
-      border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+    .vital-o2toggle.on { color: var(--o2-on); background: color-mix(in srgb, var(--o2-on) 12%, transparent);
+      border-color: color-mix(in srgb, var(--o2-on) 40%, transparent); }
     .vital-o2toggle.arming { color: #fff; background: var(--accent);
       border-color: var(--accent); }
     .vital.placing { outline: 2px solid var(--accent); outline-offset: -1px;
@@ -173,17 +174,10 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .chip .sub { display: block; font-size: 11px; color: var(--faint); margin-top: 3px; }
     .chip.warn b { color: var(--warn); }
     .chip.good b { color: var(--good); }
-    .chip.o2-on { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
-    .chip.o2-on b { color: var(--accent); }
-    /* on-O2 chart overlays — three candidate styles, one active at a time */
-    .chartzone .o2band, .ms-chartwrap .o2band { fill: var(--accent); opacity: .07; }
-    .chartzone .o2edge, .ms-chartwrap .o2edge { stroke: var(--accent); stroke-width: 1;
-      stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; opacity: .55; }
-    .chartzone .o2ribbon, .ms-chartwrap .o2ribbon { stroke: var(--accent); stroke-width: 3px;
-      stroke-linecap: butt; vector-effect: non-scaling-stroke; opacity: .5; }
-    .chartzone .o2flagline, .ms-chartwrap .o2flagline { stroke: var(--accent); stroke-width: 1.2;
-      vector-effect: non-scaling-stroke; opacity: .7; }
-    .chartzone .o2flagdot, .ms-chartwrap .o2flagdot { fill: var(--accent); }
+    .chip.o2-on { border-color: color-mix(in srgb, var(--o2-on) 45%, transparent); }
+    .chip.o2-on b { color: var(--o2-on); }
+    /* on-O2 atmosphere: a wispy tint rising from the chart floor — oxygen
+       blue while on, grey while (logged) off, cross-fading at transitions */
     /* Reset only the button chrome — `all: unset` would also wipe the .card
        background/border/radius that these chips rely on. */
     button.chip { display: block; width: 100%; margin: 0; font: inherit;
@@ -487,11 +481,12 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     // ---- supplemental O2: state + intervals from on/off events -------------
     let o2State = { on: false, since: null, flow: '' };
     let o2Spans = [];
-    const O2_OVERLAY = localStorage.getItem('owletO2Overlay') || 'ribbon';   // 'band' | 'ribbon' | 'flags'
+    let o2HasLog = false;
     function computeO2() {
       const marks = careEvents
         .filter(e => e.kind === 'O₂ on' || e.kind === 'O₂ off')
         .sort((a, b) => a.x - b.x);
+      o2HasLog = marks.length > 0;
       const spans = [];
       let open = null, flow = '';
       for (const mark of marks) {
@@ -514,29 +509,43 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       paintO2Toggle();
     }
     const onO2At = t => o2Spans.some(s => t >= s.start && t <= s.end);
-    function o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, clip) {
+    // A single rect carries the whole on/off timeline: a horizontal gradient
+    // encodes the states (oxygen blue / grey) with soft stops at each
+    // transition, and a vertical mask fades it out rising from the floor.
+    function o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, clip, pid) {
+      if (!o2HasLog) return '';
       const xOf = t => ((t - t0) / (t1 - t0)) * w;
-      const clampX = x => Math.max(0, Math.min(w, x));
-      return o2Spans
-        .filter(s => s.end >= dataStart && s.start <= dataEnd)
-        .map(s => {
-          const x0v = clip ? clampX(xOf(s.start)) : xOf(Math.max(s.start, dataStart - 86400e3));
-          const x1v = clip ? clampX(xOf(Math.min(s.end, Date.now()))) : xOf(Math.min(s.end, dataEnd + 86400e3, Date.now() + 3600e3));
-          if (x1v - x0v < 0.3) return '';
-          const x0 = x0v.toFixed(2), x1 = x1v.toFixed(2);
-          if (O2_OVERLAY === 'band') {
-            return `<rect class="o2band" x="${x0}" y="0" width="${(x1v - x0v).toFixed(2)}" height="${h}"/>`
-              + `<line class="o2edge" x1="${x0}" x2="${x0}" y1="0" y2="${h}"/>`
-              + `<line class="o2edge" x1="${x1}" x2="${x1}" y1="0" y2="${h}"/>`;
-          }
-          if (O2_OVERLAY === 'flags') {
-            return `<line class="o2flagline" x1="${x0}" x2="${x0}" y1="0" y2="${h}"/>`
-              + `<circle class="o2flagdot" cx="${x0}" cy="${h - 3}" r="2.2"/>`
-              + `<line class="o2flagline" x1="${x1}" x2="${x1}" y1="0" y2="${h}"/>`
-              + `<circle class="o2flagdot" cx="${x1}" cy="${h - 3}" r="2.2" opacity=".45"/>`;
-          }
-          return `<line class="o2ribbon" x1="${x0}" x2="${x1}" y1="${(h - 1.5).toFixed(1)}" y2="${(h - 1.5).toFixed(1)}"/>`;
-        }).join('');
+      const span = dataEnd - dataStart;
+      const fade = Math.max(90 * 1000, span * 0.02);
+      const colorFor = state => state === 'on' ? 'var(--o2-on)' : 'var(--faint)';
+      const offsetOf = time => Math.max(0, Math.min(1, (time - dataStart) / span)).toFixed(4);
+      const marks = [];
+      o2Spans.forEach(s => {
+        marks.push({ t: s.start, to: 'on' });
+        if (s.end !== Infinity) marks.push({ t: s.end, to: 'off' });
+      });
+      marks.sort((a, b) => a.t - b.t);
+      let state = onO2At(dataStart) ? 'on' : 'off';
+      let stops = `<stop offset="0" style="stop-color:${colorFor(state)}"/>`;
+      marks.filter(m => m.t > dataStart && m.t < dataEnd).forEach(m => {
+        stops += `<stop offset="${offsetOf(m.t - fade)}" style="stop-color:${colorFor(state)}"/>`;
+        state = m.to;
+        stops += `<stop offset="${offsetOf(m.t + fade)}" style="stop-color:${colorFor(state)}"/>`;
+      });
+      stops += `<stop offset="1" style="stop-color:${colorFor(onO2At(dataEnd) ? 'on' : 'off')}"/>`;
+      const x0 = xOf(dataStart), x1 = xOf(Math.min(dataEnd, Date.now()));
+      if (x1 - x0 < 0.5) return '';
+      const rect = `x="${x0.toFixed(1)}" y="0" width="${(x1 - x0).toFixed(1)}" height="${h}"`;
+      return `<defs>
+        <linearGradient id="${pid}-o2h" x1="0" y1="0" x2="1" y2="0">${stops}</linearGradient>
+        <linearGradient id="${pid}-o2v" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0" stop-color="#fff" stop-opacity=".34"/>
+          <stop offset=".45" stop-color="#fff" stop-opacity=".12"/>
+          <stop offset=".85" stop-color="#fff" stop-opacity="0"/>
+        </linearGradient>
+        <mask id="${pid}-o2m"><rect ${rect} fill="url(#${pid}-o2v)"/></mask>
+      </defs>
+      <rect ${rect} fill="url(#${pid}-o2h)" mask="url(#${pid}-o2m)"/>`;
     }
 
     // ---- hero charts: virtualized pan window -------------------------------
@@ -579,7 +588,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         .map(e => `<line class="evline" x1="${xOf(e.x).toFixed(2)}" x2="${xOf(e.x).toFixed(2)}" y1="0" y2="${h}"><title>${esc(e.kind)}</title></line>`
           + `<circle class="evflag" cx="${xOf(e.x).toFixed(2)}" cy="3" r="2"/>`)
         .join('');
-      const o2Overlay = o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip);
+      const o2Overlay = o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip, (opts.idPrefix || 'h') + '-' + key);
       const pts = downsample(points[key].filter(p => p.x >= dataStart && p.x <= dataEnd));
       if (pts.length < 2) return { markup: o2Overlay + eventMarks, min: null, max: null, ghostYs: {} };
       let min = Infinity, max = -Infinity;
@@ -641,7 +650,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         .map(e => `<line class="evline" x1="${xOf(e.x).toFixed(2)}" x2="${xOf(e.x).toFixed(2)}" y1="0" y2="${h}"><title>${esc(e.kind)}</title></line>`
           + `<circle class="evflag" cx="${xOf(e.x).toFixed(2)}" cy="3" r="2"/>`)
         .join('');
-      const o2Overlay = o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip);
+      const o2Overlay = o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, !!opts.clip, (opts.idPrefix || 'hyp') + '-slp');
       const lanes = { awake: h * 0.2, light: h * 0.5, deep: h * 0.8 };
       // Gradients keyed to lane positions (userSpaceOnUse), so a connector
       // blends from one stage's color into the next no matter its direction —

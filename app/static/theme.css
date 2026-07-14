@@ -20,6 +20,7 @@
   --sleep-light: #a78bfa;
   --awake: #f59e0b;
   --nodata: #f0ece5;
+  --o2-on: #3b82f6;
   --shadow: 0 12px 34px rgba(28, 25, 23, .05);
   --radius-card: 18px;
   --radius-control: 10px;
@@ -44,6 +45,7 @@
   --sleep-light: #a78bfa;
   --awake: #f59e0b;
   --nodata: rgba(15, 20, 45, .8);
+  --o2-on: #60a5fa;
   --shadow: 0 12px 34px rgba(0, 0, 0, .3);
   --nav-bg: rgba(11, 16, 35, .78);
 }
