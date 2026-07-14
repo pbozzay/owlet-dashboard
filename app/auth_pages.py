@@ -122,29 +122,32 @@ _LANDING = """<!doctype html>
   <div class="wrap">
     <section>
       <div class="brand"><img src="/logo.svg" alt="" /><span>Owlet Dashboard</span></div>
-      <h1>The Owlet app forgets.<br /><em>This remembers every night.</em></h1>
-      <p class="lede">Owlet's phone app only shows a short recent window — and there's no
-        desktop app at all. Owlet Dashboard fills that gap: it quietly records your sock's
-        readings around the clock and turns them into history you can actually use.</p>
+      <h1>A free web client for <em>Owlet</em> users.</h1>
+      <p class="lede">Sign in with your Owlet account and Owlet Dashboard turns your sock's
+        readings into a private history you can actually explore — live vitals, nightly sleep
+        reports, and long-term rhythms, on any device.</p>
       <p class="oss">Free, open source, and unofficial — provided as-is, not affiliated with
         Owlet Baby Care. <a href="https://github.com/pbozzay/owlet-dashboard"
         rel="noopener">View the project on GitHub</a>.</p>
       <ul class="features">
-        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg></span>
-          <div><b>Every heartbeat and O₂ reading, kept</b>
-          <span>Vitals recorded every 30 seconds and stored for good — zoom from minutes to months.</span></div></li>
-        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></span>
-          <div><b>Sleep patterns across nights</b>
-          <span>Light, deep, and awake time tracked and compared — see the trend, not one bad night.</span></div></li>
-        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span>
-          <div><b>Oxygen challenges, measured</b>
-          <span>Mark off-oxygen windows and get real numbers against baseline — useful for the pediatrician conversation.</span></div></li>
-        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M12 18h.01"/></svg></span>
-          <div><b>Lives on your phone</b>
-          <span>Installable as an app, auto-refreshing live view, CSV export when you need the raw data.</span></div></li>
-        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
-          <div><b>Private by design</b>
-          <span>{privacy_copy}</span></div></li>
+        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg></span>
+          <div><b>Live vitals, kept for good</b>
+          <span>Oxygen, heart rate, movement, and sleep every 30 seconds — zoom from the last minute to the last month, or export to CSV.</span></div></li>
+        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></span>
+          <div><b>A plain-language report every night</b>
+          <span>“Tonight” recaps each night in words: sleep stages, wake-ups, and every oxygen dip, with a seven-night trend.</span></div></li>
+        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V11M10 20V4M16 20v-6M21 20H3"/></svg></span>
+          <div><b>Patterns as your baby grows</b>
+          <span>“Rhythms” charts the day-night rhythm, sleep consolidation, and recurring dips across weeks — age-adjusted when you add a birth date.</span></div></li>
+        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8.5v7M8.5 12h7"/></svg></span>
+          <div><b>Oxygen and feeds, logged in a tap</b>
+          <span>Mark supplemental O₂ and its flow, feeds, and oxygen challenges — with real numbers against baseline for pediatrician visits.</span></div></li>
+        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.5 21a2 2 0 0 1-3 0"/></svg></span>
+          <div><b>Alerts and status at a glance</b>
+          <span>Set a low-oxygen threshold and get a toast or phone notification; battery and sock status ride in the top bar.</span></div></li>
+        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
+          <div><b>Private, and yours to run</b>
+          <span>{privacy_copy} Installable as an app, or self-host it with Docker.</span></div></li>
       </ul>
     </section>
     <section class="card">
