@@ -10,6 +10,21 @@ The Owlet app only exposes a short recent window. This server polls Owlet's unof
 
 > Safety note: this is for retrospective trend viewing only. Do **not** use it as a medical alerting system or as a replacement for the Owlet app/base station.
 
+## Screenshots
+
+**Today** — live vitals with personal baselines, touch/drag/zoom charts, sleep at a glance,
+and one-tap supplemental-O₂ logging:
+
+![Today page](docs/screenshots/today.png)
+
+| **Tonight** — the narrative night report | **Rhythms** — the pattern reader |
+| --- | --- |
+| ![Tonight page](docs/screenshots/tonight.png) | ![Rhythms page](docs/screenshots/rhythms.png) |
+
+The landing page, for the curious:
+
+<img src="docs/screenshots/landing.png" alt="Landing page" width="720" />
+
 ## What it stores
 
 Each poll stores:
