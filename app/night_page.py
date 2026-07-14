@@ -60,12 +60,18 @@ NIGHT_HEAD = """<style>
     .week-bars { display: flex; align-items: flex-end; gap: 10px; height: 92px; margin-top: 6px; }
     .wb { flex: 1; display: flex; flex-direction: column; justify-content: flex-end;
       align-items: center; gap: 6px; height: 100%; }
-    .wb i { display: block; width: 100%; max-width: 46px; border-radius: 6px 6px 2px 2px;
-      background: linear-gradient(180deg, var(--sleep-light), var(--sleep-deep)); min-height: 3px; }
+    .wb i { display: flex; flex-direction: column; width: 100%; max-width: 46px;
+      border-radius: 6px 6px 2px 2px; overflow: hidden; min-height: 3px; }
+    .wb i u { display: block; }
+    .wb i .lt { background: var(--sleep-light); flex-grow: 1; }
+    .wb i .dp { background: var(--sleep-deep); }
     .wb.tonight i { box-shadow: 0 0 18px var(--accent-soft); }
     .wb span { font-size: 10.5px; color: var(--faint); }
     .wb b { font-size: 11px; color: var(--dim); font-weight: 500;
       font-variant-numeric: tabular-nums; }
+    .week .legend { margin-top: 14px; }
+    .week-note { font-size: 13px; color: var(--dim); line-height: 1.55; margin: 12px 0 0; }
+    .week-note b { color: var(--ink); font-weight: 600; }
     .empty { text-align: center; color: var(--dim); padding: 70px 20px; font-size: 15px; }
   </style>"""
 
@@ -239,22 +245,59 @@ NIGHT_SCRIPTS = """<script>
       const bars = [];
       let maxSleep = 1;
       const nights = [];
-      for (let offset = 6; offset >= 0; offset--) {
+      for (let offset = 13; offset >= 0; offset--) {
         const win = nightWindow(offset);
         const stats = nightStats(bucketsIn(win));
         nights.push({ offset, win, stats });
-        maxSleep = Math.max(maxSleep, stats.sleep);
+        if (offset <= 6) maxSleep = Math.max(maxSleep, stats.sleep);
       }
-      nights.forEach(({ offset, win, stats }) => {
+      nights.filter(n => n.offset <= 6).forEach(({ offset, win, stats }) => {
         const height = Math.round((stats.sleep / maxSleep) * 100);
+        const deepFrac = stats.sleep ? stats.deep / stats.sleep : 0;
         const label = offset === 0 ? 'tonight'
           : win.start.toLocaleDateString([], { weekday: 'short' });
-        bars.push(`<div class="wb ${offset === 0 ? 'tonight' : ''}">
+        const detail = stats.sleep
+          ? `${fmtDur(stats.deep)} deep · ${fmtDur(Math.max(0, stats.sleep - stats.deep))} light · ${fmtDur(stats.awake)} awake`
+          : 'no readings';
+        bars.push(`<div class="wb ${offset === 0 ? 'tonight' : ''}" title="${detail}">
           <b>${stats.sleep ? fmtDur(stats.sleep) : ''}</b>
-          <i style="height:${Math.max(3, height)}%"></i><span>${label}</span></div>`);
+          <i style="height:${Math.max(3, height)}%">
+            <u class="lt"></u><u class="dp" style="height:${Math.round(deepFrac * 100)}%"></u>
+          </i><span>${label}</span></div>`);
       });
-      return `<section><div class="week card"><h2 class="section-title">Sleep, the last seven nights</h2>
-        <div class="week-bars">${bars.join('')}</div></div></section>`;
+
+      // week-over-week trend lines; only speak when both weeks have real nights
+      const covered = n => n.stats.coveredSec >= 1800;
+      const thisWeek = nights.filter(n => n.offset <= 6 && covered(n));
+      const lastWeek = nights.filter(n => n.offset > 6 && covered(n));
+      const mean = (list, pick) => list.length ? list.reduce((a, n) => a + pick(n.stats), 0) / list.length : null;
+      const fragment = (label, pick) => {
+        const now = mean(thisWeek, pick);
+        if (now == null) return '';
+        const before = lastWeek.length >= 3 ? mean(lastWeek, pick) : null;
+        let delta = '';
+        if (before != null && Math.abs(now - before) >= 300) {
+          delta = ` (${now > before ? 'up' : 'down'} ${fmtDur(Math.abs(now - before))} on last week)`;
+        }
+        return `<b>${fmtDur(now)}</b> ${label}${delta}`;
+      };
+      const provisional = thisWeek.length < 4
+        ? `Only ${thisWeek.length} night${thisWeek.length === 1 ? '' : 's'} recorded so far, so these will move around. `
+        : '';
+      const parts = [
+        fragment('of sleep', s => s.sleep),
+        fragment('of it deep', s => s.deep),
+        fragment('awake overnight', s => s.awake),
+      ].filter(Boolean);
+      const note = parts.length ? `Averaging ${parts.join(', ')} per night.` : '';
+      return `<section><div class="week card"><h2 class="section-title">The last seven nights</h2>
+        <div class="week-bars">${bars.join('')}</div>
+        <div class="legend">
+          <span><i style="background:var(--sleep-deep)"></i>Deep</span>
+          <span><i style="background:var(--sleep-light)"></i>Light</span>
+        </div>
+        ${note ? `<p class="week-note">${provisional}${note}</p>` : ''}
+        </div></section>`;
     }
 
     function render() {
@@ -280,7 +323,7 @@ NIGHT_SCRIPTS = """<script>
     async function boot() {
       try {
         const [rollupData, accounts] = await Promise.all([
-          fetch('/api/rollups?bucket=5m&hours=192&limit=100000').then(r => r.json()),
+          fetch('/api/rollups?bucket=5m&hours=336&limit=100000').then(r => r.json()),
           fetch('/api/accounts').then(r => r.json())
         ]);
         rollups = rollupData.rollups || [];
@@ -296,7 +339,7 @@ NIGHT_SCRIPTS = """<script>
       el('nextNight').addEventListener('click', () => { nightOffset = Math.max(0, nightOffset - 1); render(); });
       setInterval(async () => {   // keep "still collecting" nights fresh
         if (nightOffset !== 0 || document.hidden) return;
-        const data = await fetch('/api/rollups?bucket=5m&hours=192&limit=100000').then(r => r.json()).catch(() => null);
+        const data = await fetch('/api/rollups?bucket=5m&hours=336&limit=100000').then(r => r.json()).catch(() => null);
         if (data) { rollups = data.rollups || rollups; render(); }
       }, 300000);
     }

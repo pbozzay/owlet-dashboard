@@ -378,7 +378,7 @@ RHYTHMS_SCRIPTS = """<script>
         if (!nightDate) continue;
         const key = `${nightDate.getFullYear()}-${nightDate.getMonth()}-${nightDate.getDate()}`;
         const rec = nights.get(key) || { date: nightDate, deep: [], awake: [] };
-        if ((row.deep_seconds || 0) > B5 * 0.6) rec.deep.push(row.avg_oxygen_saturation);
+        if ((row.deep_sleep_seconds || 0) > B5 * 0.6) rec.deep.push(row.avg_oxygen_saturation);
         else if ((row.awake_seconds || 0) > B5 * 0.6) rec.awake.push(row.avg_oxygen_saturation);
         nights.set(key, rec);
       }
