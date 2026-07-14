@@ -1457,7 +1457,15 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         .filter(run => run.state === 'asleep' && run.buckets >= 2).length;
 
       // --- baselines -------------------------------------------------------
-      baselineState = currentRun && currentRun.state === 'asleep' ? 'asleep' : 'awake';
+      // The live reading decides asleep vs awake for the baseline bands —
+      // rollup sessions lag up to a bucket and load on their own cycle, so
+      // two open windows could disagree ("typical awake" on one device,
+      // "typical asleep" on the other). Rollups are only the fallback while
+      // the sock is off.
+      const liveLevel = latestRow && !offline
+        ? ({ '8': 'asleep', '15': 'asleep' }[String(latestRow.sleep_state)] || 'awake')
+        : null;
+      baselineState = liveLevel || (currentRun && currentRun.state === 'asleep' ? 'asleep' : 'awake');
       bands.hr = I.baselineBand(rollups, 'hr', baselineState);
       bands.o2 = I.baselineBand(rollups, 'o2', baselineState);
       latest.hr = latestRow && !offline ? latestRow.heart_rate : null;
