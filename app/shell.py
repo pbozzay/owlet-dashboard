@@ -129,6 +129,10 @@ SHELL_JS = """<script>
       var threshold = account && account.dashboard_preferences && account.dashboard_preferences.o2_alert_threshold;
       byId('o2AlertSetting').value = threshold ? String(threshold) : '';
     }
+    var prefs = (account && account.dashboard_preferences) || {};
+    if (byId('nightStartSetting')) byId('nightStartSetting').value = prefs.night_start || '19:00';
+    if (byId('nightEndSetting')) byId('nightEndSetting').value = prefs.night_end || '07:00';
+    if (byId('readinessSetting')) byId('readinessSetting').value = prefs.readiness_report_time || '';
   }
   function loadShellAccounts() {
     return Promise.all([
@@ -141,6 +145,13 @@ SHELL_JS = """<script>
       shellAccounts = results[0].accounts || [];
       var account = shellAccounts[0];
       if (account && account.poll_interval_seconds) pollInterval = account.poll_interval_seconds;
+      // DST shifts and travel would silently skew the server-side prep report,
+      // so keep the stored offset current whenever a report time is set.
+      var accountPrefs = (account && account.dashboard_preferences) || {};
+      var tzNow = -new Date().getTimezoneOffset();
+      if (accountPrefs.readiness_report_time && accountPrefs.tz_offset_minutes !== tzNow) {
+        patchSelectedAccount({ dashboard_preferences: { tz_offset_minutes: tzNow } });
+      }
       var saved = account && account.dashboard_preferences && account.dashboard_preferences.theme;
       if (saved && saved !== currentSetting()) { localStorage.setItem('owletTheme', saved); applyTheme(saved); }
       // Pages with their own account-switching logic (the Data workbench) own
@@ -201,6 +212,27 @@ SHELL_JS = """<script>
       Notification.requestPermission().then(updateNotifHint).catch(updateNotifHint);
     } else {
       updateNotifHint();
+    }
+  });
+  ['nightStartSetting', 'nightEndSetting'].forEach(function (id) {
+    var input = byId(id);
+    if (!input) return;
+    input.addEventListener('change', function (event) {
+      if (!event.target.value) { renderShellMenu([]); return; }
+      var key = id === 'nightStartSetting' ? 'night_start' : 'night_end';
+      var patch = { tz_offset_minutes: -new Date().getTimezoneOffset() };
+      patch[key] = event.target.value;
+      patchSelectedAccount({ dashboard_preferences: patch });
+    });
+  });
+  if (byId('readinessSetting')) byId('readinessSetting').addEventListener('change', function (event) {
+    var value = event.target.value;
+    patchSelectedAccount({ dashboard_preferences: {
+      readiness_report_time: value || null,
+      tz_offset_minutes: -new Date().getTimezoneOffset()
+    } });
+    if (value && 'Notification' in window && Notification.permission !== 'granted') {
+      Notification.requestPermission().catch(function () {});
     }
   });
   if (byId('accountSelect')) byId('accountSelect').addEventListener('change', function () {
@@ -675,7 +707,8 @@ SHELL_JS = """<script>
     var lastToasted = Number(localStorage.getItem('owletLastToastId') || 0);
     if (latest.id <= lastToasted) return;
     localStorage.setItem('owletLastToastId', String(latest.id));
-    if (latest.severity === 'critical' && 'Notification' in window && Notification.permission === 'granted') {
+    var wantsPing = latest.severity === 'critical' || latest.event_type === 'night_readiness';
+    if (wantsPing && 'Notification' in window && Notification.permission === 'granted') {
       try {
         new Notification(latest.title, {
           body: (latest.message || '') + ' · ' + notificationTime(latest.recorded_at),
@@ -874,6 +907,30 @@ def render_shell(
           </select>
           <small class="pp-hint" id="o2AlertHint">Crossing below rings the bell, shows a toast, and — if you allow
             notifications — pings your device while the dashboard is open in any tab.</small>
+        </div>
+        <div class="pp-section">
+          <span class="pp-label">Night runs from</span>
+          <div class="pp-row pp-clock-row">
+            <input id="nightStartSetting" type="time" value="19:00" />
+            <span class="pp-to">to</span>
+            <input id="nightEndSetting" type="time" value="07:00" />
+          </div>
+          <small class="pp-hint">Tonight and Rhythms count this span as the night; everything else is the day.</small>
+        </div>
+        <div class="pp-section">
+          <span class="pp-label">Evening prep report</span>
+          <select id="readinessSetting">
+            <option value="">Off</option>
+            <option value="17:30">5:30 PM</option>
+            <option value="18:00">6:00 PM</option>
+            <option value="18:30">6:30 PM</option>
+            <option value="18:45">6:45 PM</option>
+            <option value="19:00">7:00 PM</option>
+            <option value="19:30">7:30 PM</option>
+            <option value="20:00">8:00 PM</option>
+          </select>
+          <small class="pp-hint">A daily nudge before bedtime — awake time, naps, and feeds so far, to gauge
+            how prepped tonight looks.</small>
         </div>
         <div class="pp-section">
           <span class="pp-label">Update every</span>

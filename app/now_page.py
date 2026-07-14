@@ -190,6 +190,19 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .door b { display: block; font-size: 15px; margin-bottom: 3px; }
     .door span { font-size: 13px; color: var(--dim); line-height: 1.45; }
     .door:hover { border-color: var(--accent); }
+    .prep { padding: 16px 18px 14px; margin-bottom: 12px; }
+    .prep-top { display: flex; justify-content: space-between; align-items: baseline;
+      gap: 12px; margin-bottom: 10px; }
+    .prep-top b { font-size: 15px; }
+    .prep-top span { font-size: 12px; color: var(--faint); white-space: nowrap;
+      font-variant-numeric: tabular-nums; }
+    .prep-facts { display: grid; gap: 6px; font-size: 13px; color: var(--dim); }
+    .prep-facts b { color: var(--ink); font-variant-numeric: tabular-nums; }
+    .prep-note { font-size: 13px; color: var(--dim); line-height: 1.5; margin: 10px 0 0; }
+    .prep-feed-btn { font: inherit; font-size: 12px; font-weight: 600; color: var(--accent);
+      background: var(--accent-soft); border: 0; border-radius: 999px; padding: 2px 10px;
+      margin-left: 6px; cursor: pointer; }
+    .prep-feed-btn:hover { filter: brightness(.96); }
     .empty { text-align: center; color: var(--dim); padding: 80px 20px; font-size: 15px; }
 
     /* ---- detail sheet ---------------------------------------------------- */
@@ -1080,6 +1093,107 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       return { start, end: new Date() };
     }
 
+    // ---- the user's night window (default 7 PM -> 7 AM) --------------------
+    let NIGHT = { start: 19 * 60, end: 7 * 60 };
+    function nightWindowFrom(prefs) {
+      const toMin = (value, fallback) => {
+        const m = /^([01]?\\d|2[0-3]):([0-5]\\d)$/.exec(value || '');
+        return m ? Number(m[1]) * 60 + Number(m[2]) : fallback;
+      };
+      const win = { start: toMin(prefs.night_start, 19 * 60), end: toMin(prefs.night_end, 7 * 60) };
+      return win.start > win.end ? win : { start: 19 * 60, end: 7 * 60 }; // night must cross midnight
+    }
+    const clockOfMins = mins => {
+      let h = Math.floor(mins / 60) % 24; const m = String(mins % 60).padStart(2, '0');
+      const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+      return `${h}:${m} ${ap}`;
+    };
+
+    // ---- "Ready for tonight?" — has the day built up enough sleep pressure? --
+    function prepCardMarkup() {
+      const now = new Date();
+      const nowMins = now.getHours() * 60 + now.getMinutes();
+      if (nowMins < NIGHT.end || nowMins >= NIGHT.start) return ''; // it IS night
+      const dayStart = new Date(now);
+      dayStart.setHours(Math.floor(NIGHT.end / 60), NIGHT.end % 60, 0, 0);
+      const dayStartMs = dayStart.getTime();
+
+      let awakeDay = 0;
+      rollups.forEach(row => {
+        if (Date.parse(row.bucket_start) >= dayStartMs) awakeDay += row.awake_seconds || 0;
+      });
+
+      // typical awake time by this clock hour, from the prior week
+      const typicals = [];
+      for (let back = 1; back <= 7; back++) {
+        const from = dayStartMs - back * 86400000, to = Date.now() - back * 86400000;
+        let awake = 0, signal = 0;
+        rollups.forEach(row => {
+          const t = Date.parse(row.bucket_start);
+          if (t < from || t >= to) return;
+          awake += row.awake_seconds || 0;
+          signal += (row.awake_seconds || 0) + (row.sleep_seconds || 0);
+        });
+        if (signal >= 3 * 3600) typicals.push(awake);
+      }
+      const typical = typicals.length >= 3
+        ? typicals.reduce((a, b) => a + b, 0) / typicals.length : null;
+
+      const naps = I.sessions(rollups, dayStart, now)
+        .filter(run => run.state === 'asleep' && run.buckets >= 3);
+      const napTotal = naps.reduce((a, run) => a + (run.end - run.start) / 1000, 0);
+      const lastNap = naps.length ? naps[naps.length - 1] : null;
+
+      const feeds = careEvents.filter(e => e.kind === 'Feeding' && e.x >= dayStartMs)
+        .sort((a, b) => a.x - b.x);
+
+      let verdict = '';
+      if (typical != null) {
+        const delta = awakeDay - typical;
+        verdict = Math.abs(delta) < 20 * 60
+          ? 'Awake time is right in line with a typical day by this hour.'
+          : delta > 0
+            ? `That's ${fmtDur(delta)} more awake time than typical by this hour — good sleep pressure built up for tonight.`
+            : `That's ${fmtDur(-delta)} less awake time than typical by this hour — bedtime may take a little longer to stick.`;
+      }
+
+      const untilNight = NIGHT.start - nowMins;
+      const nightNote = untilNight <= 0 ? '' :
+        untilNight < 60 ? `night starts in ${untilNight}m` : `night starts ${clockOfMins(NIGHT.start)}`;
+
+      const napLine = naps.length
+        ? `<span><b>${naps.length}</b> nap${naps.length === 1 ? '' : 's'} · <b>${fmtDur(napTotal)}</b>${lastNap ? `, last ended ${fmtClock(new Date(lastNap.end))}` : ''}</span>`
+        : '<span>No naps registered yet today.</span>';
+      const feedLine = feeds.length
+        ? `<span><b>${feeds.length}</b> feed${feeds.length === 1 ? '' : 's'} logged, last at ${fmtClock(new Date(feeds[feeds.length - 1].x))}<button class="prep-feed-btn" id="logFeedBtn">+ feed</button></span>`
+        : '<span>No feeds logged today.<button class="prep-feed-btn" id="logFeedBtn">+ feed</button></span>';
+
+      return `<div class="prep card">
+        <div class="prep-top"><b>Ready for tonight?</b><span>${nightNote}</span></div>
+        <div class="prep-facts">
+          <span><b>${fmtDur(awakeDay)}</b> awake since ${fmtClock(dayStart)}</span>
+          ${napLine}
+          ${feedLine}
+        </div>
+        ${verdict ? `<p class="prep-note">${verdict}</p>` : ''}
+      </div>`;
+    }
+
+    async function logFeed() {
+      const btn = el('logFeedBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'logging…'; }
+      try {
+        await fetch('/api/events', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: 'Feeding' })
+        });
+        await loadEvents();
+        await refresh();
+      } catch (error) {
+        if (btn) { btn.disabled = false; btn.textContent = '+ feed'; }
+      }
+    }
+
     function dipsSheet() {
       const today = todayWindow();
       const dips = [];
@@ -1532,11 +1646,15 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       // --- bedtime context (evenings) ---------------------------------------
       let bedtimeLine = '';
       const nowDate = new Date();
-      if (nowDate.getHours() >= 18 || nowDate.getHours() < 6) {
-        const nightStart = new Date(nowDate); if (nowDate.getHours() < 12) nightStart.setDate(nightStart.getDate() - 1);
-        nightStart.setHours(18, 0, 0, 0);
+      const nowDateMins = nowDate.getHours() * 60 + nowDate.getMinutes();
+      if (nowDateMins >= NIGHT.start || nowDateMins < NIGHT.end) {
+        // Hunt for bedtime from an hour before the configured night start, so
+        // an early night still registers; typicals use the same search start.
+        const searchMin = Math.max(0, NIGHT.start - 60);
+        const nightStart = new Date(nowDate); if (nowDateMins < NIGHT.start) nightStart.setDate(nightStart.getDate() - 1);
+        nightStart.setHours(Math.floor(searchMin / 60), searchMin % 60, 0, 0);
         const bed = I.bedtime(rollups, nightStart, new Date());
-        const typical = I.typicalBedtimeMinutes(rollups, 7);
+        const typical = I.typicalBedtimeMinutes(rollups, 7, searchMin);
         if (bed && typical) {
           let minutes = bed.getHours() * 60 + bed.getMinutes(); if (minutes < 720) minutes += 1440;
           const delta = Math.round(minutes - typical.mean);
@@ -1579,6 +1697,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
               ? `since ${fmtClock(new Date(o2State.since))} · ${fmtDur((Date.now() - o2State.since) / 1000)}`
               : 'tap to log on/off'}</span></button>
         </div>
+        ${prepCardMarkup()}
         <div class="doors">
           <a class="door card" href="/night"><b>Last night's report →</b>
             <span>Sleep story, wake-ups, and every oxygen event, in plain language.</span></a>
@@ -1589,6 +1708,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       el('chipTemp').addEventListener('click', () => openMetricSheet('temp'));
       el('chipDips').addEventListener('click', dipsSheet);
       el('chipO2').addEventListener('click', o2Sheet);
+      if (el('logFeedBtn')) el('logFeedBtn').addEventListener('click', logFeed);
     }
 
     async function refresh() {
@@ -1619,8 +1739,9 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           fetch('/api/accounts').then(r => r.json())
         ]);
         const account = (accounts.accounts || [])[0];
-        const babyName = account && account.dashboard_preferences && account.dashboard_preferences.baby_name;
-        if (babyName) deviceName = babyName;
+        const prefs = (account && account.dashboard_preferences) || {};
+        if (prefs.baby_name) deviceName = prefs.baby_name;
+        NIGHT = nightWindowFrom(prefs);
         if (account && account.poll_interval_seconds) pollSeconds = account.poll_interval_seconds;
       } catch (error) {
         el('statusLine').textContent = 'Could not load readings — is the collector running?';

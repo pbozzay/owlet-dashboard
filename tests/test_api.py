@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from app.auth_store import AuthStore
@@ -1070,6 +1072,108 @@ async def test_custom_low_oxygen_alert_fires_once_per_crossing(tmp_path):
             json={"dashboard_preferences": {"o2_alert_threshold": 40}},
         ).json()["account"]
         assert rejected["dashboard_preferences"].get("o2_alert_threshold") is None
+
+
+@pytest.mark.asyncio
+async def test_night_and_readiness_preferences_whitelist(tmp_path):
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    owned = await store.create_account(email="mine@x.y", user_id=user["id"])
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+    with client_for(app, session) as client:
+        updated = client.patch(
+            f"/api/accounts/{owned['id']}",
+            json={"dashboard_preferences": {
+                "night_start": "20:30",
+                "night_end": "06:00",
+                "readiness_report_time": "18:45",
+                "tz_offset_minutes": -300,
+            }},
+        ).json()["account"]
+        prefs = updated["dashboard_preferences"]
+        assert prefs["night_start"] == "20:30"
+        assert prefs["night_end"] == "06:00"
+        assert prefs["readiness_report_time"] == "18:45"
+        assert prefs["tz_offset_minutes"] == -300
+
+        cleared = client.patch(
+            f"/api/accounts/{owned['id']}",
+            json={"dashboard_preferences": {"readiness_report_time": None}},
+        ).json()["account"]
+        assert cleared["dashboard_preferences"].get("readiness_report_time") is None
+
+        garbage = client.patch(
+            f"/api/accounts/{owned['id']}",
+            json={"dashboard_preferences": {
+                "night_start": "25:99",
+                "night_end": "not a clock",
+                "readiness_report_time": "7pm",
+                "tz_offset_minutes": 99999,
+            }},
+        ).json()["account"]
+        prefs = garbage["dashboard_preferences"]
+        assert prefs["night_start"] == "20:30"       # bad values leave prior setting alone
+        assert prefs["night_end"] == "06:00"
+        assert prefs.get("readiness_report_time") is None
+        assert prefs["tz_offset_minutes"] == -300
+
+
+@pytest.mark.asyncio
+async def test_readiness_report_fires_once_and_summarizes_day(tmp_path):
+    from app.poller import Poller
+
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    account = await store.create_account(email="prep@example.test")
+
+    # Pin "local" time to roughly noon so the report window never straddles
+    # midnight regardless of when the test runs.
+    now_utc = datetime.now(timezone.utc)
+    offset = max(-840, min(840, 12 * 60 - (now_utc.hour * 60 + now_utc.minute)))
+    local_now = now_utc.astimezone(timezone(timedelta(minutes=offset)))
+    report_time = (local_now - timedelta(minutes=30)).strftime("%H:%M")
+    await store.update_account_preferences(
+        account["id"],
+        dashboard_preferences={
+            "readiness_report_time": report_time,
+            "tz_offset_minutes": offset,
+        },
+    )
+
+    def reading(state, minutes_ago):
+        ts = (now_utc - timedelta(minutes=minutes_ago)).isoformat()
+        return normalize_reading(
+            {"heart_rate": 120, "oxygen_saturation": 96, "battery": 80,
+             "sleep_state": state, "last_updated": ts},
+            "AC123",
+        )
+
+    # 40m awake, a 20m nap, 10m awake — all within today's day window.
+    for minutes_ago in range(70, 30, -1):
+        await store.insert_reading(reading(1, minutes_ago), account_id=account["id"])
+    for minutes_ago in range(30, 10, -1):
+        await store.insert_reading(reading(8, minutes_ago), account_id=account["id"])
+    for minutes_ago in range(10, 0, -1):
+        await store.insert_reading(reading(1, minutes_ago), account_id=account["id"])
+    await store.create_care_event(
+        account_id=account["id"], at=now_utc - timedelta(minutes=45), kind="Feeding"
+    )
+
+    poller = Poller(store, read_once=None, account_id=account["id"])
+    await poller._maybe_send_readiness()
+    await poller._maybe_send_readiness()   # same scheduled moment -> no repeat
+    poller._last_readiness_key = None      # a restart mustn't re-fire either
+    await poller._maybe_send_readiness()
+
+    notifications = await store.get_notifications(hours=None, account_ids=[account["id"]])
+    reports = [n for n in notifications["items"] if n["event_type"] == "night_readiness"]
+    assert len(reports) == 1
+    assert reports[0]["severity"] == "info"
+    assert "awake today" in reports[0]["title"]
+    assert "1 nap" in reports[0]["message"]
+    assert "1 feed logged" in reports[0]["message"]
 
 
 @pytest.mark.asyncio

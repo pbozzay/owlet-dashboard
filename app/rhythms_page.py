@@ -52,8 +52,26 @@ RHYTHMS_HEAD = """<style>
     .wear-bars b { font-size: 10.5px; color: var(--dim); font-weight: 500;
       font-variant-numeric: tabular-nums; }
     .wear-bars span { font-size: 10px; color: var(--faint); white-space: nowrap; }
+    .wear-bars em.dip-floor { font-style: normal; font-size: 9.5px; color: var(--faint);
+      font-variant-numeric: tabular-nums; white-space: nowrap; }
     .floor-warn { color: var(--awake) !important; font-weight: 700 !important; }
     .floor-bad { color: var(--bad) !important; font-weight: 700 !important; }
+
+    /* day-prep vs night pairs */
+    .prep-head { display: grid; grid-template-columns: 52px 1fr 1fr; gap: 10px;
+      font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+      color: var(--faint); margin-top: 12px; }
+    .prep-rows { display: grid; gap: 9px; margin-top: 8px; }
+    .prep-row { display: grid; grid-template-columns: 52px 1fr 1fr; gap: 10px;
+      align-items: center; font-size: 11px; }
+    .prep-day { color: var(--dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .prep-cell { display: grid; gap: 3px; }
+    .prep-track { position: relative; height: 8px; border-radius: 4px;
+      background: color-mix(in srgb, var(--surface-line) 55%, transparent); overflow: hidden; }
+    .prep-track i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; }
+    .prep-track.day i { background: color-mix(in srgb, var(--awake) 60%, var(--surface)); }
+    .prep-track.night i { background: var(--accent); opacity: .72; }
+    .prep-val { color: var(--faint); font-size: 10px; font-variant-numeric: tabular-nums; }
     .tile { padding: 20px; }
     .tile h3 { font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
       color: var(--faint); font-weight: 700; margin: 0 0 10px; }
@@ -279,13 +297,78 @@ RHYTHMS_SCRIPTS = """<script>
         </div>`);
     }
 
-    // ----- nights helper (6 PM → 8 AM, keyed by the evening's date) ------------
+    // ----- nights helper (user's night window, keyed by the evening's date) ----
+    // Defaults 7 PM → 7 AM; overwritten from preferences in boot().
+    let NIGHT = { start: 19 * 60, end: 7 * 60 };
+    function nightWindowFrom(prefs) {
+      const toMin = (value, fallback) => {
+        const m = /^([01]?\\d|2[0-3]):([0-5]\\d)$/.exec(value || '');
+        return m ? Number(m[1]) * 60 + Number(m[2]) : fallback;
+      };
+      const win = { start: toMin(prefs.night_start, 19 * 60), end: toMin(prefs.night_end, 7 * 60) };
+      return win.start > win.end ? win : { start: 19 * 60, end: 7 * 60 }; // night must cross midnight
+    }
     function nightOf(t) {
       const d = new Date(t);
-      const h = d.getHours();
-      if (h >= 18) return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-      if (h < 8) return new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1);
+      const mins = d.getHours() * 60 + d.getMinutes();
+      if (mins >= NIGHT.start) return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      if (mins < NIGHT.end) return new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1);
       return null;
+    }
+
+    // ----- day prep vs night sleep ---------------------------------------------
+    // The question this answers: "has she been awake enough today to sleep
+    // well tonight?" Pairs each day's awake time with that night's sleep.
+    function renderDayPrep(r5) {
+      const dateKey = d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      const dayAgg = new Map(), nightAgg = new Map();
+      for (const row of r5) {
+        const t = new Date(row.bucket_start);
+        const mins = t.getHours() * 60 + t.getMinutes();
+        const signal = (row.awake_seconds || 0) + (row.sleep_seconds || 0) > 0;
+        if (mins >= NIGHT.end && mins < NIGHT.start) {
+          const key = dateKey(t);
+          const rec = dayAgg.get(key) || { date: new Date(t.getFullYear(), t.getMonth(), t.getDate()), awake: 0, buckets: 0 };
+          rec.awake += row.awake_seconds || 0;
+          if (signal) rec.buckets += 1;
+          dayAgg.set(key, rec);
+        } else {
+          const nightDate = nightOf(t.getTime());
+          if (!nightDate) continue;
+          const key = dateKey(nightDate);
+          const rec = nightAgg.get(key) || { sleep: 0, buckets: 0 };
+          rec.sleep += row.sleep_seconds || 0;
+          if (signal) rec.buckets += 1;
+          nightAgg.set(key, rec);
+        }
+      }
+      const pairs = [...dayAgg.entries()]
+        .map(([key, day]) => ({ ...day, night: nightAgg.get(key) }))
+        .filter(p => p.buckets >= 60 && p.night && p.night.buckets >= 60) // ≥5h signal each side
+        .sort((a, b) => a.date - b.date).slice(-10);
+      if (pairs.length < 5) return '';
+      const maxAwake = Math.max(...pairs.map(p => p.awake), 1);
+      const maxSleep = Math.max(...pairs.map(p => p.night.sleep), 1);
+      const rows = pairs.map(p => `<div class="prep-row">
+        <span class="prep-day">${p.date.toLocaleDateString([], { weekday: 'short', day: 'numeric' })}</span>
+        <span class="prep-cell"><span class="prep-track day"><i style="width:${((p.awake / maxAwake) * 100).toFixed(1)}%"></i></span><span class="prep-val">${fmtDur(p.awake)}</span></span>
+        <span class="prep-cell"><span class="prep-track night"><i style="width:${((p.night.sleep / maxSleep) * 100).toFixed(1)}%"></i></span><span class="prep-val">${fmtDur(p.night.sleep)}</span></span>
+      </div>`).join('');
+      const sorted = [...pairs].sort((a, b) => a.awake - b.awake);
+      const half = Math.floor(pairs.length / 2);
+      const quiet = avg(sorted.slice(0, half).map(p => p.night.sleep));
+      const busy = avg(sorted.slice(pairs.length - half).map(p => p.night.sleep));
+      const diff = busy != null && quiet != null ? busy - quiet : null;
+      const note = diff == null || Math.abs(diff) < 900
+        ? 'No clear link yet between daytime awake hours and night sleep — more days will sharpen this.'
+        : diff > 0
+          ? `Busier days are earning their keep: the most-awake days bought about ${fmtDur(diff)} more night sleep than the quietest.`
+          : `More awake time hasn't meant more night sleep — the busiest days actually slept about ${fmtDur(-diff)} less. Overtiredness may be in play.`;
+      return section('Does the day set up the night?',
+        `<div class="tile card"><h3>Awake by day, asleep by night</h3>
+        <div class="prep-head"><span></span><span>Awake ${fmtClock(NIGHT.end)}–${fmtClock(NIGHT.start)}</span><span>Sleep that night</span></div>
+        <div class="prep-rows">${rows}</div>
+        <p>Each row is one day: how much awake time it held, and how the following night went. ${note}</p></div>`);
     }
 
     // ----- #3: desat burden per night ------------------------------------------
@@ -310,17 +393,22 @@ RHYTHMS_SCRIPTS = """<script>
         .sort((a, b) => a.date - b.date).slice(-14);
       if (list.length < 2) return '';
       const maxDips = Math.max(...list.map(n => n.dips), 1);
-      const bars = list.map(n => `<div class="wb">
-        <b class="${n.floor < 86 ? 'floor-bad' : n.floor < 90 ? 'floor-warn' : ''}">${Math.round(n.floor)}</b>
-        <i style="height:${Math.max(5, (n.dips / maxDips) * 64).toFixed(0)}px; background: color-mix(in srgb, var(--awake) 26%, var(--surface)); border-color: color-mix(in srgb, var(--awake) 55%, transparent)"></i>
-        <span>${DOW[n.date.getDay()]}·${n.dips}</span></div>`).join('');
+      const bars = list.map(n => {
+        const tint = n.floor < 86 ? 'var(--bad)' : 'var(--awake)';
+        const floorClass = n.floor < 86 ? 'floor-bad' : n.floor < 90 ? 'floor-warn' : '';
+        return `<div class="wb">
+        <b>${n.dips}</b>
+        <i style="height:${Math.max(5, (n.dips / maxDips) * 64).toFixed(0)}px; background: color-mix(in srgb, ${tint} 26%, var(--surface)); border-color: color-mix(in srgb, ${tint} 55%, transparent)"></i>
+        <span>${n.date.toLocaleDateString([], { weekday: 'short' })} ${n.date.getDate()}</span>
+        <em class="dip-floor ${floorClass}">low ${Math.round(n.floor)}%</em></div>`;
+      }).join('');
       const week = list.slice(-7), prior = list.slice(0, -7);
       const now = avg(week.map(n => n.dips)), before = avg(prior.map(n => n.dips));
-      let note = 'Bar height is the number of dip episodes below 90% that night; the number above each bar is the night’s floor.';
+      let note = 'Each bar counts that night’s dip episodes below 90% — taller means a busier night. Under each night sits its lowest reading; a red bar means the floor went under 86%.';
       if (now != null && before != null) {
         const diff = Math.round((now - before) * 10) / 10;
-        note += diff <= -0.5 ? ` Averaging ${-diff} fewer per night than the week before.`
-          : diff >= 0.5 ? ` Averaging ${diff} more per night than the week before.`
+        note += diff <= -0.5 ? ` Averaging ${-diff} fewer episodes per night than the week before.`
+          : diff >= 0.5 ? ` Averaging ${diff} more episodes per night than the week before.`
           : ' Holding about even with the week before.';
       }
       return section('Desat burden, night by night',
@@ -526,15 +614,18 @@ RHYTHMS_SCRIPTS = """<script>
 
     // ----- pattern analysis (tiles) ---------------------------------------------
     function nightlyAnalysis(days) {
-      // For each night (6 PM day N -> noon day N+1): total sleep, bedtime, longest stretch.
+      // For each configured night (start on day N -> end on day N+1):
+      // total sleep, bedtime, longest stretch.
       const byTime = new Map();
       days.forEach(day => day.cells.forEach((row, col) => {
         if (row) byTime.set(day.date.getTime() + col * BUCKET_SEC * 1000, row);
       }));
       const nights = [];
       days.forEach(day => {
-        const start = day.date.getTime() + 18 * 3600 * 1000;
-        const end = start + 18 * 3600 * 1000;
+        const startMin = Math.floor(NIGHT.start / BUCKET_MIN) * BUCKET_MIN;
+        const endMin = 24 * 60 + Math.ceil(NIGHT.end / BUCKET_MIN) * BUCKET_MIN;
+        const start = day.date.getTime() + startMin * 60000;
+        const end = day.date.getTime() + endMin * 60000;
         let sleep = 0, covered = 0, bedtime = null, stretch = 0, bestStretch = 0;
         for (let t = start; t < end; t += BUCKET_SEC * 1000) {
           const row = byTime.get(t);
@@ -600,7 +691,7 @@ RHYTHMS_SCRIPTS = """<script>
           : bedSpread != null ? (bedSpread <= 30
             ? `Remarkably consistent — within ±${Math.round(bedSpread)} minutes. A rhythm is forming.`
             : `Still drifting by about ±${Math.round(bedSpread)} minutes night to night.`)
-          : 'First sustained sleep after 6 PM.'}</p></div>`);
+          : `First sustained sleep after ${fmtClock(NIGHT.start)}.`}</p></div>`);
       tiles.push(`<div class="tile card"><h3>Longest stretch</h3>
         <b>${longest ? fmtDur(longest) : '—'}</b>
         <p>${longestNight && longest ? `Best unbroken sleep this week, on ${longestNight.date.toLocaleDateString([], { weekday: 'long' })} night.` : 'Longest unbroken sleep this week.'}</p></div>`);
@@ -629,7 +720,9 @@ RHYTHMS_SCRIPTS = """<script>
         careEvents = (ev.events || []).map(e => ({ ...e, t: Date.parse(e.at) }));
         challenges = ch.items || [];
         const account = (accounts.accounts || [])[0];
-        deviceName = (account && account.dashboard_preferences && account.dashboard_preferences.baby_name) || null;
+        const prefs = (account && account.dashboard_preferences) || {};
+        deviceName = prefs.baby_name || null;
+        NIGHT = nightWindowFrom(prefs);
       } catch (error) {
         el('content').innerHTML = '<div class="empty">Could not load readings — is the collector running?</div>';
         return;
@@ -647,6 +740,7 @@ RHYTHMS_SCRIPTS = """<script>
         renderActogram(days, o2iv),
         renderDipMap(days, o2iv),
         renderTiles(days, rollups),
+        renderDayPrep(rollups5),
         renderDesatBurden(rollups5),
         renderBaselineDrift(rollups5),
         renderDeepGap(rollups5),

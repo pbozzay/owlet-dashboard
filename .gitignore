@@ -7,8 +7,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
-data/*.sqlite3
-data/*.sqlite3-*
+data/
 desktop/build/
 desktop/dist/
 desktop/smoke.log

@@ -104,15 +104,29 @@ NIGHT_SCRIPTS = """<script>
       return h ? `${h}h ${pad(m)}m` : `${m}m`;
     };
 
+    // The user's night window (default 7 PM -> 7 AM); loaded from preferences in boot().
+    let NIGHT = { start: 19 * 60, end: 7 * 60 };
+    function nightWindowFrom(prefs) {
+      const toMin = (value, fallback) => {
+        const m = /^([01]?\\d|2[0-3]):([0-5]\\d)$/.exec(value || '');
+        return m ? Number(m[1]) * 60 + Number(m[2]) : fallback;
+      };
+      const win = { start: toMin(prefs.night_start, 19 * 60), end: toMin(prefs.night_end, 7 * 60) };
+      return win.start > win.end ? win : { start: 19 * 60, end: 7 * 60 }; // night must cross midnight
+    }
+
     function nightWindow(offset) {
-      // A "night" runs 6 PM -> noon the next day, local time. The most recent
-      // night stays current until the next one begins at 6 PM.
+      // A "night" spans the configured window, local time. The most recent
+      // night stays current until the next one begins.
       const now = new Date();
       const anchor = new Date(now);
-      if (now.getHours() < 18) anchor.setDate(anchor.getDate() - 1);
+      if (now.getHours() * 60 + now.getMinutes() < NIGHT.start) anchor.setDate(anchor.getDate() - 1);
       anchor.setDate(anchor.getDate() - offset);
-      const start = new Date(anchor); start.setHours(18, 0, 0, 0);
-      const end = new Date(start); end.setDate(end.getDate() + 1); end.setHours(12, 0, 0, 0);
+      const start = new Date(anchor);
+      start.setHours(Math.floor(NIGHT.start / 60), NIGHT.start % 60, 0, 0);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+      end.setHours(Math.floor(NIGHT.end / 60), NIGHT.end % 60, 0, 0);
       return { start, end, inProgress: offset === 0 && now < end };
     }
 
@@ -197,8 +211,8 @@ NIGHT_SCRIPTS = """<script>
         spans += `<span style="flex:1;background:${colors[cls]}"></span>`;
       }
       const axis = [];
-      for (let h = 18; h <= 36; h += 3) {
-        const d = new Date(window.start); d.setHours(h, 0, 0, 0);
+      for (let k = 0; k <= 4; k++) {
+        const d = new Date(window.start.getTime() + (window.end - window.start) * k / 4);
         axis.push(`<span>${fmtClock(d)}</span>`);
       }
       const nightFocus = encodeURIComponent(window.start.toISOString());
@@ -334,8 +348,9 @@ NIGHT_SCRIPTS = """<script>
         ]);
         rollups = rollupData.rollups || [];
         const account = (accounts.accounts || [])[0];
-        const babyName = account && account.dashboard_preferences && account.dashboard_preferences.baby_name;
-        if (babyName) deviceName = babyName;
+        const prefs = (account && account.dashboard_preferences) || {};
+        if (prefs.baby_name) deviceName = prefs.baby_name;
+        NIGHT = nightWindowFrom(prefs);
       } catch (error) {
         el('lede').textContent = 'Could not load readings — is the collector running?';
         return;

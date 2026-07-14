@@ -63,15 +63,18 @@
     return run ? new Date(run.start) : null;
   }
 
-  /* Typical bedtime (average minutes-from-midnight, evening-normalized) over N prior nights. */
-  function typicalBedtimeMinutes(rollups, nights) {
+  /* Typical bedtime (average minutes-from-midnight, evening-normalized) over N
+     prior nights. searchStartMin is minutes-from-midnight where the evening's
+     bedtime hunt begins (default 6 PM). */
+  function typicalBedtimeMinutes(rollups, nights, searchStartMin = 18 * 60) {
     const values = [];
     for (let offset = 1; offset <= nights; offset++) {
       const now = new Date();
       const anchor = new Date(now);
-      if (now.getHours() < 18) anchor.setDate(anchor.getDate() - 1);
+      if (now.getHours() * 60 + now.getMinutes() < searchStartMin) anchor.setDate(anchor.getDate() - 1);
       anchor.setDate(anchor.getDate() - offset);
-      const start = new Date(anchor); start.setHours(18, 0, 0, 0);
+      const start = new Date(anchor);
+      start.setHours(Math.floor(searchStartMin / 60), searchStartMin % 60, 0, 0);
       const end = new Date(start); end.setDate(end.getDate() + 1); end.setHours(12, 0, 0, 0);
       const bed = bedtime(rollups, start, end);
       if (bed) {

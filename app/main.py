@@ -849,7 +849,37 @@ def _public_dashboard_preferences_patch(value: object) -> dict[str, object] | No
             allowed["o2_alert_threshold"] = None
         elif isinstance(raw_threshold, (int, float)) and 80 <= int(raw_threshold) <= 95:
             allowed["o2_alert_threshold"] = int(raw_threshold)
+    for key in ("night_start", "night_end"):
+        if key in value:
+            clock = _valid_clock(value.get(key))
+            if clock is not None:
+                allowed[key] = clock
+    if "readiness_report_time" in value:
+        raw_time = value.get("readiness_report_time")
+        if raw_time in (None, ""):
+            allowed["readiness_report_time"] = None
+        else:
+            clock = _valid_clock(raw_time)
+            if clock is not None:
+                allowed["readiness_report_time"] = clock
+    if "tz_offset_minutes" in value:
+        raw_offset = value.get("tz_offset_minutes")
+        if isinstance(raw_offset, (int, float)) and -840 <= int(raw_offset) <= 840:
+            allowed["tz_offset_minutes"] = int(raw_offset)
     return allowed
+
+
+def _valid_clock(value: object) -> str | None:
+    """Accept 'HH:MM' 24-hour strings and nothing else."""
+    if not isinstance(value, str) or len(value) != 5 or value[2] != ":":
+        return None
+    try:
+        hour, minute = int(value[:2]), int(value[3:])
+    except ValueError:
+        return None
+    if 0 <= hour <= 23 and 0 <= minute <= 59:
+        return f"{hour:02d}:{minute:02d}"
+    return None
 
 
 def _public_account(account: dict[str, object]) -> dict[str, object]:

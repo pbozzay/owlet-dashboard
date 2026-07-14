@@ -280,6 +280,8 @@ body.themed * { box-sizing: border-box; }
 .pp-id small { color: var(--dim); font-size: 12px; }
 .pp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px;
   align-items: center; }
+.pp-clock-row { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.pp-to { color: var(--faint); font-size: 12px; }
 .pp-section select, .pp-section input {
   width: 100%; padding: 8px 10px; border: 1px solid var(--surface-line);
   border-radius: var(--radius-control); background: var(--surface); color: var(--ink);
