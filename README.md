@@ -52,9 +52,26 @@ Images are published to Docker Hub (`pbozzay/owlet-dashboard`, versioned on ever
 `v*.*.*` tag) and to GHCR (`ghcr.io/pbozzay/owlet-dashboard:latest`, on every push
 to main).
 
+The container stores everything in `/data` (SQLite database + WAL). It starts as
+root only long enough to make that volume writable for the runtime user, then drops
+privileges. By default it runs as uid/gid `1000:1000`; set `PUID`/`PGID` to match
+your host share's owner if you prefer (on **Unraid**, the appdata share is usually
+`nobody:users` = `99:100`):
+
+```bash
+docker run -d --name owlet-dashboard \
+  -e PUID=99 -e PGID=100 \
+  -p 8888:8888 \
+  -v /mnt/user/appdata/owlet-dashboard:/data \
+  ghcr.io/pbozzay/owlet-dashboard:latest
+```
+
 Put your reverse proxy (nginx, Nginx Proxy Manager, ...) in front of port 8888 with
 HTTPS; the app trusts `X-Forwarded-*` headers. On Unraid: add a container using the
-GHCR image, map `/data` to an appdata share, map the port.
+GHCR image, map `/data` to an appdata share, map the port, and (optionally) add
+`PUID=99` / `PGID=100` variables so the database files are owned by `nobody:users`.
+The container fixes `/data` ownership on startup, so a fresh install initializes its
+own database with no manual `chown` needed.
 
 Open the site, create an account (the first signup adopts any data from a
 pre-multi-user database), and link your Owlet login on the onboarding page. Owlet

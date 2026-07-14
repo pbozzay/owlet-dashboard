@@ -13,9 +13,21 @@ Current durable deployment target:
 - Repository: `ghcr.io/pbozzay/owlet-dashboard:latest`
 - Volume: `/mnt/user/appdata/owlet-dashboard` -> `/data`
 - Port: `8888` -> host port of your choice
-- Env (all optional): `POLL_INTERVAL_SECONDS` (default 30)
+- Env (all optional): `POLL_INTERVAL_SECONDS` (default 30); `PUID`/`PGID` to set
+  the user that owns the data files (default `1000:1000` — set `99`/`100` to match
+  Unraid's `nobody:users`)
 
 Everything the app stores lives in the `/data` volume (`owlet.sqlite3`).
+
+### Ownership / "unable to open database file"
+
+The container starts as root, chowns `/data` to `PUID:PGID`, then drops privileges
+before launching the app. This means a **fresh install initializes its own database
+even when the appdata share is owned by `nobody:users`** — no manual `chown` needed.
+If you saw `sqlite3.OperationalError: unable to open database file` on an older image,
+that was the fixed-uid container being unable to write the host-owned mount; pull the
+current image. Set `PUID=99`/`PGID=100` if you want the SQLite files owned by
+`nobody:users` for easy SMB browsing.
 
 ## nginx reverse proxy
 
