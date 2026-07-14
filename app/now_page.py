@@ -728,6 +728,11 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       });
       updateTimescale();
     }
+    // While the graph is moving, a center reticle reads out whatever passes
+    // beneath it — the big numbers become "the value at the middle".
+    function panFocus() {
+      inspectAtTime(chartEnd() - windowMs / 2, 0.5);
+    }
     const fmtTick = date => {
       const label = fmtClock(date);
       return date.toDateString() === new Date().toDateString()
@@ -743,7 +748,8 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       chip.classList.toggle('paused', viewEnd != null);
     }
     el('tsLive').addEventListener('click', () => {
-      if (viewEnd == null) return;
+      stopMomentum();
+      if (viewEnd == null) { clearInspect(); return; }
       viewEnd = null; clearInspect(); renderCharts();
     });
 
@@ -761,6 +767,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     el('rangeSeg').addEventListener('click', async event => {
       const mins = event.target.dataset && event.target.dataset.mins;
       if (!mins) return;
+      stopMomentum();
       windowMs = Number(mins) * 60 * 1000;
       localStorage.setItem('owletTodayWindow', mins);
       viewEnd = null;             // a new span always starts back at "now"
@@ -805,6 +812,9 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const rect = card.getBoundingClientRect();
       const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
       const t = chartEnd() - windowMs + frac * windowMs;
+      inspectAtTime(t, frac);
+    }
+    function inspectAtTime(t, frac) {
       const nearEvent = careEvents.find(e => Math.abs(e.x - t) <= 3 * 60 * 1000
         && e.kind !== 'O₂ on' && e.kind !== 'O₂ off');
       const when = `at ${fmtClock(new Date(t))}`
@@ -919,6 +929,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         else if (end - windowMs < loadedStart() + windowMs / 4) extendHistory();
         viewEnd = end;
         applyPan();
+        panFocus();
       }
     }
     function onUp(event) {
@@ -960,6 +971,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         if (target != null && nowMs - target < 5000) target = null;
         if (target != null && target < loadedStart() + windowMs) target = loadedStart() + windowMs;
         viewEnd = target === null ? null : target;
+        clearInspect();
         renderCharts();
       };
       if (Math.abs(vMs) < windowMs * 0.02) { settle(); return; }
@@ -973,6 +985,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         if (end <= minEnd) { viewEnd = minEnd; extendHistory(); settle(); return; }
         viewEnd = end;
         applyPan();
+        panFocus();
         if (Math.abs(vMs) > windowMs * 0.01) momentumRaf = requestAnimationFrame(step);
         else settle();
       };
