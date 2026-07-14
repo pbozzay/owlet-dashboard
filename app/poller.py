@@ -34,7 +34,7 @@ class Poller:
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
         self._last_alert_o2: float | None = None
-        self._last_alert_at = 0.0
+        self._last_alert_at = float("-inf")   # monotonic clock starts near 0 on fresh boots
 
     def start(self) -> None:
         if self._task is None or self._task.done():
