@@ -1,0 +1,98 @@
+name: Release and Deploy
+
+# Mirrors signal-viewer's release flow: pushing a v*.*.* tag runs the tests,
+# publishes the image to Docker Hub (versioned + latest), and cuts a GitHub
+# Release with Unraid update instructions.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+env:
+  DOCKER_REGISTRY: docker.io
+  DOCKER_USERNAME: pbozzay
+  IMAGE_NAME: pbozzay/owlet-dashboard
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      run: pip install -e ".[dev]"
+
+    - name: Run tests
+      run: pytest -q
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.DOCKER_REGISTRY }}
+        username: ${{ env.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Extract version from tag
+      id: version
+      run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: linux/amd64
+        push: true
+        tags: |
+          ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+          ${{ env.IMAGE_NAME }}:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        provenance: false
+        sbom: false
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: Release ${{ steps.version.outputs.version }}
+        body: |
+          ## Docker Image
+
+          - **Image**: `${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}`
+          - **Latest**: `${{ env.IMAGE_NAME }}:latest`
+          - Also published to GHCR from main: `ghcr.io/pbozzay/owlet-dashboard:latest`
+
+          ### Unraid update instructions
+          1. In the Unraid dashboard, click "Check for Updates" on the owlet-dashboard container
+          2. Click "Update" when available
+
+          **New install**: add a container with repository `docker.io/${{ env.IMAGE_NAME }}:latest`,
+          map port `8888`, and map `/data` to an appdata share. Put your reverse proxy in
+          front with HTTPS (the app trusts `X-Forwarded-*`). Do **not** set
+          `SEED_DEFAULT_ADMIN` on an internet-facing instance — create your account through
+          the signup page instead.
+
+          ### Manual Docker commands
+          ```bash
+          docker pull ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+
+          docker run -d --name owlet-dashboard \
+            -p 8888:8888 \
+            -v /path/to/appdata/owlet-dashboard:/data \
+            ${{ env.IMAGE_NAME }}:latest
+          ```
+        draft: false
+        prerelease: false
