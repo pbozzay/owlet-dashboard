@@ -30,8 +30,12 @@ Each poll stores:
 docker run -d --name owlet-dashboard \
   -p 8888:8888 \
   -v /path/to/appdata/owlet-dashboard:/data \
-  ghcr.io/pbozzay/owlet-dashboard:latest
+  docker.io/pbozzay/owlet-dashboard:latest
 ```
+
+Images are published to Docker Hub (`pbozzay/owlet-dashboard`, versioned on every
+`v*.*.*` tag) and to GHCR (`ghcr.io/pbozzay/owlet-dashboard:latest`, on every push
+to main).
 
 Put your reverse proxy (nginx, Nginx Proxy Manager, ...) in front of port 8888 with
 HTTPS; the app trusts `X-Forwarded-*` headers. On Unraid: add a container using the
