@@ -97,6 +97,12 @@ _LANDING = """<!doctype html>
             box-shadow:0 16px 44px rgba(18,32,51,.10); padding:30px; }}
     .card h2 {{ font-size:19px; margin-bottom:4px; }}
     .card p.sub {{ color:var(--muted); font-size:13.5px; margin-bottom:14px; }}
+    .rightcol {{ display:flex; flex-direction:column; gap:18px; }}
+    .shot {{ align-self:center; width:100%; max-width:250px; background:var(--panel);
+            border:1px solid var(--line); border-radius:20px; padding:9px;
+            box-shadow:0 12px 34px rgba(18,32,51,.12); }}
+    .shot svg {{ display:block; width:100%; height:auto; border-radius:13px; }}
+    .shot-cap {{ text-align:center; font-size:11.5px; color:var(--muted); margin-top:9px; }}
     label {{ display:block; font-size:13px; font-weight:600; margin:14px 0 5px; }}
     /* 16px minimum stops mobile Safari's forced zoom-on-focus */
     input {{ width:100%; padding:11px 12px; border:1px solid #d6dee9; border-radius:10px;
@@ -124,7 +130,7 @@ _LANDING = """<!doctype html>
       <div class="brand"><img src="/logo.svg" alt="" /><span>Owlet Dashboard</span></div>
       <h1>A free web client for <em>Owlet</em> users.</h1>
       <p class="lede">Sign in with your Owlet account and Owlet Dashboard turns your sock's
-        readings into a private history you can actually explore — live vitals, nightly sleep
+        readings into a private history you can explore — live vitals, nightly sleep
         reports, and long-term rhythms, on any device.</p>
       <p class="oss">Free, open source, and unofficial — provided as-is, not affiliated with
         Owlet Baby Care. <a href="https://github.com/pbozzay/owlet-dashboard"
@@ -150,25 +156,71 @@ _LANDING = """<!doctype html>
           <span>{privacy_copy} Installable as an app, or self-host it with Docker.</span></div></li>
       </ul>
     </section>
-    <section class="card">
-      <h2>Sign in</h2>
-      <p class="sub">Welcome back — your charts are waiting.</p>
-      {error}
-      <form method="post" action="/auth/login">
-        <label for="email">Email</label>
-        <input id="email" name="email" type="text" inputmode="email" required
-               autocomplete="username" />
-        <label for="password">Password</label>
-        <input id="password" name="password" type="password" required autocomplete="current-password" />
-        <button type="submit">Sign in</button>
-      </form>
-      <p class="alt">New here? <a href="/signup">Create a free account</a></p>
-    </section>
+    <div class="rightcol">
+      <div class="shot">
+        {preview}
+        <div class="shot-cap">A peek at the Today view</div>
+      </div>
+      <section class="card">
+        <h2>Sign in</h2>
+        <p class="sub">Welcome back — your charts are waiting.</p>
+        {error}
+        <form method="post" action="/auth/login">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="text" inputmode="email" required
+                 autocomplete="username" />
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" required autocomplete="current-password" />
+          <button type="submit">Sign in</button>
+        </form>
+        <p class="alt">New here? <a href="/signup">Create a free account</a></p>
+      </section>
+    </div>
     <footer>Retrospective trend viewing only — not a medical monitor or alert replacement.
       Not affiliated with Owlet Baby Care.</footer>
   </div>
 </body>
 </html>"""
+
+
+# A hand-built, on-brand mock of the Today screen — self-contained (no external
+# assets, no real baby data), crisp at any size, and cheap to keep current as the
+# UI evolves. Inserted into _LANDING as a .format() value, so its own braces (none
+# here) don't need escaping.
+_TODAY_PREVIEW_SVG = """<svg viewBox="0 0 300 372" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Preview of the Today view: live oxygen and heart-rate charts with sleep status">
+  <rect width="300" height="372" rx="14" fill="#f5f7fb"/>
+  <g font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+    <text x="14" y="24" font-size="12.5" font-weight="700" fill="#122033">Owlet Dashboard</text>
+    <circle cx="126" cy="20" r="3.2" fill="#f59e0b"/>
+    <rect x="236" y="12" width="50" height="17" rx="8.5" fill="#fff" stroke="#e3e9f2"/>
+    <text x="261" y="24" font-size="9.5" font-weight="600" fill="#5b6b80" text-anchor="middle">82%</text>
+    <text x="14" y="56" font-size="12.5" fill="#5b6b80"><tspan font-weight="700" fill="#122033">The baby</tspan> is asleep</text>
+    <rect x="256" y="45" width="30" height="17" rx="8.5" fill="#ede9fe"/>
+    <text x="271" y="57" font-size="9.5" font-weight="700" fill="#6d28d9" text-anchor="middle">6h</text>
+    <rect x="14" y="70" width="272" height="86" rx="13" fill="#fff" stroke="#e3e9f2"/>
+    <text x="26" y="90" font-size="9" letter-spacing="1" font-weight="700" fill="#9aa7b8">OXYGEN</text>
+    <text x="26" y="119" font-size="27" font-weight="700" fill="#122033">97<tspan font-size="14" fill="#5b6b80">%</tspan></text>
+    <polyline points="150,140 161,133 172,142 183,128 194,139 205,124 216,138 227,130 238,143 249,132 260,139 271,134" fill="none" stroke="#6d28d9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="14" y="166" width="272" height="86" rx="13" fill="#fff" stroke="#e3e9f2"/>
+    <text x="26" y="186" font-size="9" letter-spacing="1" font-weight="700" fill="#9aa7b8">HEART RATE</text>
+    <text x="26" y="215" font-size="27" font-weight="700" fill="#122033">128<tspan font-size="14" fill="#5b6b80"> bpm</tspan></text>
+    <polyline points="150,236 160,230 170,234 180,226 190,232 200,222 210,231 220,224 230,235 240,228 250,233 260,227 271,232" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="14" y="262" width="84" height="50" rx="11" fill="#fff" stroke="#e3e9f2"/>
+    <text x="56" y="288" font-size="13.5" font-weight="700" fill="#122033" text-anchor="middle">8h 20m</text>
+    <text x="56" y="303" font-size="8.5" fill="#5b6b80" text-anchor="middle">sleep today</text>
+    <rect x="106" y="262" width="84" height="50" rx="11" fill="#fff" stroke="#e3e9f2"/>
+    <text x="148" y="288" font-size="13.5" font-weight="700" fill="#122033" text-anchor="middle">2</text>
+    <text x="148" y="303" font-size="8.5" fill="#5b6b80" text-anchor="middle">O₂ dips today</text>
+    <rect x="198" y="262" width="88" height="50" rx="11" fill="#fff" stroke="#e3e9f2"/>
+    <text x="242" y="288" font-size="12.5" font-weight="700" fill="#3b82f6" text-anchor="middle">O₂ off</text>
+    <text x="242" y="303" font-size="8.5" fill="#5b6b80" text-anchor="middle">supplemental</text>
+    <line x1="14" y1="332" x2="286" y2="332" stroke="#e3e9f2"/>
+    <text x="44" y="352" font-size="9" font-weight="700" fill="#6d28d9" text-anchor="middle">Today</text>
+    <text x="115" y="352" font-size="9" fill="#8a98ab" text-anchor="middle">Tonight</text>
+    <text x="188" y="352" font-size="9" fill="#8a98ab" text-anchor="middle">Rhythms</text>
+    <text x="256" y="352" font-size="9" fill="#8a98ab" text-anchor="middle">Data</text>
+  </g>
+</svg>"""
 
 
 HOSTED_PRIVACY_COPY = (
@@ -185,6 +237,7 @@ def login_page(error: str | None = None, desktop_mode: bool = False) -> str:
     return _LANDING.format(
         error=_error(error),
         privacy_copy=DESKTOP_PRIVACY_COPY if desktop_mode else HOSTED_PRIVACY_COPY,
+        preview=_TODAY_PREVIEW_SVG,
     )
 
 
