@@ -94,6 +94,22 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
       cursor: pointer; color: var(--faint); padding: 7px 9px; border-radius: 9px;
       font-size: 14px; line-height: 1; }
     .vital-expand:hover { color: var(--accent); background: var(--accent-soft); }
+    .vital-o2toggle { all: unset; position: absolute; top: 10px; right: 44px; z-index: 2;
+      cursor: pointer; font-size: 11px; font-weight: 700; padding: 6px 10px;
+      border-radius: 999px; color: var(--faint); border: 1px solid var(--surface-line);
+      line-height: 1; }
+    .vital-o2toggle:hover { color: var(--accent); border-color: var(--accent); }
+    .vital-o2toggle.on { color: var(--accent); background: var(--accent-soft);
+      border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+    .vital-o2toggle.arming { color: #fff; background: var(--accent);
+      border-color: var(--accent); }
+    .vital.placing { outline: 2px solid var(--accent); outline-offset: -1px;
+      cursor: crosshair; }
+    .place-hint { position: absolute; left: 50%; top: 44px; transform: translateX(-50%);
+      z-index: 3; background: var(--accent); color: #fff; font-size: 11px;
+      font-weight: 600; padding: 5px 12px; border-radius: 999px; white-space: nowrap;
+      pointer-events: none; }
+    .place-hint[hidden] { display: none; }
 
     /* ---- metric detail sheet ---------------------------------------------- */
     .ms-top { display: flex; justify-content: space-between; align-items: baseline;
@@ -231,7 +247,7 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
   </style>"""
 
 _VITAL_CARD = """<div class="vital card{minor}" id="card-{key}" data-metric="{key}">
-        <button class="vital-expand" data-expand="{key}" type="button"
+        {extra}<button class="vital-expand" data-expand="{key}" type="button"
           aria-label="Expand {label} chart" title="Bigger chart &amp; stats">⤢</button>
         <span class="label">{label}</span>
         <div class="value"><span id="{key}Value">—</span><small id="{key}Unit"> {unit}</small></div>
@@ -256,12 +272,15 @@ NOW_BODY = (
       </div>
     </div>
     <div class="hero">"""
-    + _VITAL_CARD.format(minor="", key="o2", label="Oxygen", unit="%")
-    + _VITAL_CARD.format(minor="", key="hr", label="Heart rate", unit="bpm")
+    + _VITAL_CARD.format(minor="", key="o2", label="Oxygen", unit="%", extra=(
+        '<button class="vital-o2toggle" id="o2ToggleBtn" type="button" '
+        'title="Log supplemental O\u2082 on/off at a point on the chart">O\u2082</button>'
+        '<div class="place-hint" id="placeHint" hidden></div>'))
+    + _VITAL_CARD.format(minor="", key="hr", label="Heart rate", unit="bpm", extra="")
     + """</div>
     <div class="hero-minor">"""
-    + _VITAL_CARD.format(minor=" minor", key="sleep", label="Sleep", unit="")
-    + _VITAL_CARD.format(minor=" minor", key="move", label="Movement", unit="")
+    + _VITAL_CARD.format(minor=" minor", key="sleep", label="Sleep", unit="", extra="")
+    + _VITAL_CARD.format(minor=" minor", key="move", label="Movement", unit="", extra="")
     + """</div>
     <div class="timescale">
       <span id="tsStart"></span>
@@ -492,6 +511,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       o2State = open
         ? { on: true, since: open.x, flow }
         : { on: false, since: marks.length ? marks[marks.length - 1].x : null, flow: '' };
+      paintO2Toggle();
     }
     const onO2At = t => o2Spans.some(s => t >= s.start && t <= s.end);
     function o2OverlayMarkup(t0, t1, dataStart, dataEnd, w, h, clip) {
@@ -813,6 +833,12 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
 
     function onDown(event, card) {
       if (event.button != null && event.button !== 0) return;
+      if (o2Placing && card.id === 'card-o2') {
+        try { card.setPointerCapture(event.pointerId); } catch (error) { /* fine */ }
+        gesture = { mode: 'place', card, pointerId: event.pointerId, hist: [] };
+        inspectAt(event.clientX, card);
+        return;
+      }
       stopMomentum(); clearTimeout(inspectFade);
       try { card.setPointerCapture(event.pointerId); } catch (error) { /* keep the gesture even if capture fails */ }
       if (gesture && gesture.card === card && gesture.pointerId !== event.pointerId && gesture.mode !== 'pinch') {
@@ -873,6 +899,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           clearTimeout(holdTimer); clearInspect(); gesture = null; return;
         }
       }
+      if (gesture.mode === 'place') { inspectAt(event.clientX, gesture.card); return; }
       if (gesture.mode === 'scrub') { inspectAt(event.clientX, gesture.card); return; }
       if (gesture.mode === 'pan') {
         let end = gesture.end0 - dx * gesture.msPerPx;   // pull right → back in time
@@ -895,6 +922,11 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           ensureHistoryHours(Math.ceil((Date.now() - (chartEnd() - windowMs)) / 3600000));
           renderCharts();
         }
+        return;
+      }
+      if (gesture.mode === 'place') {
+        gesture = null;
+        commitO2At(event.clientX);
         return;
       }
       const mode = gesture.mode, hist = gesture.hist, msPerPx = gesture.msPerPx;
@@ -1007,13 +1039,67 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     // ---- supplemental O2 sheet: on/off with a flow setting --------------------
     const FLOW_PRESETS = ['1/32 L', '1/16 L', '1/8 L', '1/4 L', '1/2 L', '1 L'];
     let pendingFlow = localStorage.getItem('owletO2Flow') || '1/16 L';
-    async function logO2(kind, note) {
+    async function logO2(kind, note, atMs) {
+      const payload = { kind, note: note || '' };
+      if (atMs) payload.at = new Date(atMs).toISOString();
       const response = await fetch('/api/events', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind, note: note || '' }),
+        body: JSON.stringify(payload),
       });
       if (!response.ok) throw new Error(String(response.status));
       await loadEvents();
+    }
+
+    // ---- on-chart toggle: arm, tap a moment on the O2 graph, log it ----------
+    let o2Placing = false;
+    function paintO2Toggle() {
+      const button = el('o2ToggleBtn');
+      if (!button) return;
+      button.textContent = 'O₂ ' + (o2State.on ? 'on' : 'off');
+      button.className = 'vital-o2toggle' + (o2Placing ? ' arming' : o2State.on ? ' on' : '');
+      const hint = el('placeHint');
+      if (hint) {
+        hint.hidden = !o2Placing;
+        hint.textContent = `tap the moment O₂ went ${o2State.on ? 'off' : 'on'}`;
+      }
+      el('card-o2').classList.toggle('placing', o2Placing);
+    }
+    function exitO2Placing() { o2Placing = false; paintO2Toggle(); }
+    function commitO2At(clientX) {
+      const card = el('card-o2');
+      const rect = card.getBoundingClientRect();
+      const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      let t = chartEnd() - windowMs + frac * windowMs;
+      t = Math.min(t, Date.now());
+      exitO2Placing();
+      clearInspect();
+      if (o2State.on) {
+        logO2('O₂ off', '', t).catch(() => alert('Could not save — try again.'));
+      } else {
+        openFlowConfirm(t);
+      }
+    }
+    function openFlowConfirm(atMs) {
+      const flows = FLOW_PRESETS.map(flow =>
+        `<button type="button" data-flow="${esc(flow)}" class="${flow === pendingFlow ? 'sel' : ''}">${esc(flow)}</button>`).join('');
+      openSheet('O₂ on at ' + fmtClock(new Date(atMs)),
+        `<h3 class="section-title" style="margin-bottom:8px">Flow</h3>
+        <div class="flow-presets" id="confirmFlows">${flows}</div>
+        <button class="o2-action" id="confirmO2" type="button">Log O₂ on · ${esc(pendingFlow)}</button>
+        <p class="note">Logged at the moment you tapped on the chart.</p>`);
+      el('confirmFlows').addEventListener('click', event => {
+        const flow = event.target.dataset && event.target.dataset.flow;
+        if (!flow) return;
+        pendingFlow = flow;
+        localStorage.setItem('owletO2Flow', flow);
+        el('confirmFlows').querySelectorAll('button').forEach(b => b.classList.toggle('sel', b.dataset.flow === flow));
+        el('confirmO2').textContent = 'Log O₂ on · ' + flow;
+      });
+      el('confirmO2').addEventListener('click', async () => {
+        el('confirmO2').disabled = true;
+        try { await logO2('O₂ on', pendingFlow, atMs); closeSheet(); }
+        catch (error) { el('confirmO2').disabled = false; alert('Could not save — try again.'); }
+      });
     }
     function o2HistoryRows() {
       const now = Date.now();
@@ -1189,6 +1275,17 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         scrub(event);
       });
       chart.addEventListener('pointermove', scrub);
+    }
+    if (el('o2ToggleBtn')) {
+      el('o2ToggleBtn').addEventListener('pointerdown', event => event.stopPropagation());
+      el('o2ToggleBtn').addEventListener('click', event => {
+        event.stopPropagation();
+        o2Placing = !o2Placing;
+        paintO2Toggle();
+      });
+      document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && o2Placing) exitO2Placing();
+      });
     }
     document.querySelectorAll('.vital-expand').forEach(button => {
       button.addEventListener('pointerdown', event => event.stopPropagation());

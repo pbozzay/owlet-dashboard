@@ -147,6 +147,13 @@ Libraries I checked while scaffolding:
 
 ## Next improvements
 
+- Web Push for low-O₂ alerts on phones (works on iOS 16.4+ when the app is
+  added to the Home Screen as a PWA): a service-worker push handler, push
+  subscriptions stored per device, and the server sending a signed push
+  (VAPID) when the poller writes a low-O₂ alert. Very buildable on top of
+  what exists — the alert already creates a server-side notification row, so
+  it's "send a push at that moment" plus a subscribe button.
+- Retention/downsampling job so cold rollup computes stay fast as readings grow.
 - Add daily sleep rollups in a `sessions` table.
 - Add CSV export endpoint.
 - Add Grafana/Prometheus option if you want more powerful charts.
