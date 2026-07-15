@@ -108,6 +108,7 @@ SHELL_JS = """<script>
     closeProfile();
     settingsBackdrop.hidden = false;
     document.body.style.overflow = 'hidden';
+    showSettingsPane(localStorage.getItem('owletSettingsPane') || 'baby');
     populateTimezones();
     loadDevicePanel();
     loadSigninEmail();
@@ -176,6 +177,26 @@ SHELL_JS = """<script>
   }
   if (byId('openSettings')) byId('openSettings').addEventListener('click', openSettingsModal);
   if (byId('settingsClose')) byId('settingsClose').addEventListener('click', closeSettingsModal);
+  function showSettingsPane(name) {
+    var known = false;
+    document.querySelectorAll('.set-pane').forEach(function (pane) {
+      if (pane.dataset.pane === name) known = true;
+    });
+    if (!known) name = 'baby';
+    document.querySelectorAll('.set-rail [data-pane]').forEach(function (tab) {
+      var active = tab.dataset.pane === name;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', String(active));
+      if (active && tab.scrollIntoView) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+    document.querySelectorAll('.set-pane').forEach(function (pane) {
+      pane.classList.toggle('active', pane.dataset.pane === name);
+    });
+    localStorage.setItem('owletSettingsPane', name);
+  }
+  document.querySelectorAll('.set-rail [data-pane]').forEach(function (tab) {
+    tab.addEventListener('click', function () { showSettingsPane(tab.dataset.pane); });
+  });
   if (settingsBackdrop) {
     settingsBackdrop.addEventListener('click', function (event) {
       if (event.target === settingsBackdrop) closeSettingsModal();
@@ -1173,144 +1194,164 @@ def render_shell(
         <div><b>Settings</b><small class="focus-readout">saved to your profile, on every device</small></div>
         <button id="settingsClose" type="button" aria-label="Close">✕</button>
       </header>
-      <div class="settings-grid">
-        <section class="sg">
-          <h4>Baby</h4>
-          <div class="pp-section">
-            <span class="pp-label">Baby's name</span>
-            <input id="babyNameSetting" type="text" maxlength="40" placeholder="e.g. Hazel"
-              autocomplete="off" />
-          </div>
-          <div class="pp-section">
-            <span class="pp-label">Date of birth</span>
-            <input id="birthDateSetting" type="date" autocomplete="off" />
-            <small class="pp-hint" id="birthDateHint">Owlet's API doesn't share this — set it here so
-              milestones and "normal for her age" can be age-adjusted.</small>
-          </div>
-        </section>
-        <section class="sg">
-          <h4>Night &amp; reports</h4>
-          <div class="pp-section">
-            <span class="pp-label">Night runs from</span>
-            <div class="pp-row pp-clock-row">
-              <input id="nightStartSetting" type="time" value="19:00" />
-              <span class="pp-to">to</span>
-              <input id="nightEndSetting" type="time" value="07:00" />
+      <div class="settings-body">
+        <nav class="set-rail" role="tablist" aria-label="Settings sections">
+          <button type="button" role="tab" data-pane="baby" class="active">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21.2l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+            <span>Baby</span>
+          </button>
+          <button type="button" role="tab" data-pane="alerts">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.5 21a2 2 0 0 1-3 0"/></svg>
+            <span>Alerts &amp; reports</span>
+          </button>
+          <button type="button" role="tab" data-pane="display">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+            <span>Display</span>
+          </button>
+          <button type="button" role="tab" data-pane="signin">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2l-2 2m-7.6 7.6a5.5 5.5 0 1 1-7.8 7.8 5.5 5.5 0 0 1 7.8-7.8zm0 0L15.5 7.5m3 3L21 8m-3.5-3.5L19 6"/></svg>
+            <span>Sign-in</span>
+          </button>
+          <button type="button" role="tab" data-pane="device">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5a7 7 0 0 1 14 0"/><path d="M8.5 12.5a3.5 3.5 0 0 1 7 0"/><circle cx="12" cy="16" r="1.6"/><path d="M12 17.6V21"/></svg>
+            <span>Device</span>
+          </button>
+        </nav>
+        <div class="set-panes">
+          <section class="set-pane active" data-pane="baby">
+            <h3>Baby</h3>
+            <p class="set-lede">Who the dashboard watches over, and when her night runs.</p>
+            <div class="set-row">
+              <div class="set-lab"><b>Name</b><small>Replaces “the baby” across every page.</small></div>
+              <input id="babyNameSetting" type="text" maxlength="40" placeholder="e.g. Hazel"
+                autocomplete="off" />
             </div>
-            <small class="pp-hint">Tonight and Rhythms count this span as the night; everything else is the day.</small>
-          </div>
-          <div class="pp-section">
-            <span class="pp-label">Evening prep report</span>
-            <select id="readinessSetting">
-              <option value="">Off</option>
-              <option value="17:30">5:30 PM</option>
-              <option value="18:00">6:00 PM</option>
-              <option value="18:30">6:30 PM</option>
-              <option value="18:45">6:45 PM</option>
-              <option value="19:00">7:00 PM</option>
-              <option value="19:30">7:30 PM</option>
-              <option value="20:00">8:00 PM</option>
-            </select>
-            <small class="pp-hint">A daily nudge before bedtime — awake time, naps, and feeds so far.</small>
-          </div>
-        </section>
-        <section class="sg">
-          <h4>Alerts</h4>
-          <div class="pp-section">
-            <span class="pp-label">Low-O₂ alert</span>
-            <select id="o2AlertSetting">
-              <option value="">Off</option>
-              <option value="92">Below 92%</option>
-              <option value="90">Below 90%</option>
-              <option value="88">Below 88%</option>
-              <option value="86">Below 86%</option>
-            </select>
-            <small class="pp-hint" id="o2AlertHint">Crossing below rings the bell, shows a toast, and — if you allow
-              notifications — pings your device while the dashboard is open in any tab.</small>
-          </div>
-          <div class="pp-section">
-            <span class="pp-label">Timezone</span>
-            <select id="timezoneSetting"><option value="">Auto (this device)</option></select>
-            <small class="pp-hint">Used for the prep report schedule. Auto follows whatever device
-              last opened the dashboard.</small>
-          </div>
-        </section>
-        <section class="sg">
-          <h4>Display</h4>
-          <div class="pp-section">
-            <span class="pp-label">Theme</span>
-            <div class="pp-seg" role="group" aria-label="Theme">
-              <button type="button" data-theme-set="auto">Auto</button>
-              <button type="button" data-theme-set="light">Light</button>
-              <button type="button" data-theme-set="dark">Dark</button>
+            <div class="set-row">
+              <div class="set-lab"><b>Date of birth</b><small id="birthDateHint">Owlet's API doesn't share
+                this — set it so milestones can be age-adjusted.</small></div>
+              <input id="birthDateSetting" type="date" autocomplete="off" />
             </div>
-          </div>
-          <div class="pp-section">
-            <span class="pp-label">Update every</span>
-            <select id="pollIntervalSetting">
-              <option value="5">5 sec</option>
-              <option value="10">10 sec</option>
-              <option value="30">30 sec</option>
-              <option value="60">1 min</option>
-              <option value="300">5 min</option>
-            </select>
-          </div>
-          <div class="pp-section">
-            <span class="pp-label">Movement chart</span>
-            <select id="movementSourceSetting">
-              <option value="raw">Raw sensor wiggle</option>
-              <option value="bucket">Owlet activity level (0–100)</option>
-            </select>
-            <small class="pp-hint">The activity level is the sock's own normalized scale — steadier,
-              comparable night to night.</small>
-          </div>
-          <div class="pp-section">
-            <span class="pp-label">Oxygen chart</span>
-            <select id="o2DisplaySetting">
-              <option value="raw">Every reading</option>
-              <option value="smoothed">Smoothed (10-reading average)</option>
-            </select>
-            <small class="pp-hint">Smoothing calms the line; dips still show at full depth in dip
-              counts and reports.</small>
-          </div>
-        </section>
-        <section class="sg sg-signin">
-          <h4>Sign-in</h4>
-          <div class="signin-grid">
-            <div class="pp-section">
-              <span class="pp-label">Email</span>
+            <div class="set-row">
+              <div class="set-lab"><b>Night runs from</b><small>Tonight and Rhythms count this span as
+                the night; everything else is the day.</small></div>
+              <div class="pp-row pp-clock-row">
+                <input id="nightStartSetting" type="time" value="19:00" />
+                <span class="pp-to">to</span>
+                <input id="nightEndSetting" type="time" value="07:00" />
+              </div>
+            </div>
+          </section>
+          <section class="set-pane" data-pane="alerts">
+            <h3>Alerts &amp; reports</h3>
+            <p class="set-lede">What the dashboard should tap you on the shoulder about.</p>
+            <div class="set-row">
+              <div class="set-lab"><b>Low-O₂ alert</b><small id="o2AlertHint">Crossing below rings the
+                bell, shows a toast, and — if you allow notifications — pings your device.</small></div>
+              <select id="o2AlertSetting">
+                <option value="">Off</option>
+                <option value="92">Below 92%</option>
+                <option value="90">Below 90%</option>
+                <option value="88">Below 88%</option>
+                <option value="86">Below 86%</option>
+              </select>
+            </div>
+            <div class="set-row">
+              <div class="set-lab"><b>Evening prep report</b><small>A daily nudge before bedtime — awake
+                time, naps, and feeds so far.</small></div>
+              <select id="readinessSetting">
+                <option value="">Off</option>
+                <option value="17:30">5:30 PM</option>
+                <option value="18:00">6:00 PM</option>
+                <option value="18:30">6:30 PM</option>
+                <option value="18:45">6:45 PM</option>
+                <option value="19:00">7:00 PM</option>
+                <option value="19:30">7:30 PM</option>
+                <option value="20:00">8:00 PM</option>
+              </select>
+            </div>
+            <div class="set-row">
+              <div class="set-lab"><b>Timezone</b><small>Sets when the report fires. Auto follows
+                whatever device last opened the dashboard.</small></div>
+              <select id="timezoneSetting"><option value="">Auto (this device)</option></select>
+            </div>
+          </section>
+          <section class="set-pane" data-pane="display">
+            <h3>Display</h3>
+            <p class="set-lede">How the dashboard looks and how the charts read.</p>
+            <div class="set-row">
+              <div class="set-lab"><b>Theme</b><small>Auto follows this device's light/dark setting.</small></div>
+              <div class="pp-seg" role="group" aria-label="Theme">
+                <button type="button" data-theme-set="auto">Auto</button>
+                <button type="button" data-theme-set="light">Light</button>
+                <button type="button" data-theme-set="dark">Dark</button>
+              </div>
+            </div>
+            <div class="set-row">
+              <div class="set-lab"><b>Update every</b><small>How often the live view refreshes.</small></div>
+              <select id="pollIntervalSetting">
+                <option value="5">5 sec</option>
+                <option value="10">10 sec</option>
+                <option value="30">30 sec</option>
+                <option value="60">1 min</option>
+                <option value="300">5 min</option>
+              </select>
+            </div>
+            <div class="set-row">
+              <div class="set-lab"><b>Movement chart</b><small>The activity level is the sock's own
+                normalized 0–100 scale — steadier night to night.</small></div>
+              <select id="movementSourceSetting">
+                <option value="raw">Raw sensor wiggle</option>
+                <option value="bucket">Owlet activity level</option>
+              </select>
+            </div>
+            <div class="set-row">
+              <div class="set-lab"><b>Oxygen chart</b><small>Smoothing calms the line; dips still show
+                at full depth in counts and reports.</small></div>
+              <select id="o2DisplaySetting">
+                <option value="raw">Every reading</option>
+                <option value="smoothed">Smoothed average</option>
+              </select>
+            </div>
+          </section>
+          <section class="set-pane" data-pane="signin">
+            <h3>Sign-in</h3>
+            <p class="set-lede">The email and password for this dashboard login.</p>
+            <div class="set-row">
+              <div class="set-lab"><b>Email</b><small>What you type on the sign-in page.</small></div>
               <input id="loginEmailSetting" type="email" autocomplete="username" />
             </div>
-            <div class="pp-section">
-              <span class="pp-label">New password <small style="font-weight:400">(leave blank to keep)</small></span>
+            <div class="set-row">
+              <div class="set-lab"><b>New password</b><small>Leave blank to keep the current one.</small></div>
               <input id="newPasswordSetting" type="password" minlength="8" maxlength="128"
                 autocomplete="new-password" placeholder="••••••••" />
             </div>
-            <div class="pp-section">
-              <span class="pp-label">Current password <small style="font-weight:400">(required to save)</small></span>
+            <div class="set-row set-row-confirm">
+              <div class="set-lab"><b>Current password</b><small>Required to save either change.
+                Changing the password signs out every other device.</small></div>
               <input id="currentPasswordSetting" type="password" autocomplete="current-password" />
             </div>
-            <div class="pp-section signin-save">
-              <span class="pp-label">&nbsp;</span>
+            <div class="set-save-row">
+              <small class="set-feedback" id="signinHint"></small>
               <button id="saveSignin" class="pp-link-btn" type="button">Save sign-in changes</button>
             </div>
-          </div>
-          <small class="pp-hint" id="signinHint">Changing the password signs out every other device.</small>
-        </section>
-        <section class="sg sg-device">
-          <h4>Device</h4>
-          <div class="dev-facts" id="deviceFacts"><small class="pp-hint">Loading device details…</small></div>
-          <div class="dev-signal">
-            <div class="dev-sig-head"><span class="pp-label">Signal quality</span><b id="sigNow">—</b></div>
-            <div class="dev-sig-nav">
-              <button id="sigPrev" type="button" aria-label="Previous day">‹</button>
-              <span id="sigDay">Today</span>
-              <button id="sigNext" type="button" aria-label="Next day" disabled>›</button>
+          </section>
+          <section class="set-pane" data-pane="device">
+            <h3>Device</h3>
+            <p class="set-lede">The sock and base as Owlet reports them — captured once, refreshed
+              when firmware or settings change.</p>
+            <div class="dev-facts" id="deviceFacts"><small class="pp-hint">Loading device details…</small></div>
+            <div class="dev-signal">
+              <div class="dev-sig-head"><span class="pp-label">Signal quality</span><b id="sigNow">—</b></div>
+              <div class="dev-sig-nav">
+                <button id="sigPrev" type="button" aria-label="Previous day">‹</button>
+                <span id="sigDay">Today</span>
+                <button id="sigNext" type="button" aria-label="Next day" disabled>›</button>
+              </div>
+              <svg id="sigChart" viewBox="0 0 320 72" preserveAspectRatio="none" aria-label="Signal strength through the day"></svg>
+              <div class="dev-sig-axis"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>12 AM</span></div>
             </div>
-            <svg id="sigChart" viewBox="0 0 320 72" preserveAspectRatio="none" aria-label="Signal strength through the day"></svg>
-            <div class="dev-sig-axis"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>12 AM</span></div>
-          </div>
-        </section>
+          </section>
+        </div>
       </div>
     </div>
   </div>
