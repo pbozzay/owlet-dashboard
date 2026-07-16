@@ -122,6 +122,11 @@ body.themed * { box-sizing: border-box; }
 .bell-pop { position: absolute; top: 44px; right: 0; width: min(360px, calc(100vw - 28px));
   padding: 16px; z-index: 60; }
 .bell-pop[hidden] { display: none; }
+@media (max-width: 640px) {
+  /* the bell/battery sit mid-bar on phones, so an anchored panel would run
+     off the left edge — pin to the viewport under the top bar instead */
+  .bell-pop { position: fixed; top: 62px; left: 12px; right: 12px; width: auto; }
+}
 .bp-head { display: flex; justify-content: space-between; align-items: baseline;
   gap: 10px; margin-bottom: 10px; }
 .bp-head b { font-size: 14px; }
