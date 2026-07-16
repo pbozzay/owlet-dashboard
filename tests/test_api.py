@@ -981,6 +981,40 @@ async def test_care_events_crud_and_tenancy(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_feed_events_carry_method_and_amounts(tmp_path):
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    await store.create_account(email="sock@x.y", user_id=user["id"])
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+
+    with client_for(app, session) as client:
+        bottle = client.post("/api/events", json={
+            "kind": "Feeding", "method": "bottle", "amount_ml": 118.3,
+        }).json()["event"]
+        nursing = client.post("/api/events", json={
+            "kind": "Feeding", "method": "nursing", "duration_min": 15,
+        }).json()["event"]
+        solids = client.post("/api/events", json={
+            "kind": "Feeding", "method": "solids", "note": "oatmeal",
+        }).json()["event"]
+        # junk values are dropped, not stored
+        junk = client.post("/api/events", json={
+            "kind": "Feeding", "method": "psychic", "amount_ml": 9000, "duration_min": -5,
+        }).json()["event"]
+        listed = client.get("/api/events?hours=24").json()["events"]
+
+    assert bottle["method"] == "bottle" and bottle["amount_ml"] == 118.3
+    assert nursing["method"] == "nursing" and nursing["duration_min"] == 15
+    assert solids["method"] == "solids" and solids["note"] == "oatmeal"
+    assert junk["method"] == "" and junk["amount_ml"] is None and junk["duration_min"] is None
+    by_id = {e["id"]: e for e in listed}
+    assert by_id[bottle["id"]]["amount_ml"] == 118.3
+    assert by_id[nursing["id"]]["duration_min"] == 15
+
+
+@pytest.mark.asyncio
 async def test_notifications_read_tracking(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)

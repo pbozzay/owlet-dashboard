@@ -256,8 +256,17 @@ class Poller:
             last_feed = max(
                 datetime.fromisoformat(str(e["at"])) for e in feeds
             ).astimezone(tz)
+            total_ml = sum(e.get("amount_ml") or 0 for e in feeds)
+            total_nursed = sum(e.get("duration_min") or 0 for e in feeds)
+            amounts = []
+            if total_ml:
+                ounces = round(total_ml / 29.5735 * 2) / 2
+                amounts.append(f"{ounces:g} oz")
+            if total_nursed:
+                amounts.append(f"{round(total_nursed)}m nursed")
+            amount_text = f" ({', '.join(amounts)})" if amounts else ""
             parts.append(
-                f"{len(feeds)} feed{'s' if len(feeds) != 1 else ''} logged, "
+                f"{len(feeds)} feed{'s' if len(feeds) != 1 else ''}{amount_text} logged, "
                 f"last at {_fmt_clock(last_feed)}."
             )
         title = f"Tonight's prep — {_fmt_duration(awake_s)} awake today"

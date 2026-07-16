@@ -232,6 +232,20 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .sheet .note { font-size: 12.5px; color: var(--dim); line-height: 1.5; margin: 10px 0 0; }
     .sheet .ev-del { all: unset; cursor: pointer; color: var(--faint); padding: 0 4px; }
     .sheet .ev-del:hover { color: var(--bad); }
+    .sheet .row-del { all: unset; cursor: pointer; color: var(--faint); padding: 0 6px;
+      font-size: 12px; flex: none; }
+    .sheet .row-del:hover { color: var(--bad); }
+    .sheet .row b:empty { display: none; }
+    .feed-logrow { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+    .feed-logrow label { display: flex; align-items: center; gap: 7px; font-size: 13px;
+      color: var(--dim); flex: none; }
+    .feed-logrow input[type="time"] { padding: 9px 10px; border: 1px solid var(--surface-line);
+      border-radius: var(--radius-control); background: var(--surface); color: var(--ink);
+      font-size: 13.5px; }
+    .feed-logrow .o2-action { flex: 1; }
+    .feed-note { width: 100%; box-sizing: border-box; padding: 10px 12px;
+      border: 1px solid var(--surface-line); border-radius: var(--radius-control);
+      background: var(--surface); color: var(--ink); font-size: 13.5px; margin-bottom: 2px; }
     .o2-state { text-align: center; margin-bottom: 14px; }
     .o2-state b { display: block; font-size: 24px; letter-spacing: -.01em; }
     .o2-state.on b { color: var(--accent); }
@@ -544,16 +558,16 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       for (const mark of marks) {
         if (mark.kind === 'O₂ on') {
           if (open && (mark.note || '') !== flow) {     // flow change while on
-            spans.push({ start: open.x, end: mark.x, flow });
+            spans.push({ start: open.x, end: mark.x, flow, startId: open.id, endId: null });
             open = mark;
           } else if (!open) open = mark;
           flow = mark.note || flow;
         } else if (open) {
-          spans.push({ start: open.x, end: mark.x, flow });
+          spans.push({ start: open.x, end: mark.x, flow, startId: open.id, endId: mark.id });
           open = null; flow = '';
         }
       }
-      if (open) spans.push({ start: open.x, end: Infinity, flow });
+      if (open) spans.push({ start: open.x, end: Infinity, flow, startId: open.id, endId: null });
       o2Spans = spans;
       o2State = open
         ? { on: true, since: open.x, flow }
@@ -1081,22 +1095,28 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     });
 
     // ---- detail sheet --------------------------------------------------------
+    let sheetRerender = null;   // the open sheet's own re-render, for after deletes
     function openSheet(title, bodyHtml) {
       el('sheetTitle').textContent = title;
       el('sheetBody').innerHTML = bodyHtml;
       el('sheetBackdrop').hidden = false;
     }
-    function closeSheet() { el('sheetBackdrop').hidden = true; }
+    function closeSheet() { el('sheetBackdrop').hidden = true; sheetRerender = null; }
     el('sheetClose').addEventListener('click', closeSheet);
     el('sheetBackdrop').addEventListener('click', event => {
       if (event.target === el('sheetBackdrop')) closeSheet();
     });
     document.addEventListener('keydown', event => { if (event.key === 'Escape') closeSheet(); });
     el('sheetBody').addEventListener('click', async event => {   // event-row delete (any sheet open)
-      const id = event.target.dataset && event.target.dataset.del;
-      if (!id) return;
-      const response = await fetch('/api/events/' + id, { method: 'DELETE' });
-      if (response.ok) await loadEvents();
+      const ids = event.target.dataset && event.target.dataset.del;
+      if (!ids) return;
+      event.target.disabled = true;
+      for (const id of String(ids).split(',')) {
+        if (id) await fetch('/api/events/' + id, { method: 'DELETE' }).catch(() => {});
+      }
+      await loadEvents();
+      await refresh();
+      if (sheetRerender) sheetRerender();
     });
 
     function todayWindow() {
@@ -1175,8 +1195,9 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const napLine = naps.length
         ? `<span><b>${naps.length}</b> nap${naps.length === 1 ? '' : 's'} · <b>${fmtDur(napTotal)}</b>${lastNap ? `, last ended ${fmtClock(new Date(lastNap.end))}` : ''}</span>`
         : '<span>No naps registered yet today.</span>';
+      const feedTotals = feedTotalsText(feeds);
       const feedLine = feeds.length
-        ? `<span><b>${feeds.length}</b> feed${feeds.length === 1 ? '' : 's'} logged, last at ${fmtClock(new Date(feeds[feeds.length - 1].x))}<button class="prep-feed-btn" id="logFeedBtn">+ feed</button></span>`
+        ? `<span><b>${feeds.length}</b> feed${feeds.length === 1 ? '' : 's'}${feedTotals ? ' · <b>' + feedTotals + '</b>' : ''}, last at ${fmtClock(new Date(feeds[feeds.length - 1].x))}<button class="prep-feed-btn" id="logFeedBtn">+ feed</button></span>`
         : '<span>No feeds logged today.<button class="prep-feed-btn" id="logFeedBtn">+ feed</button></span>';
 
       return `<div class="prep card">
@@ -1190,19 +1211,127 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       </div>`;
     }
 
-    async function logFeed() {
-      const btn = el('logFeedBtn');
-      if (btn) { btn.disabled = true; btn.textContent = 'logging…'; }
-      try {
-        await fetch('/api/events', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ kind: 'Feeding' })
-        });
-        await loadEvents();
-        await refresh();
-      } catch (error) {
-        if (btn) { btn.disabled = false; btn.textContent = '+ feed'; }
+    // ---- feeds: first-class logging with amounts ----------------------------
+    const ML_PER_OZ = 29.5735;
+    const fmtOz = ml => {
+      const oz = Math.round((ml / ML_PER_OZ) * 2) / 2;
+      return (oz % 1 ? oz.toFixed(1) : String(oz)) + ' oz';
+    };
+    const feedsSince = ms => careEvents
+      .filter(e => e.kind === 'Feeding' && e.x >= ms)
+      .sort((a, b) => a.x - b.x);
+    function feedTotalsText(feeds) {
+      const ml = feeds.reduce((a, f) => a + (f.amount_ml || 0), 0);
+      const mins = feeds.reduce((a, f) => a + (f.duration_min || 0), 0);
+      const parts = [];
+      if (ml) parts.push(fmtOz(ml));
+      if (mins) parts.push(Math.round(mins) + 'm nursed');
+      return parts.join(' · ');
+    }
+    let feedType = localStorage.getItem('owletFeedType') || 'bottle';
+    let feedOz = Number(localStorage.getItem('owletFeedOz')) || 4;
+    let feedMin = Number(localStorage.getItem('owletFeedMin')) || 15;
+
+    function feedWhatText(f) {
+      if (f.method === 'nursing') return 'nursed' + (f.duration_min ? ' · ' + Math.round(f.duration_min) + 'm' : '');
+      if (f.method === 'solids') return 'solids' + (f.note ? ' · ' + esc(f.note) : '');
+      if (f.amount_ml) return 'bottle · ' + fmtOz(f.amount_ml);
+      return f.note ? esc(f.note) : 'feed';
+    }
+    function feedHistoryRows() {
+      const feeds = careEvents
+        .filter(e => e.kind === 'Feeding' && e.x >= Date.now() - 3 * 86400000)
+        .sort((a, b) => b.x - a.x).slice(0, 14);
+      return feeds.map(f => {
+        const day = new Date(f.x).toDateString() === new Date().toDateString()
+          ? '' : new Date(f.x).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ';
+        return `<div class="row">
+          <span>${day}${fmtClock(new Date(f.x))}</span>
+          <span class="mut">${feedWhatText(f)}</span>
+          <b></b>
+          <button type="button" class="row-del" data-del="${f.id}" title="Remove this feed">✕</button>
+        </div>`;
+      }).join('');
+    }
+
+    function feedSheet() {
+      sheetRerender = feedSheet;
+      const today = feedsSince(todayWindow().start.getTime());
+      const totals = feedTotalsText(today);
+      const last = today.length ? today[today.length - 1] : null;
+      const summary = today.length
+        ? `<div class="o2-state"><b>${today.length} feed${today.length === 1 ? '' : 's'} today${totals ? ' · ' + totals : ''}</b>
+            <span>last at ${fmtClock(new Date(last.x))} · ${fmtDur((Date.now() - last.x) / 1000)} ago</span></div>`
+        : `<div class="o2-state"><b>No feeds logged today</b><span>log the first one below</span></div>`;
+      const typeSeg = [['bottle', 'Bottle'], ['nursing', 'Nursing'], ['solids', 'Solids']]
+        .map(([value, label]) => `<button type="button" data-ftype="${value}" class="${feedType === value ? 'sel' : ''}">${label}</button>`)
+        .join('');
+      let amountBlock = '';
+      if (feedType === 'bottle') {
+        amountBlock = `<h3 class="section-title" style="margin:14px 0 8px">Amount</h3>
+          <div class="flow-presets" id="feedAmts">${[2, 3, 4, 5, 6, 8]
+            .map(oz => `<button type="button" data-amt="${oz}" class="${feedOz === oz ? 'sel' : ''}">${oz} oz</button>`).join('')}</div>`;
+      } else if (feedType === 'nursing') {
+        amountBlock = `<h3 class="section-title" style="margin:14px 0 8px">Time on</h3>
+          <div class="flow-presets" id="feedAmts">${[5, 10, 15, 20, 30]
+            .map(min => `<button type="button" data-amt="${min}" class="${feedMin === min ? 'sel' : ''}">${min} min</button>`).join('')}</div>`;
+      } else {
+        amountBlock = `<h3 class="section-title" style="margin:14px 0 8px">What</h3>
+          <input type="text" id="feedNote" class="feed-note" placeholder="oatmeal, pears… (optional)" maxlength="60" />`;
       }
+      const now = new Date();
+      const timeValue = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const history = feedHistoryRows();
+      openSheet('Feeds',
+        `${summary}
+        <h3 class="section-title" style="margin:14px 0 8px">Type</h3>
+        <div class="flow-presets" id="feedTypes">${typeSeg}</div>
+        ${amountBlock}
+        <div class="feed-logrow">
+          <label>at <input type="time" id="feedTime" value="${timeValue}" /></label>
+          <button class="o2-action" id="feedLog" type="button">Log feed</button>
+        </div>
+        ${history ? '<h3 class="section-title" style="margin-top:18px">Last few days</h3>' + history : ''}
+        <p class="note">Feeds feed the insights: the prep card counts the day, the evening report
+          totals it, and Rhythms watches how O₂ behaves around feeds. ✕ removes a mistake.</p>`);
+      el('feedTypes').addEventListener('click', event => {
+        const type = event.target.dataset && event.target.dataset.ftype;
+        if (!type) return;
+        feedType = type;
+        localStorage.setItem('owletFeedType', type);
+        feedSheet();
+      });
+      if (el('feedAmts')) el('feedAmts').addEventListener('click', event => {
+        const amt = Number(event.target.dataset && event.target.dataset.amt);
+        if (!amt) return;
+        if (feedType === 'bottle') { feedOz = amt; localStorage.setItem('owletFeedOz', String(amt)); }
+        else { feedMin = amt; localStorage.setItem('owletFeedMin', String(amt)); }
+        feedSheet();
+      });
+      el('feedLog').addEventListener('click', async () => {
+        el('feedLog').disabled = true;
+        const timeText = el('feedTime').value || timeValue;
+        const [h, m] = timeText.split(':').map(Number);
+        const at = new Date(); at.setHours(h, m, 0, 0);
+        if (at.getTime() > Date.now() + 5 * 60 * 1000) at.setDate(at.getDate() - 1); // 11:50 PM logged at 12:10 AM
+        const payload = { kind: 'Feeding', at: at.toISOString(), method: feedType };
+        if (feedType === 'bottle') payload.amount_ml = Math.round(feedOz * ML_PER_OZ * 10) / 10;
+        else if (feedType === 'nursing') payload.duration_min = feedMin;
+        else payload.note = (el('feedNote') && el('feedNote').value.trim()) || '';
+        try {
+          const response = await fetch('/api/events', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) throw new Error(String(response.status));
+          await loadEvents();
+          await refresh();
+          feedSheet();
+        } catch (error) {
+          el('feedLog').disabled = false;
+          alert('Could not save the feed — try again.');
+        }
+      });
     }
 
     function dipsSheet() {
@@ -1305,10 +1434,12 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         const duration = (span.end === Infinity ? now : span.end) - span.start;
         const day = new Date(span.start).toDateString() === new Date().toDateString()
           ? '' : new Date(span.start).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ';
+        const ids = [span.startId, span.endId].filter(Boolean).join(',');
         return `<div class="row">
           <span>${day}${fmtClock(new Date(span.start))} – ${endText}</span>
           <span class="mut">${esc(span.flow || '')}</span>
           <b>${fmtDur(duration / 1000)}</b>
+          ${ids ? `<button type="button" class="row-del" data-del="${ids}" title="Remove this session from the log">✕</button>` : ''}
         </div>`;
       }).join('');
     }
@@ -1325,14 +1456,15 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         : `<button class="o2-action" id="o2Action" type="button">Start oxygen · ${esc(pendingFlow)}</button>`;
       const flowLabel = o2State.on ? 'Change flow (logs the change)' : 'Flow';
       const history = o2HistoryRows();
+      sheetRerender = o2Sheet;
       openSheet('Supplemental O₂',
         `${stateBlock}
         <h3 class="section-title" style="margin-bottom:8px">${flowLabel}</h3>
         <div class="flow-presets" id="flowPresets">${flows}</div>
         ${action}
-        ${history ? '<h3 class="section-title" style="margin-top:18px">Recent</h3>' + history : ''}
+        ${history ? '<h3 class="section-title" style="margin-top:18px">Recent sessions</h3>' + history : ''}
         <p class="note">Every on/off is a logged event — the charts shade on-O₂ time, and Rhythms
-          compares how she does on oxygen vs off.</p>`);
+          compares how she does on oxygen vs off. ✕ removes a mislogged session.</p>`);
       el('flowPresets').addEventListener('click', async event => {
         const flow = event.target.dataset && event.target.dataset.flow;
         if (!flow) return;
@@ -1707,6 +1839,16 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
             <span class="sub">${o2State.since
               ? `since ${fmtClock(new Date(o2State.since))} · ${fmtDur((Date.now() - o2State.since) / 1000)}`
               : 'tap to log on/off'}</span></button>
+          ${(() => {
+            const feedsToday = feedsSince(today.start.getTime());
+            const totals = feedTotalsText(feedsToday);
+            const lastFeed = feedsToday.length ? feedsToday[feedsToday.length - 1] : null;
+            return `<button class="chip card" id="chipFeeds">
+              <b>${feedsToday.length}</b><span>feed${feedsToday.length === 1 ? '' : 's'} today</span>
+              <span class="sub">${lastFeed
+                ? `${totals ? totals + ' · ' : ''}last ${fmtDur((Date.now() - lastFeed.x) / 1000)} ago`
+                : 'tap to log'}</span></button>`;
+          })()}
         </div>
         ${prepCardMarkup()}
         <div class="doors">
@@ -1719,7 +1861,8 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       el('chipTemp').addEventListener('click', () => openMetricSheet('temp'));
       el('chipDips').addEventListener('click', dipsSheet);
       el('chipO2').addEventListener('click', o2Sheet);
-      if (el('logFeedBtn')) el('logFeedBtn').addEventListener('click', logFeed);
+      el('chipFeeds').addEventListener('click', feedSheet);
+      if (el('logFeedBtn')) el('logFeedBtn').addEventListener('click', feedSheet);
     }
 
     async function refresh() {

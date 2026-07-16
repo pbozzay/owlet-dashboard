@@ -764,6 +764,21 @@ def create_app(
             raise HTTPException(status_code=400, detail="kind is required (max 60 chars)")
         at = payload.get("at")
         note = str(payload.get("note") or "")[:500]
+        method = str(payload.get("method") or "").strip()
+        if method not in ("", "bottle", "nursing", "solids"):
+            method = ""
+        amount_ml = payload.get("amount_ml")
+        amount_ml = (
+            round(float(amount_ml), 1)
+            if isinstance(amount_ml, (int, float)) and 0 < float(amount_ml) <= 500
+            else None
+        )
+        duration_min = payload.get("duration_min")
+        duration_min = (
+            round(float(duration_min), 1)
+            if isinstance(duration_min, (int, float)) and 0 < float(duration_min) <= 180
+            else None
+        )
         account_id = payload.get("account_id")
         requested = (
             int(account_id)
@@ -779,6 +794,9 @@ def create_app(
                 at=at if isinstance(at, str) and at else datetime.now(timezone.utc),
                 kind=kind,
                 note=note,
+                method=method,
+                amount_ml=amount_ml,
+                duration_min=duration_min,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="Invalid timestamp") from exc

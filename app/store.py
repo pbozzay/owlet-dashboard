@@ -210,7 +210,10 @@ class ReadingStore:
                     at TEXT NOT NULL,
                     kind TEXT NOT NULL,
                     note TEXT NOT NULL DEFAULT '',
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    method TEXT NOT NULL DEFAULT '',
+                    amount_ml REAL,
+                    duration_min REAL
                 )
                 """
             )
@@ -235,6 +238,7 @@ class ReadingStore:
         default_account_id = await self._legacy_default_account_id(db)
         await self._ensure_readings_account_schema(db, default_account_id)
         await self._ensure_readings_vitals_columns(db)
+        await self._ensure_care_event_columns(db)
         await self._ensure_notifications_account_schema(db, default_account_id)
         await self._ensure_challenges_account_schema(db, default_account_id)
         await db.execute(
@@ -292,6 +296,16 @@ class ReadingStore:
             # Only populated in desktop mode, so a dead refresh token never
             # strands a single-user local install. Never exposed via the API.
             await db.execute("ALTER TABLE accounts ADD COLUMN owlet_password TEXT")
+
+    async def _ensure_care_event_columns(self, db: aiosqlite.Connection) -> None:
+        columns = await self._table_columns(db, "care_events")
+        for name, decl in (
+            ("method", "TEXT NOT NULL DEFAULT ''"),
+            ("amount_ml", "REAL"),
+            ("duration_min", "REAL"),
+        ):
+            if name not in columns:
+                await db.execute(f"ALTER TABLE care_events ADD COLUMN {name} {decl}")
 
     async def _ensure_readings_vitals_columns(self, db: aiosqlite.Connection) -> None:
         columns = await self._table_columns(db, "readings")
@@ -1066,6 +1080,9 @@ class ReadingStore:
         at: str | datetime,
         kind: str,
         note: str = "",
+        method: str = "",
+        amount_ml: float | None = None,
+        duration_min: float | None = None,
     ) -> dict[str, Any]:
         await self.init()
         moment = parse_time(at)
@@ -1073,13 +1090,16 @@ class ReadingStore:
             moment = moment.replace(tzinfo=timezone.utc)
         async with self._connect() as db:
             cursor = await db.execute(
-                "INSERT INTO care_events (account_id, at, kind, note) VALUES (?, ?, ?, ?)",
-                (account_id, moment.astimezone(timezone.utc).isoformat(), kind, note or ""),
+                """INSERT INTO care_events (account_id, at, kind, note, method, amount_ml, duration_min)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (account_id, moment.astimezone(timezone.utc).isoformat(), kind, note or "",
+                 method or "", amount_ml, duration_min),
             )
             await db.commit()
             event_id = int(cursor.lastrowid)
             cursor = await db.execute(
-                "SELECT id, account_id, at, kind, note, created_at FROM care_events WHERE id = ?",
+                """SELECT id, account_id, at, kind, note, created_at, method, amount_ml, duration_min
+                   FROM care_events WHERE id = ?""",
                 (event_id,),
             )
             row = await cursor.fetchone()
@@ -1109,7 +1129,8 @@ class ReadingStore:
         async with self._connect() as db:
             cursor = await db.execute(
                 f"""
-                SELECT id, account_id, at, kind, note, created_at FROM care_events
+                SELECT id, account_id, at, kind, note, created_at, method, amount_ml, duration_min
+                FROM care_events
                 {clause} ORDER BY at DESC LIMIT ?
                 """,
                 params,
@@ -1144,6 +1165,9 @@ class ReadingStore:
             "kind": row[3],
             "note": row[4],
             "created_at": row[5],
+            "method": row[6] if len(row) > 6 else "",
+            "amount_ml": row[7] if len(row) > 7 else None,
+            "duration_min": row[8] if len(row) > 8 else None,
         }
 
     async def get_oxygen_challenges(
