@@ -353,6 +353,7 @@ SHELL_JS = """<script>
     if (byId('readinessSetting')) byId('readinessSetting').value = prefs.readiness_report_time || '';
     if (byId('movementSourceSetting')) byId('movementSourceSetting').value = prefs.movement_source || 'raw';
     if (byId('o2DisplaySetting')) byId('o2DisplaySetting').value = prefs.o2_display || 'raw';
+    if (byId('feedTrackingSetting')) byId('feedTrackingSetting').value = prefs.feed_tracking === false ? 'off' : 'on';
     var tzSelect = byId('timezoneSetting');
     if (tzSelect) {
       tzSelect.dataset.pendingValue = prefs.timezone || '';
@@ -481,6 +482,9 @@ SHELL_JS = """<script>
   });
   if (byId('o2DisplaySetting')) byId('o2DisplaySetting').addEventListener('change', function (event) {
     patchSelectedAccount({ dashboard_preferences: { o2_display: event.target.value } });
+  });
+  if (byId('feedTrackingSetting')) byId('feedTrackingSetting').addEventListener('change', function (event) {
+    patchSelectedAccount({ dashboard_preferences: { feed_tracking: event.target.value === 'on' } });
   });
   if (byId('timezoneSetting')) byId('timezoneSetting').addEventListener('change', function (event) {
     patchSelectedAccount({ dashboard_preferences: {
@@ -1239,6 +1243,14 @@ def render_shell(
                 <span class="pp-to">to</span>
                 <input id="nightEndSetting" type="time" value="07:00" />
               </div>
+            </div>
+            <div class="set-row">
+              <div class="set-lab"><b>Feed tracking</b><small>Log bottles, nursing, and solids — feeds
+                the Today chip, the evening report, and feed insights on Rhythms.</small></div>
+              <select id="feedTrackingSetting">
+                <option value="on">On</option>
+                <option value="off">Off</option>
+              </select>
             </div>
           </section>
           <section class="set-pane" data-pane="alerts">

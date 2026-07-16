@@ -167,22 +167,35 @@ NIGHT_SCRIPTS = """<script>
     }
 
     function dipEvents(buckets) {
+      // A "dip" groups adjacent 5m buckets whose floor fell under 90 — but the
+      // bucket span wildly overstates a blip, so we carry the actual seconds
+      // spent under 90 (low_oxygen_seconds) and report THAT.
       const dips = [];
       let current = null;
       buckets.forEach(row => {
         const low = row.min_oxygen_saturation != null && row.min_oxygen_saturation < 90;
         if (low) {
+          const lowSec = row.low_oxygen_seconds != null ? row.low_oxygen_seconds : BUCKET_SEC;
           if (!current) {
-            current = { start: new Date(row.bucket_start), min: row.min_oxygen_saturation, minAt: new Date(row.bucket_start) };
+            current = { start: new Date(row.bucket_start), min: row.min_oxygen_saturation,
+                        minAt: new Date(row.bucket_start), lowSec: 0 };
           } else if (row.min_oxygen_saturation < current.min) {
             current.min = row.min_oxygen_saturation;
             current.minAt = new Date(row.bucket_start);
           }
+          current.lowSec += lowSec;
           current.end = new Date(new Date(row.bucket_start).getTime() + BUCKET_SEC * 1000);
         } else if (current) { dips.push(current); current = null; }
       });
       if (current) dips.push(current);
       return dips;
+    }
+    function dipDepthText(dip) {
+      if (dip.lowSec < 50) {
+        const secs = Math.max(5, Math.round(dip.lowSec / 5) * 5);
+        return `Momentary dip — about ${secs}s under 90%`;
+      }
+      return `About ${fmtDur(dip.lowSec)} under 90%`;
     }
 
     function narrative(stats, dips, inProgress) {
@@ -255,7 +268,7 @@ NIGHT_SCRIPTS = """<script>
         return `<a class="event card" href="/data?focus=${encodeURIComponent(focus)}&span=45&label=${label}"
           title="Open the raw trace around this dip" style="text-decoration:none;color:inherit">
         <time>${fmtClock(dip.start)}</time>
-        <span>Dip lasting about ${fmtDur(Math.max(60, (dip.end - dip.start) / 1000))}</span>
+        <span>${dipDepthText(dip)}</span>
         <span class="depth">↓ ${Math.round(dip.min)}% →</span></a>`;
       }).join('');
       return `<section><h2 class="section-title">Oxygen events</h2><div class="events">${items}</div></section>`;

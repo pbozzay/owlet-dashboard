@@ -138,6 +138,20 @@ RHYTHMS_HEAD = """<style>
     .ledger-meta em.up { color: var(--good); }
     .ledger-meta em.down { color: var(--warn); }
 
+    /* feed rhythm dot map */
+    .feedmap { display: grid; gap: 3px; margin-top: 4px; }
+    .feedmap-row { display: grid; grid-template-columns: 52px 1fr 56px; gap: 10px;
+      align-items: center; }
+    .feedmap-row svg { display: block; width: 100%; height: 20px; }
+    .feedmap-head { margin-top: 10px; color: var(--faint); }
+    .feedmap-day { font-size: 10.5px; color: var(--dim); white-space: nowrap;
+      font-variant-numeric: tabular-nums; }
+    .feedmap-total { font-size: 11px; text-align: right; font-variant-numeric: tabular-nums;
+      color: var(--dim); font-weight: 600; }
+    .fs-track { stroke: var(--surface-line); stroke-width: 1.2; }
+    .fm-bottle { fill: var(--accent); opacity: .85; }
+    .fm-nurse { fill: none; stroke: var(--accent); stroke-width: 1.8; }
+    .fm-solid { fill: var(--awake); opacity: .9; }
     .empty { text-align: center; color: var(--dim); padding: 60px 20px; font-size: 15px;
       border: 1px dashed var(--surface-line); border-radius: var(--radius-card); }
     /* sleep scale + cell colors come straight from theme tokens */
@@ -301,6 +315,7 @@ RHYTHMS_SCRIPTS = """<script>
     // Defaults 7 PM → 7 AM; overwritten from preferences in boot().
     let NIGHT = { start: 19 * 60, end: 7 * 60 };
     let BIRTH = null;   // ISO 'YYYY-MM-DD' once known, for age-adjusted framing
+    let FEEDS = true;   // feed-tracking preference gates the feed sections
 
     function ageContext() {
       if (!BIRTH) return '';
@@ -602,8 +617,70 @@ RHYTHMS_SCRIPTS = """<script>
         <p class="lede" style="font-size:13px; margin:10px 2px 0; color:var(--faint)">Computed from your logged O₂ on/off events over the last two weeks — the comparison to bring to the next appointment.</p>`);
     }
 
+    // ----- feed rhythm: the Huckleberry view — when and how much, day by day ----
+    function renderFeedRhythm(events) {
+      if (!FEEDS) return '';
+      const feeds = events.filter(e => e.kind === 'Feeding');
+      if (feeds.length < 3) return '';
+      const ML_PER_OZ = 29.5735;
+      const byDay = new Map();
+      feeds.forEach(f => {
+        const d = new Date(f.t);
+        const key = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+        if (!byDay.has(key)) byDay.set(key, []);
+        byDay.get(key).push(f);
+      });
+      const days = [...byDay.entries()].sort((a, b) => a[0] - b[0]).slice(-14);
+      const maxMl = Math.max(...feeds.map(f => f.amount_ml || 0), 4 * ML_PER_OZ);
+      const W = 288;
+      const rows = days.map(([dayStart, list]) => {
+        const date = new Date(dayStart);
+        const x = t => ((t - dayStart) / 86400000) * W;
+        const marks = list.map(f => {
+          const title = `<title>${new Date(f.t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</title>`;
+          if (f.method === 'nursing') {
+            const r = (3 + 3 * Math.min(1, (f.duration_min || 10) / 30)).toFixed(1);
+            return `<circle cx="${x(f.t).toFixed(1)}" cy="10" r="${r}" class="fm-nurse">${title}</circle>`;
+          }
+          if (f.method === 'solids') {
+            return `<rect x="${(x(f.t) - 2.8).toFixed(1)}" y="7.2" width="5.6" height="5.6" rx="1.4" class="fm-solid">${title}</rect>`;
+          }
+          const r = (2.6 + 4 * Math.sqrt(Math.min(1, (f.amount_ml || 2 * ML_PER_OZ) / maxMl))).toFixed(1);
+          return `<circle cx="${x(f.t).toFixed(1)}" cy="10" r="${r}" class="fm-bottle">${title}</circle>`;
+        }).join('');
+        const ml = list.reduce((a, f) => a + (f.amount_ml || 0), 0);
+        const ozText = ml ? (Math.round((ml / ML_PER_OZ) * 2) / 2) + ' oz' : list.length + '×';
+        return `<div class="feedmap-row">
+          <span class="feedmap-day">${date.toLocaleDateString([], { weekday: 'short', day: 'numeric' })}</span>
+          <svg viewBox="0 0 ${W} 20" preserveAspectRatio="none"><line x1="0" x2="${W}" y1="10" y2="10" class="fs-track"/>${marks}</svg>
+          <b class="feedmap-total">${ozText}</b>
+        </div>`;
+      }).join('');
+      const perDay = days.map(([, list]) => list.length);
+      const avgCount = Math.round(avg(perDay) * 10) / 10;
+      const dayOz = days.map(([, list]) => list.reduce((a, f) => a + (f.amount_ml || 0), 0)).filter(v => v > 0);
+      const avgOz = dayOz.length >= 2 ? Math.round((avg(dayOz) / ML_PER_OZ) * 2) / 2 : null;
+      const times = feeds.map(f => f.t).sort((a, b) => a - b);
+      const gapsMs = [];
+      for (let i = 1; i < times.length; i++) {
+        const gap = times[i] - times[i - 1];
+        if (gap > 20 * 60000 && gap < 8 * 3600000) gapsMs.push(gap);
+      }
+      const gapText = gapsMs.length >= 3 ? fmtDur(median(gapsMs) / 1000) : null;
+      let note = `Averaging ${avgCount} feed${avgCount === 1 ? '' : 's'}${avgOz ? ` and ${avgOz} oz` : ''} a day`;
+      note += gapText ? `, typically ~${gapText} apart.` : '.';
+      return section('Feed rhythm',
+        `<div class="tile card"><h3>When and how much, day by day</h3>
+        <div class="feedmap-row feedmap-head"><span></span>
+          <div class="drift-axis" style="margin:0"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>12 AM</span></div><b></b></div>
+        <div class="feedmap">${rows}</div>
+        <p>Dot size is the bottle's ounces; rings are nursing (sized by minutes); squares are solids.
+        ${note} Over weeks, feeds drifting into a pattern here usually shows up as steadier nights above.</p></div>`);
+    }
+
     // ----- #6: feed-aligned O₂ response -----------------------------------------
     function renderFeedResponse(r5, events) {
+      if (!FEEDS) return '';
       const feeds = events.filter(e => e.kind === 'Feeding');
       if (feeds.length < 3) return '';
       const byBucket = new Map();
@@ -788,6 +865,7 @@ RHYTHMS_SCRIPTS = """<script>
         deviceName = prefs.baby_name || null;
         NIGHT = nightWindowFrom(prefs);
         BIRTH = prefs.birth_date || null;
+        FEEDS = prefs.feed_tracking !== false;
       } catch (error) {
         el('content').innerHTML = '<div class="empty">Could not load readings — is the collector running?</div>';
         return;
@@ -811,6 +889,7 @@ RHYTHMS_SCRIPTS = """<script>
         renderBaselineDrift(rollups5),
         renderDeepGap(rollups5),
         renderO2Report(rollups5, o2iv),
+        renderFeedRhythm(careEvents),
         renderFeedResponse(rollups5, careEvents),
         renderChallengeLedger(challenges),
       ].join('');

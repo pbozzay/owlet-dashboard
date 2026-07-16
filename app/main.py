@@ -911,6 +911,8 @@ def _public_dashboard_preferences_patch(value: object) -> dict[str, object] | No
         allowed["movement_source"] = str(value.get("movement_source"))
     if str(value.get("o2_display")) in {"raw", "smoothed"}:
         allowed["o2_display"] = str(value.get("o2_display"))
+    if isinstance(value.get("feed_tracking"), bool):
+        allowed["feed_tracking"] = bool(value.get("feed_tracking"))
     baby_name = value.get("baby_name")
     if isinstance(baby_name, str):
         allowed["baby_name"] = baby_name.strip()[:40]

@@ -246,6 +246,32 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .feed-note { width: 100%; box-sizing: border-box; padding: 10px 12px;
       border: 1px solid var(--surface-line); border-radius: var(--radius-control);
       background: var(--surface); color: var(--ink); font-size: 13.5px; margin-bottom: 2px; }
+    .feed-amt-head { display: flex; justify-content: space-between; align-items: baseline;
+      margin: 14px 0 6px; }
+    .feed-amt-head .section-title { margin: 0; }
+    .feed-amt-head b { font-size: 19px; letter-spacing: -.01em; color: var(--accent);
+      font-variant-numeric: tabular-nums; }
+    .feed-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 26px;
+      background: transparent; margin: 0; cursor: pointer; }
+    .feed-slider::-webkit-slider-runnable-track { height: 6px; border-radius: 3px;
+      background: linear-gradient(to right, var(--accent-soft), var(--accent)); }
+    .feed-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px;
+      border-radius: 50%; background: var(--surface); border: 2.5px solid var(--accent);
+      margin-top: -8px; box-shadow: 0 1px 4px rgba(0,0,0,.18); }
+    .feed-slider::-moz-range-track { height: 6px; border-radius: 3px;
+      background: linear-gradient(to right, var(--accent-soft), var(--accent)); }
+    .feed-slider::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%;
+      background: var(--surface); border: 2.5px solid var(--accent); }
+    .feed-slider-scale { display: flex; justify-content: space-between; font-size: 10px;
+      color: var(--faint); margin-top: 2px; font-variant-numeric: tabular-nums; }
+    .feed-strip { display: block; width: 100%; height: 30px; margin-top: 4px; }
+    .fs-track { stroke: var(--surface-line); stroke-width: 1.5; }
+    .fs-now { stroke: var(--faint); stroke-width: 1; stroke-dasharray: 2 3; }
+    .fm-bottle { fill: var(--accent); opacity: .85; }
+    .fm-nurse { fill: none; stroke: var(--accent); stroke-width: 2; }
+    .fm-solid { fill: var(--awake); opacity: .9; }
+    .feed-strip-axis { display: flex; justify-content: space-between; font-size: 9.5px;
+      color: var(--faint); font-variant-numeric: tabular-nums; margin-bottom: 4px; }
     .o2-state { text-align: center; margin-bottom: 14px; }
     .o2-state b { display: block; font-size: 24px; letter-spacing: -.01em; }
     .o2-state.on b { color: var(--accent); }
@@ -385,6 +411,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     // Display prefs (settings modal): the chart can ride Owlet's smoothed O₂
     // line or its normalized 0–100 activity level instead of the raw feeds.
     let DISPLAY = { o2: 'raw', move: 'raw' };
+    let FEEDS_ON = true;   // feed-tracking preference gates the chip + insights
     function rebuildPoints() {
       const rows = allReadings();
       const valid = rows.filter(r => !isOffline(r));
@@ -1115,8 +1142,8 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         if (id) await fetch('/api/events/' + id, { method: 'DELETE' }).catch(() => {});
       }
       await loadEvents();
-      await refresh();
-      if (sheetRerender) sheetRerender();
+      if (sheetRerender) sheetRerender();   // sheet first — it's what the user is looking at
+      refresh();
     });
 
     function todayWindow() {
@@ -1196,9 +1223,10 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         ? `<span><b>${naps.length}</b> nap${naps.length === 1 ? '' : 's'} · <b>${fmtDur(napTotal)}</b>${lastNap ? `, last ended ${fmtClock(new Date(lastNap.end))}` : ''}</span>`
         : '<span>No naps registered yet today.</span>';
       const feedTotals = feedTotalsText(feeds);
-      const feedLine = feeds.length
-        ? `<span><b>${feeds.length}</b> feed${feeds.length === 1 ? '' : 's'}${feedTotals ? ' · <b>' + feedTotals + '</b>' : ''}, last at ${fmtClock(new Date(feeds[feeds.length - 1].x))}<button class="prep-feed-btn" id="logFeedBtn">+ feed</button></span>`
-        : '<span>No feeds logged today.<button class="prep-feed-btn" id="logFeedBtn">+ feed</button></span>';
+      const feedLine = !FEEDS_ON ? ''
+        : feeds.length
+          ? `<span><b>${feeds.length}</b> feed${feeds.length === 1 ? '' : 's'}${feedTotals ? ' · <b>' + feedTotals + '</b>' : ''}, last at ${fmtClock(new Date(feeds[feeds.length - 1].x))}<button class="prep-feed-btn" id="logFeedBtn">+ feed</button></span>`
+          : '<span>No feeds logged today.<button class="prep-feed-btn" id="logFeedBtn">+ feed</button></span>';
 
       return `<div class="prep card">
         <div class="prep-top"><b>Ready for tonight?</b><span>${nightNote}</span></div>
@@ -1254,6 +1282,37 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       }).join('');
     }
 
+    // One 24h track with a mark per feed — bottle dot sized by ounces, nursing
+    // ring sized by minutes, solids as a small square. The Huckleberry glance.
+    function feedMarks(feeds, dayStartMs, x, cy) {
+      const maxMl = Math.max(...feeds.map(f => f.amount_ml || 0), 4 * ML_PER_OZ);
+      return feeds.map(f => {
+        const cx = x(f.x).toFixed(1);
+        if (f.method === 'nursing') {
+          const r = (3.5 + 3.5 * Math.min(1, (f.duration_min || 10) / 30)).toFixed(1);
+          return `<circle cx="${cx}" cy="${cy}" r="${r}" class="fm-nurse"><title>${fmtClock(new Date(f.x))} — ${feedWhatText(f)}</title></circle>`;
+        }
+        if (f.method === 'solids') {
+          return `<rect x="${(x(f.x) - 3.2).toFixed(1)}" y="${cy - 3.2}" width="6.4" height="6.4" rx="1.6" class="fm-solid"><title>${fmtClock(new Date(f.x))} — ${feedWhatText(f)}</title></rect>`;
+        }
+        const r = (3 + 4.5 * Math.sqrt(Math.min(1, (f.amount_ml || 2 * ML_PER_OZ) / maxMl))).toFixed(1);
+        return `<circle cx="${cx}" cy="${cy}" r="${r}" class="fm-bottle"><title>${fmtClock(new Date(f.x))} — ${feedWhatText(f)}</title></circle>`;
+      }).join('');
+    }
+    function feedDayStrip(feeds) {
+      if (!feeds.length) return '';
+      const dayStart = todayWindow().start.getTime();
+      const W = 320, H = 30;
+      const x = t => ((t - dayStart) / 86400000) * W;
+      const nowX = x(Date.now()).toFixed(1);
+      return `<svg viewBox="0 0 ${W} ${H}" class="feed-strip" preserveAspectRatio="none">
+          <line x1="0" x2="${W}" y1="15" y2="15" class="fs-track"/>
+          <line x1="${nowX}" x2="${nowX}" y1="3" y2="27" class="fs-now"/>
+          ${feedMarks(feeds, dayStart, x, 15)}
+        </svg>
+        <div class="feed-strip-axis"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>12 AM</span></div>`;
+    }
+
     function feedSheet() {
       sheetRerender = feedSheet;
       const today = feedsSince(todayWindow().start.getTime());
@@ -1261,20 +1320,22 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const last = today.length ? today[today.length - 1] : null;
       const summary = today.length
         ? `<div class="o2-state"><b>${today.length} feed${today.length === 1 ? '' : 's'} today${totals ? ' · ' + totals : ''}</b>
-            <span>last at ${fmtClock(new Date(last.x))} · ${fmtDur((Date.now() - last.x) / 1000)} ago</span></div>`
+            <span>last at ${fmtClock(new Date(last.x))} · ${fmtDur((Date.now() - last.x) / 1000)} ago</span></div>${feedDayStrip(today)}`
         : `<div class="o2-state"><b>No feeds logged today</b><span>log the first one below</span></div>`;
       const typeSeg = [['bottle', 'Bottle'], ['nursing', 'Nursing'], ['solids', 'Solids']]
         .map(([value, label]) => `<button type="button" data-ftype="${value}" class="${feedType === value ? 'sel' : ''}">${label}</button>`)
         .join('');
       let amountBlock = '';
       if (feedType === 'bottle') {
-        amountBlock = `<h3 class="section-title" style="margin:14px 0 8px">Amount</h3>
-          <div class="flow-presets" id="feedAmts">${[2, 3, 4, 5, 6, 8]
-            .map(oz => `<button type="button" data-amt="${oz}" class="${feedOz === oz ? 'sel' : ''}">${oz} oz</button>`).join('')}</div>`;
+        amountBlock = `<div class="feed-amt-head"><h3 class="section-title">Amount</h3>
+            <b id="feedAmtOut">${feedOz % 1 ? feedOz.toFixed(1) : feedOz} oz</b></div>
+          <input type="range" id="feedAmt" class="feed-slider" min="0.5" max="8" step="0.5" value="${feedOz}" />
+          <div class="feed-slider-scale"><span>½ oz</span><span>4 oz</span><span>8 oz</span></div>`;
       } else if (feedType === 'nursing') {
-        amountBlock = `<h3 class="section-title" style="margin:14px 0 8px">Time on</h3>
-          <div class="flow-presets" id="feedAmts">${[5, 10, 15, 20, 30]
-            .map(min => `<button type="button" data-amt="${min}" class="${feedMin === min ? 'sel' : ''}">${min} min</button>`).join('')}</div>`;
+        amountBlock = `<div class="feed-amt-head"><h3 class="section-title">Time on</h3>
+            <b id="feedAmtOut">${feedMin} min</b></div>
+          <input type="range" id="feedAmt" class="feed-slider" min="1" max="45" step="1" value="${feedMin}" />
+          <div class="feed-slider-scale"><span>1 min</span><span>20 min</span><span>45 min</span></div>`;
       } else {
         amountBlock = `<h3 class="section-title" style="margin:14px 0 8px">What</h3>
           <input type="text" id="feedNote" class="feed-note" placeholder="oatmeal, pears… (optional)" maxlength="60" />`;
@@ -1301,12 +1362,17 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         localStorage.setItem('owletFeedType', type);
         feedSheet();
       });
-      if (el('feedAmts')) el('feedAmts').addEventListener('click', event => {
-        const amt = Number(event.target.dataset && event.target.dataset.amt);
-        if (!amt) return;
-        if (feedType === 'bottle') { feedOz = amt; localStorage.setItem('owletFeedOz', String(amt)); }
-        else { feedMin = amt; localStorage.setItem('owletFeedMin', String(amt)); }
-        feedSheet();
+      if (el('feedAmt')) el('feedAmt').addEventListener('input', event => {
+        const amt = Number(event.target.value);
+        if (feedType === 'bottle') {
+          feedOz = amt;
+          localStorage.setItem('owletFeedOz', String(amt));
+          el('feedAmtOut').textContent = (amt % 1 ? amt.toFixed(1) : amt) + ' oz';
+        } else {
+          feedMin = amt;
+          localStorage.setItem('owletFeedMin', String(amt));
+          el('feedAmtOut').textContent = amt + ' min';
+        }
       });
       el('feedLog').addEventListener('click', async () => {
         el('feedLog').disabled = true;
@@ -1325,8 +1391,8 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           });
           if (!response.ok) throw new Error(String(response.status));
           await loadEvents();
-          await refresh();
-          feedSheet();
+          feedSheet();     // sheet reflects the new feed immediately
+          refresh();       // chips/prep card catch up in the background
         } catch (error) {
           el('feedLog').disabled = false;
           alert('Could not save the feed — try again.');
@@ -1343,23 +1409,29 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         if (t < today.start) return;
         const low = row.min_oxygen_saturation != null && row.min_oxygen_saturation < 90;
         if (low) {
-          if (!current) current = { start: t, end: t, min: row.min_oxygen_saturation, minAt: t };
+          const lowSec = row.low_oxygen_seconds != null ? row.low_oxygen_seconds : 300;
+          if (!current) current = { start: t, end: t, min: row.min_oxygen_saturation, minAt: t, lowSec: 0 };
           else {
             current.end = t;
             if (row.min_oxygen_saturation < current.min) { current.min = row.min_oxygen_saturation; current.minAt = t; }
           }
+          current.lowSec += lowSec;
         } else if (current) { dips.push(current); current = null; }
       });
       if (current) dips.push(current);
       if (!dips.length) return openSheet('O₂ dips today', '<p class="note">No dips below 90% today. 🎉</p>');
+      const underText = d => d.lowSec < 50
+        ? `~${Math.max(5, Math.round(d.lowSec / 5) * 5)}s under`
+        : `${fmtDur(d.lowSec)} under`;
       const rows = dips.map(d =>
         `<div class="row">
           <span>${fmtClock(d.start)}</span>
+          <span class="mut">${underText(d)}</span>
           <b style="color:${d.min < 86 ? 'var(--bad)' : 'var(--awake)'}">low ${Math.round(d.min)}%</b>
           <a href="/data?focus=${encodeURIComponent(new Date(d.minAt.getTime() + 150000).toISOString())}&span=45&label=${encodeURIComponent('Dip to ' + Math.round(d.min) + '%')}">inspect →</a>
         </div>`).join('');
       openSheet('O₂ dips today', rows +
-        '<p class="note">Each row is a stretch of 5-minute buckets whose lowest reading fell under 90%. "Inspect" opens the raw data zoomed to that moment.</p>');
+        '<p class="note">"Under" is the actual time below 90% — a momentary blip counts its seconds, not its whole 5-minute bucket. "Inspect" opens the raw data at that moment.</p>');
     }
 
     // ---- supplemental O2 sheet: on/off with a flow setting --------------------
@@ -1840,6 +1912,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
               ? `since ${fmtClock(new Date(o2State.since))} · ${fmtDur((Date.now() - o2State.since) / 1000)}`
               : 'tap to log on/off'}</span></button>
           ${(() => {
+            if (!FEEDS_ON) return '';
             const feedsToday = feedsSince(today.start.getTime());
             const totals = feedTotalsText(feedsToday);
             const lastFeed = feedsToday.length ? feedsToday[feedsToday.length - 1] : null;
@@ -1861,7 +1934,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       el('chipTemp').addEventListener('click', () => openMetricSheet('temp'));
       el('chipDips').addEventListener('click', dipsSheet);
       el('chipO2').addEventListener('click', o2Sheet);
-      el('chipFeeds').addEventListener('click', feedSheet);
+      if (el('chipFeeds')) el('chipFeeds').addEventListener('click', feedSheet);
       if (el('logFeedBtn')) el('logFeedBtn').addEventListener('click', feedSheet);
     }
 
@@ -1900,6 +1973,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           o2: prefs.o2_display === 'smoothed' ? 'smoothed' : 'raw',
           move: prefs.movement_source === 'bucket' ? 'bucket' : 'raw'
         };
+        FEEDS_ON = prefs.feed_tracking !== false;
         if (account && account.poll_interval_seconds) pollSeconds = account.poll_interval_seconds;
       } catch (error) {
         el('statusLine').textContent = 'Could not load readings — is the collector running?';
@@ -1921,8 +1995,11 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           o2: prefs.o2_display === 'smoothed' ? 'smoothed' : 'raw',
           move: prefs.movement_source === 'bucket' ? 'bucket' : 'raw'
         };
+        const feedsWere = FEEDS_ON;
+        FEEDS_ON = prefs.feed_tracking !== false;
         rebuildPoints();
         if (!gesture) renderCharts();
+        if (feedsWere !== FEEDS_ON) refresh();   // add/remove the feeds chip now
       });
     }
     boot();
