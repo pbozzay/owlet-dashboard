@@ -1,8 +1,9 @@
 name: Release and Deploy
 
-# Mirrors signal-viewer's release flow: pushing a v*.*.* tag runs the tests,
-# publishes the image to Docker Hub (versioned + latest), and cuts a GitHub
-# Release with Unraid update instructions.
+# Pushing a v*.*.* tag runs the tests, publishes the image to Docker Hub
+# (versioned + latest; skipped gracefully until the DOCKER_PASSWORD secret is
+# set), builds the Windows desktop installer, and cuts a GitHub Release with
+# the installer attached and Unraid update instructions.
 
 on:
   push:
@@ -15,30 +16,35 @@ env:
   IMAGE_NAME: pbozzay/owlet-dashboard
 
 jobs:
-  release:
+  test:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
       with:
         python-version: "3.12"
-
     - name: Install dependencies
       run: pip install -e ".[dev]"
-
     - name: Run tests
       run: pytest -q
 
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      # secrets aren't allowed in job-level `if`, so each step gates on this
+      HAS_DOCKER_SECRET: ${{ secrets.DOCKER_PASSWORD != '' && 'true' || 'false' }}
+    steps:
+    - name: Checkout code
+      if: env.HAS_DOCKER_SECRET == 'true'
+      uses: actions/checkout@v4
+
     - name: Set up Docker Buildx
+      if: env.HAS_DOCKER_SECRET == 'true'
       uses: docker/setup-buildx-action@v3
 
     - name: Log in to Docker Hub
+      if: env.HAS_DOCKER_SECRET == 'true'
       uses: docker/login-action@v3
       with:
         registry: ${{ env.DOCKER_REGISTRY }}
@@ -46,10 +52,12 @@ jobs:
         password: ${{ secrets.DOCKER_PASSWORD }}
 
     - name: Extract version from tag
+      if: env.HAS_DOCKER_SECRET == 'true'
       id: version
       run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
     - name: Build and push Docker image
+      if: env.HAS_DOCKER_SECRET == 'true'
       uses: docker/build-push-action@v6
       with:
         context: .
@@ -64,35 +72,113 @@ jobs:
         provenance: false
         sbom: false
 
+    - name: Note skip
+      if: env.HAS_DOCKER_SECRET != 'true'
+      run: echo "DOCKER_PASSWORD secret not set — skipping Docker Hub publish (GHCR still publishes from main)."
+
+  desktop:
+    needs: test
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install server dependencies + PyInstaller
+      run: |
+        python -m venv .venv
+        .venv\Scripts\python -m pip install -e . pyinstaller
+
+    - uses: dtolnay/rust-toolchain@stable
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: desktop/src-tauri
+
+    - name: Install Tauri CLI
+      run: npm install -g "@tauri-apps/cli@^2"
+
+    - name: Freeze server sidecar
+      run: .\desktop\build-sidecar.ps1
+
+    - name: Generate icons
+      working-directory: desktop/src-tauri
+      run: tauri icon ..\..\app\static\icon-512.png
+
+    - name: Build desktop app
+      working-directory: desktop/src-tauri
+      run: tauri build
+
+    - name: Extract version from tag
+      id: version
+      shell: bash
+      run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+    - name: Collect installer
+      shell: bash
+      run: |
+        mkdir -p dist-installer
+        cp "desktop/src-tauri/target/release/bundle/nsis/"*-setup.exe \
+           "dist-installer/Owlet-Dashboard-${{ steps.version.outputs.version }}-windows-setup.exe"
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: windows-installer
+        path: dist-installer/*.exe
+        if-no-files-found: error
+
+  release:
+    needs: [test, desktop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Extract version from tag
+      id: version
+      run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+    - uses: actions/download-artifact@v4
+      with:
+        name: windows-installer
+        path: dist-installer
+
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
       with:
         name: Release ${{ steps.version.outputs.version }}
+        files: dist-installer/*.exe
         body: |
+          ## Desktop app (Windows)
+
+          Download **Owlet-Dashboard-${{ steps.version.outputs.version }}-windows-setup.exe** below
+          and run it. Sign in with `admin` / `password` (local machine only — change it in
+          Settings → Sign-in). Note: the desktop app only collects readings **while it is
+          running**; for gapless 24/7 history run the Docker version and use the desktop
+          app as a viewer.
+
           ## Docker Image
 
-          - **Image**: `${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}`
-          - **Latest**: `${{ env.IMAGE_NAME }}:latest`
-          - Also published to GHCR from main: `ghcr.io/pbozzay/owlet-dashboard:latest`
+          - **GHCR** (published from main): `ghcr.io/pbozzay/owlet-dashboard:latest`
+          - **Docker Hub** (when enabled): `${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}` / `${{ env.IMAGE_NAME }}:latest`
 
           ### Unraid update instructions
           1. In the Unraid dashboard, click "Check for Updates" on the owlet-dashboard container
           2. Click "Update" when available
 
-          **New install**: add a container with repository `docker.io/${{ env.IMAGE_NAME }}:latest`,
-          map port `8888`, and map `/data` to an appdata share. Put your reverse proxy in
-          front with HTTPS (the app trusts `X-Forwarded-*`). Do **not** set
-          `SEED_DEFAULT_ADMIN` on an internet-facing instance — create your account through
-          the signup page instead.
+          **New install**: add a container with repository `ghcr.io/pbozzay/owlet-dashboard:latest`,
+          map port `8888`, and map `/data` to an appdata share (optionally `PUID=99` / `PGID=100`
+          so files are owned by `nobody:users`). Put your reverse proxy in front with HTTPS
+          (the app trusts `X-Forwarded-*`). Do **not** set `SEED_DEFAULT_ADMIN` on an
+          internet-facing instance — create your account through the signup page instead.
 
           ### Manual Docker commands
           ```bash
-          docker pull ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
-
           docker run -d --name owlet-dashboard \
             -p 8888:8888 \
             -v /path/to/appdata/owlet-dashboard:/data \
-            ${{ env.IMAGE_NAME }}:latest
+            ghcr.io/pbozzay/owlet-dashboard:latest
           ```
         draft: false
         prerelease: false
