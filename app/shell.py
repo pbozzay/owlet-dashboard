@@ -1060,7 +1060,9 @@ SHELL_JS = """<script>
     notice.className = 'desktop-notice';
     notice.innerHTML = '<b>Desktop app:</b> readings are collected only while this window is '
       + 'open and the PC is awake — a closed laptop or sleeping PC leaves permanent gaps '
-      + '(Owlet cannot backfill). For gapless 24/7 history, run the Docker server version. '
+      + '(Owlet cannot backfill). If you already run the Docker server version, use its web '
+      + 'page instead of this app: two collectors on one Owlet login sign each other out '
+      + 'and BOTH end up with gaps. '
       + '<button type="button" id="desktopNoticeAck">Got it</button>';
     main.parentNode.insertBefore(notice, main);
     document.getElementById('desktopNoticeAck').addEventListener('click', function () {

@@ -13,8 +13,13 @@ Nothing leaves your machine.
 > The desktop app only collects readings **while it is running**. If you close it
 > or your PC sleeps overnight, those readings are gone for good (Owlet's API has no
 > backfill). Gaps are shown honestly in the charts as "collector off" bands.
-> For uninterrupted 24/7 history, run the Docker/server version instead and use
-> the desktop app or browser as a viewer.
+> For uninterrupted 24/7 history, run the Docker/server version instead.
+>
+> **One collector per Owlet login.** The desktop app is its own collector, not a
+> viewer for a server instance. If a Docker/server instance is already polling
+> your Owlet account, don't run this app alongside it — the two refresh the same
+> Owlet token and sign each other out, leaving gaps on both sides. Server users
+> should open the server's web page in a browser (installable as a PWA) instead.
 
 ## Build prerequisites (one-time)
 
