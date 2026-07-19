@@ -163,17 +163,17 @@ _LANDING = """<!doctype html>
       </div>
       <section class="card">
         <h2>Sign in</h2>
-        <p class="sub">Welcome back — your charts are waiting.</p>
+        <p class="sub">{signin_sub}</p>
         {error}
         <form method="post" action="/auth/login">
-          <label for="email">Email</label>
+          <label for="email">{email_label}</label>
           <input id="email" name="email" type="text" inputmode="email" required
                  autocomplete="username" />
           <label for="password">Password</label>
           <input id="password" name="password" type="password" required autocomplete="current-password" />
           <button type="submit">Sign in</button>
         </form>
-        <p class="alt">New here? <a href="/signup">Create a free account</a></p>
+        {signup_line}
       </section>
     </div>
     <footer>Retrospective trend viewing only — not a medical monitor or alert replacement.
@@ -204,10 +204,26 @@ DESKTOP_PRIVACY_COPY = (
 
 
 def login_page(error: str | None = None, desktop_mode: bool = False) -> str:
+    # Desktop is a purely local login (seeded admin account), not a web
+    # account — offering "create a free account" there reads like signing up
+    # for a hosted service that doesn't exist.
+    if desktop_mode:
+        signin_sub = ("This app runs entirely on this computer. Sign in with the local "
+                      "account — <b>admin</b> / <b>password</b> until you change it in "
+                      "Settings → Sign-in.")
+        signup_line = ""
+        email_label = "Username"
+    else:
+        signin_sub = "Welcome back — your charts are waiting."
+        signup_line = '<p class="alt">New here? <a href="/signup">Create a free account</a></p>'
+        email_label = "Email"
     return _LANDING.format(
         error=_error(error),
         privacy_copy=DESKTOP_PRIVACY_COPY if desktop_mode else HOSTED_PRIVACY_COPY,
         preview=_TODAY_PREVIEW_IMG,
+        signin_sub=signin_sub,
+        signup_line=signup_line,
+        email_label=email_label,
     )
 
 

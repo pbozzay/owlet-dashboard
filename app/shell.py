@@ -1025,6 +1025,7 @@ SHELL_JS = """<script>
       : (fresh
         ? (sockReporting ? 'Collecting live' : 'Collector live — sock not reporting')
         : 'No new data for ' + Math.round((Date.now() - lastReadingAt) / 1000) + 's');
+    if (desktopMode && fresh) label += ' — only while this PC is awake';
     status.innerHTML = '<span class="status-dot ' + dotClass + '"></span>' + label;
   }
   function pollFreshness() {
@@ -1046,6 +1047,27 @@ SHELL_JS = """<script>
   pollFreshness();
   setInterval(pollFreshness, 10000);
   setInterval(paintDot, 1000);
+
+  // ---- desktop-mode notice: collection stops when this PC sleeps ----------
+  var desktopMode = false;
+  fetch('/api/health').then(function (r) { return r.json(); }).then(function (health) {
+    desktopMode = !!health.desktop_mode;
+    if (!desktopMode) return;
+    if (localStorage.getItem('owletDesktopNoticeAck') === '1') return;
+    var main = document.querySelector('.shell-main');
+    if (!main) return;
+    var notice = document.createElement('div');
+    notice.className = 'desktop-notice';
+    notice.innerHTML = '<b>Desktop app:</b> readings are collected only while this window is '
+      + 'open and the PC is awake — a closed laptop or sleeping PC leaves permanent gaps '
+      + '(Owlet cannot backfill). For gapless 24/7 history, run the Docker server version. '
+      + '<button type="button" id="desktopNoticeAck">Got it</button>';
+    main.parentNode.insertBefore(notice, main);
+    document.getElementById('desktopNoticeAck').addEventListener('click', function () {
+      localStorage.setItem('owletDesktopNoticeAck', '1');
+      notice.remove();
+    });
+  }).catch(function () {});
 
   // Warm the other tabs into the service-worker cache so the first switch
   // paints instantly too.

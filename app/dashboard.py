@@ -41,6 +41,10 @@ DATA_HEAD = r"""  <meta name="theme-color" content="#122033" />
       min-width: 0;
     }
     :root[data-theme="dark"] .toolbar { backdrop-filter: blur(14px); }
+    .legacy-note { margin: 14px 0 0; padding: 8px 14px; font-size: 12.5px; line-height: 1.5;
+      color: var(--dim); border: 1px dashed var(--surface-line);
+      border-radius: var(--radius-card); }
+    .legacy-note a { color: var(--accent); text-decoration: none; font-weight: 600; }
     .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 10px; margin: 14px 0; position: sticky; top: 62px; z-index: 10; }
     .control-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .refresh-cluster { margin-left: auto; justify-content: flex-end; }
@@ -274,7 +278,9 @@ DATA_BODY = r"""
     </div>
   </div>
   <main class="shell">
-    
+    <p class="legacy-note">This is the original <b>V1 data workbench</b> — dense, but every raw
+      reading lives here. Day to day, the <a href="/">Today</a>, <a href="/night">Tonight</a>,
+      and <a href="/rhythms">Rhythms</a> pages are the modern views.</p>
 
     <section class="toolbar" aria-label="Date and data controls">
       <div class="control-group filter-cluster">

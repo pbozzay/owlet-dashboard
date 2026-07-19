@@ -372,6 +372,15 @@ body.themed * { box-sizing: border-box; }
   align-items: center; }
 .pp-clock-row { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
 .pp-to { color: var(--faint); font-size: 12px; }
+.desktop-notice { max-width: 1060px; margin: 14px auto -6px; padding: 10px 16px;
+  border: 1px solid color-mix(in srgb, var(--awake) 45%, transparent);
+  background: color-mix(in srgb, var(--awake) 10%, var(--surface));
+  border-radius: var(--radius-card); font-size: 12.5px; line-height: 1.5;
+  color: var(--dim); display: flex; gap: 12px; align-items: center; }
+.desktop-notice b { color: var(--ink); }
+.desktop-notice button { all: unset; cursor: pointer; flex: none; margin-left: auto;
+  font-size: 12px; font-weight: 700; color: var(--accent); padding: 4px 10px;
+  border-radius: 999px; background: var(--accent-soft); }
 .pp-section select, .pp-section input {
   width: 100%; padding: 8px 10px; border: 1px solid var(--surface-line);
   border-radius: var(--radius-control); background: var(--surface); color: var(--ink);

@@ -4,10 +4,12 @@ $ErrorActionPreference = "Stop"
 
 # --collect-data tzdata: the timezone preference validates against zoneinfo,
 # which has no OS database on Windows — the frozen exe must carry tzdata's files.
+# --collect-data app: app/static (theme.css, insights.js, icons, preview image)
+# is read from disk at runtime — without it every page renders unstyled.
 .venv\Scripts\pyinstaller --onefile --name owlet-server `
   --distpath desktop\dist --workpath desktop\build --specpath desktop `
   --paths . --collect-submodules uvicorn --collect-submodules app `
-  --collect-data tzdata `
+  --collect-data tzdata --collect-data app `
   --hidden-import aiosqlite --noconfirm desktop\server_entry.py
 
 $target = "desktop\src-tauri\binaries"
