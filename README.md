@@ -21,10 +21,6 @@ and one-tap supplemental-O₂ logging:
 | --- | --- |
 | ![Tonight page](docs/screenshots/tonight.png) | ![Rhythms page](docs/screenshots/rhythms.png) |
 
-The landing page, for the curious:
-
-<img src="docs/screenshots/landing.png" alt="Landing page" width="720" />
-
 ## What it stores
 
 Each poll stores:

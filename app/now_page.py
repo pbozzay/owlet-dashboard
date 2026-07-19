@@ -1792,8 +1792,12 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       el('hrBand').textContent = bandText(bands.hr, '');
       el('sleepBand').textContent = sleepSessionText;
       el('moveBand').textContent = 'wiggle level — spikes while awake are normal';
-      const o2Out = bands.o2 && latest.o2 != null && (latest.o2 < bands.o2.low || latest.o2 > bands.o2.high);
-      const hrOut = bands.hr && latest.hr != null && (latest.hr < bands.hr.low || latest.hr > bands.hr.high);
+      // Compare against the ROUNDED bounds — the label prints "91–98%", so a
+      // reading of 98 must count as inside even when the true band is 91.2–97.6.
+      const o2Out = bands.o2 && latest.o2 != null
+        && (Math.round(latest.o2) < Math.round(bands.o2.low) || Math.round(latest.o2) > Math.round(bands.o2.high));
+      const hrOut = bands.hr && latest.hr != null
+        && (Math.round(latest.hr) < Math.round(bands.hr.low) || Math.round(latest.hr) > Math.round(bands.hr.high));
       el('card-o2').className = 'vital card' +
         (latest.o2 != null && latest.o2 < 86 ? ' critical' : latest.o2 != null && latest.o2 < 90 ? ' low' : o2Out ? ' out' : '');
       el('card-hr').className = 'vital card' + (hrOut ? ' out' : '');

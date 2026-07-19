@@ -249,6 +249,14 @@ def create_app(
             headers={"Cache-Control": "public, max-age=86400"},
         )
 
+    @app.get("/preview-today.png")
+    async def preview_today() -> FileResponse:
+        return FileResponse(
+            STATIC_DIR / "preview-today.png",
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
     @app.get("/share/{token}", response_class=HTMLResponse)
     async def shared_dashboard(token: str = Path(min_length=20)) -> str:
         _require_share_token(token, settings)
