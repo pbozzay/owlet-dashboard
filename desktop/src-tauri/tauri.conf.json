@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "app.bozzay.owlet-dashboard",
   "build": {
-    "frontendDist": "../ui-placeholder"
+    "frontendDist": "ui-placeholder"
   },
   "app": {
     "windows": [],
