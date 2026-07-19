@@ -555,8 +555,10 @@ def create_app(
         if cached and now_monotonic - cached[0] < 45:
             payload = cached[1]
         else:
+            # 300k covers a gapless 14-day window at the 5s poll cadence — the
+            # Rhythms pages ask for 336h and must not lose their oldest days.
             rows = await store.get_analysis_readings(
-                hours=hours, limit=100_000, device_serial=device, account_ids=ids
+                hours=hours, limit=300_000, device_serial=device, account_ids=ids
             )
             rows = await store.exclude_challenge_readings(rows, account_ids=ids)
             payload = {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
@@ -573,7 +575,7 @@ def create_app(
         device: str | None = Query(default=None),
     ):
         _require_share_token(token, settings)
-        rows = await store.get_analysis_readings(hours=hours, limit=100_000, device_serial=device)
+        rows = await store.get_analysis_readings(hours=hours, limit=300_000, device_serial=device)
         rows = await store.exclude_challenge_readings(rows)
         return {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
 

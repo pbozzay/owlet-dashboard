@@ -775,6 +775,8 @@ class ReadingStore:
         params.append(limit)
 
         async with self._connect() as db:
+            # DESC + reverse: when the window holds more rows than the limit,
+            # the NEWEST must survive — an ASC limit silently drops today.
             cursor = await db.execute(
                 f"""
                 SELECT device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
@@ -782,14 +784,14 @@ class ReadingStore:
                        battery_minutes, movement_bucket, oxygen_10_av, signal_strength, charging
                 FROM readings
                 {where}
-                ORDER BY recorded_at ASC
+                ORDER BY recorded_at DESC
                 LIMIT ?
                 """,
                 params,
             )
             rows = await cursor.fetchall()
 
-        return [self._row_to_reading(row) for row in rows]
+        return [self._row_to_reading(row) for row in reversed(rows)]
 
     async def get_readings_window(
         self,
@@ -862,6 +864,9 @@ class ReadingStore:
         params.append(limit)
 
         async with self._connect() as db:
+            # DESC + reverse: when the window holds more rows than the limit,
+            # the NEWEST must survive — an ASC limit silently drops today, which
+            # zeroed every rollup-driven widget on gapless 5s-cadence instances.
             cursor = await db.execute(
                 f"""
                 SELECT device_serial, recorded_at, heart_rate, oxygen_saturation, battery,
@@ -874,14 +879,14 @@ class ReadingStore:
                        battery_minutes, movement_bucket, oxygen_10_av, signal_strength, charging
                 FROM readings
                 {where}
-                ORDER BY recorded_at ASC
+                ORDER BY recorded_at DESC
                 LIMIT ?
                 """,
                 params,
             )
             rows = await cursor.fetchall()
 
-        return [self._row_to_analysis_reading(row) for row in rows]
+        return [self._row_to_analysis_reading(row) for row in reversed(rows)]
 
     async def get_summary(
         self,

@@ -1345,6 +1345,23 @@ async def test_readiness_report_fires_once_and_summarizes_day(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_reading_limit_keeps_newest_rows(tmp_path):
+    """A window holding more rows than the limit must drop the OLDEST, not
+    today — an ASC limit zeroed every rollup widget on 5s-cadence instances."""
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    account_id = await _default_account_id(store)
+    for minute in range(10):
+        await _seed_reading(store, f"2026-07-02T01:{minute:02d}:00Z", hr=100 + minute, spo2=95)
+
+    analysis = await store.get_analysis_readings(hours=24, limit=4, account_ids=[account_id])
+    assert [r.heart_rate for r in analysis] == [106, 107, 108, 109]   # newest 4, ascending
+
+    full = await store.get_readings(hours=24, limit=4, account_ids=[account_id])
+    assert [r.heart_rate for r in full] == [106, 107, 108, 109]
+
+
+@pytest.mark.asyncio
 async def test_readings_window_returns_precise_slice(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)
