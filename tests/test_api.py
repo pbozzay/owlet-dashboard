@@ -981,6 +981,32 @@ async def test_care_events_crud_and_tenancy(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_unlink_account_removes_it_and_its_data_scoped(tmp_path):
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    auth = AuthStore(store.db_path)
+    owner, owner_session = await make_user(auth, "owner@example.test")
+    other, other_session = await make_user(auth, "other@example.test")
+    mine = await store.create_account(email="sock@x.y", user_id=owner["id"])
+    theirs = await store.create_account(email="theirs@x.y", user_id=other["id"])
+    await _seed_reading(store, "2026-07-02T01:00:00Z", account_id=mine["id"])
+    await _seed_reading(store, "2026-07-02T01:05:00Z", account_id=mine["id"])
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+
+    with client_for(app, owner_session) as client:
+        # can't delete another tenant's account
+        assert client.delete(f"/api/accounts/{theirs['id']}").status_code == 404
+        # own account: gone, along with its readings
+        assert client.delete(f"/api/accounts/{mine['id']}").json() == {"ok": True}
+        assert client.get("/api/accounts").json()["accounts"] == []
+        # second delete is a 404
+        assert client.delete(f"/api/accounts/{mine['id']}").status_code == 404
+
+    assert await store.get_readings(hours=None, account_ids=[mine["id"]]) == []
+    assert (await store.list_accounts(user_id=other["id"]))[0]["id"] == theirs["id"]
+
+
+@pytest.mark.asyncio
 async def test_relinking_same_owlet_email_updates_not_duplicates(tmp_path, monkeypatch):
     import app.main as main_module
 

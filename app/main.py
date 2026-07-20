@@ -419,6 +419,23 @@ def create_app(
         account = await _link_owlet_account(payload, user)
         return {"account": _public_account(account)}
 
+    @app.delete("/api/accounts/{account_id}")
+    async def unlink_account(
+        account_id: int = Path(ge=1), user: dict = Depends(require_user)
+    ):
+        """Unlink an Owlet account: stop its collector and delete it with all
+        of its stored history. Irreversible — the UI gates it behind a
+        typed confirmation."""
+        await _scope(user, account_id)  # 404s unless the user owns it
+        live = state.setdefault("pollers", [])  # type: ignore[union-attr]
+        for poller in [p for p in live if getattr(p, "account_id", None) == account_id]:
+            await poller.stop()
+            live.remove(poller)
+        deleted = await store.delete_account(account_id, user_id=user["id"])
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Not found")
+        return {"ok": True}
+
     @app.post("/onboarding/link")
     async def onboarding_link(
         email: str = Form(),

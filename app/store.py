@@ -482,6 +482,27 @@ class ReadingStore:
             account_id = int(cursor.lastrowid)
         return await self.get_account(account_id)
 
+    async def delete_account(self, account_id: int, user_id: int | None = None) -> int:
+        """Remove a linked Owlet account and everything collected under it.
+        Scoped by user_id when given so one tenant can't delete another's."""
+        await self.init()
+        async with self._connect() as db:
+            if user_id is not None:
+                cursor = await db.execute(
+                    "SELECT 1 FROM accounts WHERE id = ? AND user_id = ?", (account_id, user_id)
+                )
+                if await cursor.fetchone() is None:
+                    return 0
+            for table in ("readings", "notifications", "oxygen_challenges",
+                          "care_events", "device_snapshots"):
+                try:
+                    await db.execute(f"DELETE FROM {table} WHERE account_id = ?", (account_id,))
+                except Exception:  # a table may not exist on very old DBs
+                    pass
+            cursor = await db.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+            await db.commit()
+            return cursor.rowcount or 0
+
     async def get_account(self, account_id: int, user_id: int | None = None) -> dict[str, Any]:
         await self.init()
         where = "WHERE id = ?"

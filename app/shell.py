@@ -517,6 +517,34 @@ SHELL_JS = """<script>
     });
   });
 
+  if (byId('unlinkAccount')) byId('unlinkAccount').addEventListener('click', function () {
+    var account = shellSelectedAccount();
+    if (!account) { alert('No account selected.'); return; }
+    var label = account.email || account.display_name || 'this account';
+    var typed = prompt('This unlinks ' + label + ' and permanently deletes its stored '
+      + 'history. This cannot be undone.\\n\\nType the account email to confirm:');
+    if (typed == null) return;
+    if (typed.trim().toLowerCase() !== String(account.email || '').trim().toLowerCase()) {
+      alert('That didn\\u2019t match — nothing was removed.');
+      return;
+    }
+    var btn = byId('unlinkAccount');
+    btn.disabled = true; btn.textContent = 'Unlinking…';
+    fetch('/api/accounts/' + account.id, { method: 'DELETE' })
+      .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+      .then(function () {
+        // no accounts left -> home bounces to onboarding; otherwise refresh
+        return fetch('/api/accounts').then(function (r) { return r.json(); }).then(function (data) {
+          if (!(data.accounts || []).length) { window.location.href = '/'; return; }
+          window.location.reload();
+        });
+      })
+      .catch(function () {
+        btn.disabled = false; btn.textContent = 'Unlink…';
+        alert('Could not unlink the account — try again.');
+      });
+  });
+
   // ---- install app ----
   var deferredInstall = null;
   window.addEventListener('beforeinstallprompt', function (event) {
@@ -1393,6 +1421,11 @@ def render_shell(
               </div>
               <svg id="sigChart" viewBox="0 0 320 72" preserveAspectRatio="none" aria-label="Signal strength through the day"></svg>
               <div class="dev-sig-axis"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>12 AM</span></div>
+            </div>
+            <div class="set-danger">
+              <div class="set-lab"><b>Unlink this Owlet account</b><small id="unlinkHint">Stops collecting
+                and permanently deletes this account's stored history. Can't be undone.</small></div>
+              <button id="unlinkAccount" class="set-danger-btn" type="button">Unlink…</button>
             </div>
           </section>
         </div>
