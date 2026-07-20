@@ -7,6 +7,10 @@
   --bg-accent-1: #f3ede2;
   --bg-accent-2: #ece4f7;
   --surface: #ffffff;
+  /* Floating overlays (popovers, modal cards) sit over busy content with no
+     scrim, so they need a near-opaque fill — a translucent card reads as
+     "broken" there even with a blur behind it. */
+  --surface-solid: #ffffff;
   --surface-line: #e7e0d5;
   --ink: #1c1917;
   --dim: #78716c;
@@ -32,6 +36,7 @@
   --bg-accent-1: #1a2150;
   --bg-accent-2: #232b5c;
   --surface: rgba(30, 38, 74, .5);
+  --surface-solid: #191f42;
   --surface-line: rgba(139, 148, 184, .18);
   --ink: #e8ecf8;
   --dim: #8b94b8;
@@ -120,7 +125,8 @@ body.themed * { box-sizing: border-box; }
   line-height: 1; font-variant-numeric: tabular-nums; }
 .bell-badge[hidden] { display: none; }
 .bell-pop { position: absolute; top: 44px; right: 0; width: min(360px, calc(100vw - 28px));
-  padding: 16px; z-index: 60; }
+  padding: 16px; z-index: 60; background: var(--surface-solid);
+  backdrop-filter: blur(20px) saturate(150%); }
 .bell-pop[hidden] { display: none; }
 @media (max-width: 640px) {
   /* the bell/battery sit mid-bar on phones, so an anchored panel would run
@@ -356,7 +362,8 @@ body.themed * { box-sizing: border-box; }
 @media (max-width: 760px) { .profile-chip .pc-labels, .profile-chip .pc-caret { display: none; } }
 .profile-pop {
   position: absolute; top: 46px; right: 0; width: min(320px, calc(100vw - 28px));
-  padding: 18px; z-index: 60;
+  padding: 18px; z-index: 60; background: var(--surface-solid);
+  backdrop-filter: blur(20px) saturate(150%);
 }
 .profile-pop[hidden] { display: none; }
 .pp-id { display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
@@ -432,7 +439,8 @@ body.themed * { box-sizing: border-box; }
 }
 .pp-signout button:hover { color: var(--bad); border-color: var(--bad); }
 
-.shell-main { max-width: 940px; margin: 0 auto; padding: 30px 20px 90px; }
+.shell-main { max-width: 940px; margin: 0 auto; padding: 30px 20px 90px;
+  overflow-x: clip; }
 .shell-main.wide { max-width: 1540px; padding-top: 18px; }
 .shell-footer {
   text-align: center; font-size: 11px; color: var(--faint);

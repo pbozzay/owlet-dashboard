@@ -126,7 +126,7 @@ DATA_HEAD = r"""  <meta name="theme-color" content="#122033" />
     .account-add-button { padding-inline: .65rem; }
     .challenge-button { background: var(--accent-soft); color: var(--accent); }
     .challenge-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-size: .72rem; font-weight: 700; }
-    .challenge-popover { position: absolute; right: 0; top: calc(100% + 8px); width: min(520px, calc(100vw - 28px)); max-height: min(74vh, 620px); overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: var(--shadow); padding: 12px; z-index: 32; }
+    .challenge-popover { position: absolute; right: 0; top: calc(100% + 8px); width: min(520px, calc(100vw - 28px)); max-height: min(74vh, 620px); overflow: auto; background: var(--surface-solid); backdrop-filter: blur(20px) saturate(150%); border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: var(--shadow); padding: 12px; z-index: 32; }
     .challenge-popover.hidden, .challenge-modal.hidden { display: none; }
     .daily-insights-button { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-soft); }
     .daily-insights-summary { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 12px; }
@@ -143,7 +143,7 @@ DATA_HEAD = r"""  <meta name="theme-color" content="#122033" />
     .challenge-metrics span { background: var(--surface); border: 1px solid var(--surface-line); border-radius: 10px; padding: 5px 6px; }
     .challenge-empty-actions { display: grid; gap: 8px; margin-top: 14px; }
     .challenge-modal { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 16px; background: rgba(10, 12, 30, .45); }
-    .challenge-modal-card { width: min(980px, 100%); max-height: min(780px, calc(100vh - 32px)); overflow: auto; background: var(--surface); border: 1px solid var(--surface-line); border-radius: var(--radius-card); box-shadow: var(--shadow); padding: 16px; }
+    .challenge-modal-card { width: min(980px, 100%); max-height: min(780px, calc(100vh - 32px)); overflow: auto; background: var(--surface-solid); border: 1px solid var(--surface-line); border-radius: var(--radius-card); box-shadow: var(--shadow); padding: 16px; }
     .challenge-edit-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; padding: 12px; background: var(--inset); border: 1px solid var(--line); border-radius: 14px; }
     .challenge-edit-form label { display: grid; gap: 5px; }
     .challenge-edit-form input, .challenge-edit-form textarea { width: 100%; }

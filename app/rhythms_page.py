@@ -43,9 +43,9 @@ RHYTHMS_HEAD = """<style>
     .grad i:last-child { border-radius: 0 3px 3px 0; }
     .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
     .wear-bars { display: flex; align-items: flex-end; gap: 8px; margin: 12px 0 4px;
-      min-height: 96px; }
-    .wear-bars .wb { flex: 1; display: grid; justify-items: center; gap: 4px;
-      align-content: end; }
+      min-height: 96px; overflow-x: auto; padding-bottom: 4px; }
+    .wear-bars .wb { flex: 1 0 auto; min-width: 34px; display: grid; justify-items: center;
+      gap: 4px; align-content: end; }
     .wear-bars i { display: block; width: 100%; max-width: 34px;
       border-radius: 5px 5px 2px 2px; background: var(--accent-soft);
       border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }

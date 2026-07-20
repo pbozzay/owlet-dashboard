@@ -1794,8 +1794,10 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       el('moveBand').textContent = 'wiggle level — spikes while awake are normal';
       // Compare against the ROUNDED bounds — the label prints "91–98%", so a
       // reading of 98 must count as inside even when the true band is 91.2–97.6.
+      // Oxygen only warns on the LOW side: above the typical range is fine
+      // (higher SpO₂ is good), so a high reading must never tint amber.
       const o2Out = bands.o2 && latest.o2 != null
-        && (Math.round(latest.o2) < Math.round(bands.o2.low) || Math.round(latest.o2) > Math.round(bands.o2.high));
+        && Math.round(latest.o2) < Math.round(bands.o2.low);
       const hrOut = bands.hr && latest.hr != null
         && (Math.round(latest.hr) < Math.round(bands.hr.low) || Math.round(latest.hr) > Math.round(bands.hr.high));
       el('card-o2').className = 'vital card' +
