@@ -571,19 +571,40 @@ SHELL_JS = """<script>
       });
   });
 
-  // ---- install app ----
+  // ---- get the app (PWA install + desktop download) ----
   var deferredInstall = null;
   window.addEventListener('beforeinstallprompt', function (event) {
     event.preventDefault();
     deferredInstall = event;
   });
-  if (byId('installApp')) byId('installApp').addEventListener('click', function () {
-    if (deferredInstall) {
-      deferredInstall.prompt();
-      deferredInstall = null;
-    } else {
-      alert('To install: open the browser menu and choose "Install app" / "Add to Home Screen".');
-    }
+  var installBackdrop = byId('installBackdrop');
+  function openInstallModal() {
+    if (!installBackdrop) return;
+    closeProfile();
+    // The one-tap prompt only exists where the browser offered it; elsewhere
+    // the written steps are the way in.
+    var btn = byId('installPwaBtn');
+    if (btn) btn.hidden = !deferredInstall;
+    installBackdrop.hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+  function closeInstallModal() {
+    if (!installBackdrop || installBackdrop.hidden) return;
+    installBackdrop.hidden = true;
+    document.body.style.overflow = '';
+  }
+  if (byId('installApp')) byId('installApp').addEventListener('click', openInstallModal);
+  if (byId('installClose')) byId('installClose').addEventListener('click', closeInstallModal);
+  if (installBackdrop) {
+    installBackdrop.addEventListener('click', function (event) {
+      if (event.target === installBackdrop) closeInstallModal();
+    });
+  }
+  if (byId('installPwaBtn')) byId('installPwaBtn').addEventListener('click', function () {
+    if (!deferredInstall) return;
+    deferredInstall.prompt();
+    deferredInstall = null;
+    closeInstallModal();
   });
 
   // ---- notifications: shell bell, unread badge, toasts ----
@@ -1467,6 +1488,43 @@ def render_shell(
             </div>
           </section>
         </div>
+      </div>
+    </div>
+  </div>
+  <div id="installBackdrop" class="focus-backdrop" hidden>
+    <div class="install-sheet card" role="dialog" aria-modal="true" aria-label="Get the app">
+      <header>
+        <div><b>Get the app</b><small class="focus-readout">two ways to run Owlet Dashboard</small></div>
+        <button id="installClose" type="button" aria-label="Close">✕</button>
+      </header>
+      <div class="install-body">
+        <section class="install-opt">
+          <h3>Install this page as an app</h3>
+          <p>Opens in its own window, no browser bars. It's still this same
+            instance — your data stays wherever this page is hosted.</p>
+          <button id="installPwaBtn" class="install-cta" type="button" hidden>Install web app</button>
+          <p class="install-hint">
+            <b>iPhone / iPad:</b> Share → <b>Add to Home Screen</b>.<br>
+            <b>Android (Chrome):</b> menu ⋮ → <b>Install app</b> / Add to Home Screen.<br>
+            <b>Desktop Chrome / Edge:</b> the install icon at the right of the address
+            bar, or menu → <b>Install Owlet Dashboard</b>.
+          </p>
+        </section>
+        <section class="install-opt">
+          <h3>Or get the Windows desktop app</h3>
+          <p>Download the installer from the releases page:</p>
+          <a class="install-cta" href="https://github.com/pbozzay/owlet-dashboard/releases/latest"
+            target="_blank" rel="noopener noreferrer">Open the releases page →</a>
+          <p class="install-hint"><b>You pick how it runs on first launch:</b></p>
+          <ul class="install-modes">
+            <li><b>Collect on this PC</b> — the app gathers readings itself, but only
+              while it's open and the PC is awake, so expect gaps when it sleeps.</li>
+            <li><b>Connect to your server</b> — point it at an always-on instance
+              (Docker / Unraid) running Owlet Dashboard. The desktop app becomes a
+              viewer with <b>complete data continuity</b> — nothing is lost when this
+              PC sleeps. This is the best experience.</li>
+          </ul>
+        </section>
       </div>
     </div>
   </div>
