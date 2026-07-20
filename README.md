@@ -71,12 +71,12 @@ Each poll stores:
 docker run -d --name owlet-dashboard \
   -p 8888:8888 \
   -v /path/to/appdata/owlet-dashboard:/data \
-  docker.io/pbozzay/owlet-dashboard:latest
+  ghcr.io/pbozzay/owlet-dashboard:latest
 ```
 
-Images are published to Docker Hub (`pbozzay/owlet-dashboard`, versioned on every
-`v*.*.*` tag) and to GHCR (`ghcr.io/pbozzay/owlet-dashboard:latest`, on every push
-to main).
+Images are published to the GitHub Container Registry
+(`ghcr.io/pbozzay/owlet-dashboard:latest`, rebuilt on every push to main; each build is
+also tagged with its commit SHA if you want to pin one).
 
 The container stores everything in `/data` (SQLite database + WAL). It starts as
 root only long enough to make that volume writable for the runtime user, then drops
