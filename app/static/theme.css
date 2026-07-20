@@ -416,13 +416,17 @@ body.themed * { box-sizing: border-box; }
 .pp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 /* desktop hides Sign out — don't leave a dangling half-width Install button */
 .pp-actions:has(> .pp-signout[hidden]) { grid-template-columns: 1fr; }
-.pp-actions .pp-install {
+/* desktop shows only Switch server — give it the full row */
+.pp-actions:has(> .pp-switch:not([hidden])) { grid-template-columns: 1fr; }
+.pp-actions .pp-install, .pp-actions .pp-switch {
   all: unset; cursor: pointer; text-align: center; box-sizing: border-box;
   padding: 9px 0; border-radius: var(--radius-control);
   border: 1px solid var(--surface-line); color: var(--dim);
   font-size: 13px; font-weight: 600;
 }
-.pp-actions .pp-install:hover { color: var(--accent); border-color: var(--accent); }
+.pp-actions .pp-install:hover, .pp-actions .pp-switch:hover {
+  color: var(--accent); border-color: var(--accent);
+}
 .pp-status { margin-top: 14px; font-size: 11.5px; color: var(--faint);
   display: flex; align-items: center; gap: 7px; }
 .pp-status .status-dot { width: 8px; height: 8px; border-radius: 50%;

@@ -1106,9 +1106,20 @@ SHELL_JS = """<script>
   fetch('/api/health').then(function (r) { return r.json(); }).then(function (health) {
     desktopMode = !!health.desktop_mode;
     if (!desktopMode) return;
-    // No login in desktop mode, so signing out and credential settings are
-    // meaningless — hide them rather than offer a door to nowhere.
+    // No login in desktop mode, so signing out, installing the app, and
+    // credential settings are meaningless — hide them rather than offer a
+    // door to nowhere. Give the profile menu a real exit instead: a way back
+    // to the launcher to switch servers or re-pick local collection.
     document.querySelectorAll('.pp-signout').forEach(function (el) { el.hidden = true; });
+    document.querySelectorAll('.pp-install').forEach(function (el) { el.hidden = true; });
+    var switchBtn = document.getElementById('switchServer');
+    if (switchBtn) {
+      switchBtn.hidden = false;
+      switchBtn.addEventListener('click', function () {
+        // the launcher is always served by the local sidecar, even in remote mode
+        window.location.href = 'http://127.0.0.1:8877/desktop';
+      });
+    }
     var signinTab = document.querySelector('.set-rail [data-pane="signin"]');
     if (signinTab) signinTab.hidden = true;
     if (localStorage.getItem('owletSettingsPane') === 'signin') {
@@ -1250,6 +1261,8 @@ def render_shell(
           <form method="post" action="/auth/logout" class="pp-signout" style="margin:0">
             <button type="submit">Sign out</button>
           </form>
+          <button id="switchServer" class="pp-switch" type="button" hidden
+            title="Connect to a different server, or collect on this PC">Switch server…</button>
         </div>
         <div class="pp-status" id="status"><span class="status-dot"></span>Checking collector…</div>
       </div>
