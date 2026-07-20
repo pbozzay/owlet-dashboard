@@ -1053,6 +1053,14 @@ SHELL_JS = """<script>
   fetch('/api/health').then(function (r) { return r.json(); }).then(function (health) {
     desktopMode = !!health.desktop_mode;
     if (!desktopMode) return;
+    // No login in desktop mode, so signing out and credential settings are
+    // meaningless — hide them rather than offer a door to nowhere.
+    document.querySelectorAll('.pp-signout').forEach(function (el) { el.hidden = true; });
+    var signinTab = document.querySelector('.set-rail [data-pane="signin"]');
+    if (signinTab) signinTab.hidden = true;
+    if (localStorage.getItem('owletSettingsPane') === 'signin') {
+      localStorage.setItem('owletSettingsPane', 'baby');
+    }
     if (localStorage.getItem('owletDesktopNoticeAck') === '1') return;
     var main = document.querySelector('.shell-main');
     if (!main) return;

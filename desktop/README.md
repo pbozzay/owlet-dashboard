@@ -2,7 +2,9 @@
 
 A native Windows shell around the same app: a frozen `owlet-server.exe` sidecar
 (FastAPI + SQLite, data in `%LOCALAPPDATA%\owlet-dashboard\`) plus a Tauri window
-pointed at it. Login is preseeded as `admin` / `password` (local machine only).
+pointed at it. There is **no login** — it's a single-user local app bound to
+127.0.0.1, so every request is implicitly the local user and the app opens
+straight into the dashboard.
 
 Unlike the hosted version, desktop mode **stores your Owlet login locally**
 (in the SQLite file under `%LOCALAPPDATA%`). That way a refresh token that died

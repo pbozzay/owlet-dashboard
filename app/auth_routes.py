@@ -42,9 +42,20 @@ def set_session_cookie(response: Response, request: Request, raw_token: str) -> 
 
 async def current_user(request: Request) -> dict | None:
     raw = request.cookies.get(SESSION_COOKIE)
-    if not raw:
-        return None
-    return await _auth(request).get_session_user(hash_token(raw))
+    if raw:
+        user = await _auth(request).get_session_user(hash_token(raw))
+        if user:
+            return user
+    # Desktop mode is a single-user app bound to 127.0.0.1 — a password gate
+    # there protects nothing (the SQLite file sits on the same disk) and only
+    # adds friction. Every request is implicitly the local admin user.
+    if _settings(request).desktop_mode:
+        auth = _auth(request)
+        user = await auth.get_user_by_email("admin")
+        if user is None:
+            user = await auth.create_user("admin", hash_password("password"))
+        return user
+    return None
 
 
 async def require_user(request: Request) -> dict:

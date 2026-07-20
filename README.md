@@ -21,6 +21,27 @@ and one-tap supplemental-O₂ logging:
 | --- | --- |
 | ![Tonight page](docs/screenshots/tonight.png) | ![Rhythms page](docs/screenshots/rhythms.png) |
 
+## Try it in two minutes — the Windows app
+
+The fastest way in: **[download the desktop app from the releases
+page](https://github.com/pbozzay/owlet-dashboard/releases/latest)**, run the installer,
+and link your Owlet login on the first screen. That's the whole setup.
+
+- **No account, no sign-in.** It's a local, single-user app — it opens straight into
+  the dashboard, and everything stays on your PC
+  (`%LOCALAPPDATA%\owlet-dashboard`).
+- **Know the trade-off — collection is imperfect by design.** It only records
+  readings **while the app is open and the PC is awake**. A closed laptop or a
+  sleeping PC leaves permanent gaps (Owlet's API can't backfill), and the charts
+  show those gaps honestly. Great for trying the dashboard or for travel; for
+  gapless 24/7 history run the Docker server below.
+- **One collector per Owlet login.** If a server instance already polls your
+  account, use its web page instead of this app — two collectors refresh the same
+  Owlet token and sign each other out.
+
+Prefer to compile it yourself? Build steps live in
+[`desktop/README.md`](desktop/README.md) (PyInstaller sidecar + Tauri shell).
+
 ## What it stores
 
 Each poll stores:
@@ -73,18 +94,6 @@ Open the site, create an account (the first signup adopts any data from a
 pre-multi-user database), and link your Owlet login on the onboarding page. Owlet
 passwords are verified once with Owlet and never stored — only access tokens.
 Region options: `world` (typical US/global account) or `europe` (EU account).
-
-## Desktop app (Windows)
-
-A Tauri-based installable Windows app lives in [`desktop/`](desktop/README.md): the same
-server frozen into a sidecar exe (data in `%LOCALAPPDATA%\owlet-dashboard`), wrapped in a
-native window with an `admin`/`password` local login.
-
-> **Know its limitation:** the desktop app only collects readings **while it is running**
-> (or while your PC is awake). Owlet's API cannot backfill, so time offline is lost
-> permanently and shows up as "collector off" gaps in the charts. For gapless 24/7
-> history, run the Docker version on an always-on machine and use the desktop app or a
-> browser as the viewer.
 
 ## Local development
 

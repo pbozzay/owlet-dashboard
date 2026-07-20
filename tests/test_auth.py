@@ -139,6 +139,30 @@ def test_login_rate_limited(app_bundle):
         assert response.status_code == 429
 
 
+def test_desktop_mode_needs_no_login(tmp_path):
+    from app.auth_store import AuthStore
+    from app.main import create_app
+    from app.store import ReadingStore
+    from tests.conftest import test_settings
+
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    auth = AuthStore(store.db_path)
+    app = create_app(
+        store=store,
+        settings=test_settings(desktop_mode=True),
+        start_poller=False,
+        auth_store=auth,
+    )
+    with client_for(app) as client:
+        # no session cookie, no login — every request is the local admin
+        assert client.get("/api/readings").status_code == 200
+        assert client.get("/api/me").json()["email"] == "admin"
+        landing = client.get("/login", follow_redirects=False)
+        assert landing.status_code == 303 and landing.headers["location"] == "/"
+        # fresh install -> straight to onboarding, never a sign-in page
+        assert "link your owlet sock" in client.get("/").text.lower()
+
+
 def test_seed_default_admin_flag(tmp_path):
     from app.auth_store import AuthStore
     from app.main import create_app
@@ -192,9 +216,10 @@ def test_desktop_mode_switches_copy_and_stores_owlet_password(tmp_path):
         )
         with client_for(app, session) as client:
             assert "stored only on this computer" in client.get("/").text
-            assert "kept locally" in client.get("/logout-not-needed", follow_redirects=False).text or True
         with client_for(app) as anon:
-            assert "kept locally" in anon.get("/login").text
+            # desktop mode has no login at all — /login bounces straight home
+            bounced = anon.get("/login", follow_redirects=False)
+            assert bounced.status_code == 303 and bounced.headers["location"] == "/"
 
         # store keeps the password column private: not exposed through the API
         account = loop.run_until_complete(
