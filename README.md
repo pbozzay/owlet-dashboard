@@ -24,20 +24,29 @@ and one-tap supplemental-O₂ logging:
 ## Try it in two minutes — the Windows app
 
 The fastest way in: **[download the desktop app from the releases
-page](https://github.com/pbozzay/owlet-dashboard/releases/latest)**, run the installer,
-and link your Owlet login on the first screen. That's the whole setup.
+page](https://github.com/pbozzay/owlet-dashboard/releases/latest)**, run the installer.
+On first launch it asks how you want to use it — no account, nothing to configure:
 
-- **No account, no sign-in.** It's a local, single-user app — it opens straight into
-  the dashboard, and everything stays on your PC
-  (`%LOCALAPPDATA%\owlet-dashboard`).
-- **Know the trade-off — collection is imperfect by design.** It only records
-  readings **while the app is open and the PC is awake**. A closed laptop or a
-  sleeping PC leaves permanent gaps (Owlet's API can't backfill), and the charts
-  show those gaps honestly. Great for trying the dashboard or for travel; for
-  gapless 24/7 history run the Docker server below.
-- **One collector per Owlet login.** If a server instance already polls your
-  account, use its web page instead of this app — two collectors refresh the same
-  Owlet token and sign each other out.
+![The first-launch chooser](docs/screenshots/launcher.png)
+
+There are three ways to run Owlet Dashboard, and the app can be any of them:
+
+- **Standalone app — _Collect on this PC._** The app polls Owlet and stores everything
+  locally (`%LOCALAPPDATA%\owlet-dashboard`), no server needed. The catch: it only
+  records **while the app is open and the PC is awake**, so a closed laptop or sleeping
+  PC leaves permanent gaps (Owlet's API can't backfill) — the charts show them honestly.
+  Great for trying it out or for travel.
+- **Always-on server — the [Docker/Unraid deployment](#run-with-docker-recommended).** Runs 24/7
+  and never sleeps, so you get gapless history. Reach it from any browser.
+- **Connected viewer app — _Connect to a live server._** Point the desktop app at your
+  always-on server's URL and it becomes a pure **viewer**: full 24/7 history, nothing
+  lost when your PC sleeps, and **native Windows toast alerts** on your machine — without
+  running a second collector. This is the best of both worlds if you already run the
+  server.
+
+Only run one collector per Owlet login: two collectors refresh the same Owlet token and
+sign each other out. So if you have the server, use **Connect to a live server** rather
+than _Collect on this PC_. You can switch modes anytime from the window's **Instance** menu.
 
 Prefer to compile it yourself? Build steps live in
 [`desktop/README.md`](desktop/README.md) (PyInstaller sidecar + Tauri shell).
