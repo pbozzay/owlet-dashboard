@@ -38,11 +38,38 @@ fn kill_sidecar(app: &tauri::AppHandle) {
     }
 }
 
+fn launcher_url() -> String {
+    format!("http://{}:{}/desktop", SERVER_ADDR.0, SERVER_ADDR.1)
+}
+
 fn main() {
     log_line("--- app start ---");
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(ServerProcess(Mutex::new(None)))
+        .menu(|handle| {
+            use tauri::menu::{MenuBuilder, SubmenuBuilder};
+            // The escape hatch from a remote instance: the remote page is
+            // sandboxed from our IPC, so switching backends lives in a native
+            // menu that can always navigate the window home to the launcher.
+            let instance = SubmenuBuilder::new(handle, "Instance")
+                .text("switch", "Switch server\u{2026}")
+                .text("reload", "Reload")
+                .build()?;
+            MenuBuilder::new(handle).item(&instance).build()
+        })
+        .on_menu_event(|app, event| {
+            let id = event.id().as_ref();
+            if let Some(win) = app.get_webview_window("main") {
+                if id == "switch" {
+                    if let Ok(url) = launcher_url().parse::<tauri::Url>() {
+                        let _ = win.navigate(url);
+                    }
+                } else if id == "reload" {
+                    let _ = win.eval("location.reload()");
+                }
+            }
+        })
         .setup(|app| {
             // Reuse an already-running server (e.g. dev instance); otherwise spawn the sidecar.
             if TcpStream::connect(SERVER_ADDR).is_err() {

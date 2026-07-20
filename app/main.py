@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import secrets
@@ -35,6 +36,41 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 STATIC_DIR = FilePath(__file__).parent / "static"
 JSON_BODY = Body(default_factory=dict)
+
+
+def _desktop_config_path(settings: Settings) -> FilePath:
+    return FilePath(settings.database_path).parent / "desktop-config.json"
+
+
+def _read_desktop_config(settings: Settings) -> dict[str, object]:
+    try:
+        return json.loads(_desktop_config_path(settings).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_desktop_config(settings: Settings, data: dict[str, object]) -> None:
+    path = _desktop_config_path(settings)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+async def _probe_owlet_instance(url: str) -> bool:
+    """Confirm a URL is a reachable Owlet Dashboard before we point the window
+    at it. Server-side (no browser CORS) via stdlib, off the event loop."""
+    import urllib.request
+
+    def _get() -> bool:
+        req = urllib.request.Request(
+            url.rstrip("/") + "/api/health", headers={"User-Agent": "owlet-desktop"}
+        )
+        with urllib.request.urlopen(req, timeout=6) as resp:  # noqa: S310 - user-entered URL
+            return bool(json.loads(resp.read().decode("utf-8")).get("ok"))
+
+    try:
+        return await asyncio.to_thread(_get)
+    except Exception:
+        return False
 
 
 def _reading_response(row, *, include_raw: bool = False) -> dict[str, object]:
@@ -79,7 +115,10 @@ def create_app(
             )
         pollers: list[Poller] = []
         clients: list[OwletClient] = []
-        if start_poller:
+        # When the desktop app is pointed at a remote server it's a pure viewer —
+        # a local collector here would just fight the remote for the Owlet token.
+        remote_mode = bool(settings.desktop_mode and _read_desktop_config(settings).get("backend"))
+        if start_poller and not remote_mode:
             accounts = await store.list_accounts()
             token_accounts = [
                 account
@@ -161,6 +200,12 @@ def create_app(
 
     @app.get("/")
     async def home(request: Request):
+        if settings.desktop_mode:
+            cfg = _read_desktop_config(settings)
+            if cfg.get("backend"):
+                return HTMLResponse(auth_pages.desktop_redirect_page(str(cfg["backend"])))
+            if cfg.get("mode") != "local":  # first run — offer the launcher
+                return HTMLResponse(auth_pages.desktop_launcher_page())
         user = await current_user(request)
         if user is None:
             return RedirectResponse("/login", status_code=303)
@@ -168,6 +213,37 @@ def create_app(
         if not accounts:
             return HTMLResponse(auth_pages.onboarding_page(desktop_mode=settings.desktop_mode))
         return HTMLResponse(render_now_page())
+
+    @app.get("/desktop")
+    async def desktop_launcher(request: Request):
+        if not settings.desktop_mode:
+            return RedirectResponse("/", status_code=303)
+        cfg = _read_desktop_config(settings)
+        backend = cfg.get("backend")
+        return HTMLResponse(
+            auth_pages.desktop_launcher_page(current_backend=str(backend) if backend else None)
+        )
+
+    @app.post("/desktop/use-local")
+    async def desktop_use_local():
+        if not settings.desktop_mode:
+            raise HTTPException(status_code=404, detail="Not found")
+        _write_desktop_config(settings, {"mode": "local"})
+        return RedirectResponse("/", status_code=303)
+
+    @app.post("/desktop/connect")
+    async def desktop_connect(payload: dict[str, object] = JSON_BODY):
+        if not settings.desktop_mode:
+            raise HTTPException(status_code=404, detail="Not found")
+        url = str(payload.get("url") or "").strip().rstrip("/")
+        if not url.startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="Enter a full http:// or https:// address")
+        if not await _probe_owlet_instance(url):
+            raise HTTPException(
+                status_code=400, detail="Couldn't reach an Owlet Dashboard at that address"
+            )
+        _write_desktop_config(settings, {"mode": "remote", "backend": url})
+        return {"ok": True, "url": url}
 
     @app.get("/data")
     async def data_workbench(request: Request):

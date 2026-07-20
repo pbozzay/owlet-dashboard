@@ -149,18 +149,69 @@ def test_desktop_mode_needs_no_login(tmp_path):
     auth = AuthStore(store.db_path)
     app = create_app(
         store=store,
-        settings=test_settings(desktop_mode=True),
+        settings=test_settings(desktop_mode=True, database_path=str(tmp_path / "owlet.sqlite3")),
         start_poller=False,
         auth_store=auth,
     )
     with client_for(app) as client:
+        client.post("/desktop/use-local", follow_redirects=False)  # past the launcher
         # no session cookie, no login — every request is the local admin
         assert client.get("/api/readings").status_code == 200
         assert client.get("/api/me").json()["email"] == "admin"
         landing = client.get("/login", follow_redirects=False)
         assert landing.status_code == 303 and landing.headers["location"] == "/"
-        # fresh install -> straight to onboarding, never a sign-in page
+        # local mode -> straight to onboarding, never a sign-in page
         assert "link your owlet sock" in client.get("/").text.lower()
+
+
+def test_desktop_launcher_and_remote_connect(tmp_path, monkeypatch):
+    import app.main as main_module
+    from app.auth_store import AuthStore
+    from app.main import create_app
+    from app.store import ReadingStore
+    from tests.conftest import test_settings
+
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    auth = AuthStore(store.db_path)
+    settings = test_settings(desktop_mode=True, database_path=str(tmp_path / "owlet.sqlite3"))
+    app = create_app(store=store, settings=settings, start_poller=False, auth_store=auth)
+
+    with client_for(app) as client:
+        # first run -> launcher, not onboarding
+        home = client.get("/")
+        assert "How do you want to use this app?" in home.text
+
+        # unreachable server is rejected, no config written
+        async def _fail(url):
+            return False
+
+        monkeypatch.setattr(main_module, "_probe_owlet_instance", _fail)
+        bad = client.post("/desktop/connect", json={"url": "https://nope.example"})
+        assert bad.status_code == 400
+        assert "How do you want to use this app?" in client.get("/").text
+
+        # a reachable Owlet instance is saved; home then bounces to it
+        async def _ok(url):
+            return True
+
+        monkeypatch.setattr(main_module, "_probe_owlet_instance", _ok)
+        good = client.post("/desktop/connect", json={"url": "https://owlet.example/"})
+        assert good.status_code == 200 and good.json()["url"] == "https://owlet.example"
+        redirect = client.get("/")
+        assert "owlet.example" in redirect.text and "location.replace" in redirect.text
+
+        # switching to local clears the remote and returns to normal onboarding
+        client.post("/desktop/use-local", follow_redirects=False)
+        assert "link your owlet sock" in client.get("/").text.lower()
+
+
+def test_desktop_routes_are_404_off_desktop(app_bundle):
+    app, *_ = app_bundle  # hosted mode
+    with client_for(app) as client:
+        assert client.post("/desktop/connect", json={"url": "https://x"}).status_code == 404
+        assert client.post("/desktop/use-local", follow_redirects=False).status_code == 404
+        bounced = client.get("/desktop", follow_redirects=False)
+        assert bounced.status_code == 303 and bounced.headers["location"] == "/"
 
 
 def test_seed_default_admin_flag(tmp_path):
@@ -210,11 +261,12 @@ def test_desktop_mode_switches_copy_and_stores_owlet_password(tmp_path):
         user, session = loop.run_until_complete(make_user(auth, "parent@example.com"))
         app = create_app(
             store=store,
-            settings=test_settings(desktop_mode=True),
+            settings=test_settings(desktop_mode=True, database_path=str(tmp_path / "owlet.sqlite3")),
             start_poller=False,
             auth_store=auth,
         )
         with client_for(app, session) as client:
+            client.post("/desktop/use-local", follow_redirects=False)  # past the launcher
             assert "stored only on this computer" in client.get("/").text
         with client_for(app) as anon:
             # desktop mode has no login at all — /login bounces straight home

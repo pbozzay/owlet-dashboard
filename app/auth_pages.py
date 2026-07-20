@@ -48,6 +48,115 @@ def _error(error: str | None) -> str:
     return f'<div class="notice" role="alert">{html.escape(error)}</div>' if error else ""
 
 
+def desktop_redirect_page(url: str) -> str:
+    """Bounce the desktop window to a remote instance. A plain meta/JS redirect
+    so the webview lands on the always-on server and behaves as its web app."""
+    safe = html.escape(url, quote=True)
+    return (
+        f'<!doctype html><meta charset="utf-8">'
+        f'<meta http-equiv="refresh" content="0; url={safe}">'
+        f'<script>location.replace({html.escape(_json_str(url))})</script>'
+        f'<p style="font:15px system-ui;padding:24px;color:#5b6b80">Connecting to {safe}…</p>'
+    )
+
+
+def _json_str(value: str) -> str:
+    import json as _json
+
+    return _json.dumps(value)
+
+
+def desktop_launcher_page(current_backend: str | None = None, error: str | None = None) -> str:
+    change = ""
+    if current_backend:
+        change = (
+            f'<p class="alt">Currently connected to '
+            f'<b>{html.escape(current_backend)}</b>.</p>'
+        )
+    prefill = html.escape(current_backend or "", quote=True)
+    return _LAUNCHER.format(error=_error(error), change=change, prefill=prefill)
+
+
+_LAUNCHER = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Owlet Dashboard — get started</title>
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <style>
+    :root {{ --bg:#f5f7fb; --panel:#fff; --text:#122033; --muted:#5b6b80; --purple:#6d28d9;
+             --purple-soft:#ede9fe; --line:#e3e9f2; }}
+    * {{ box-sizing:border-box; margin:0; }}
+    body {{ font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      background:radial-gradient(1100px 500px at 15% -10%, var(--purple-soft), transparent 60%), var(--bg);
+      color:var(--text); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:32px 20px; }}
+    .wrap {{ width:100%; max-width:640px; }}
+    .brand {{ display:flex; align-items:center; gap:12px; margin-bottom:8px; }}
+    .brand img {{ width:40px; height:40px; }}
+    .brand span {{ font-size:19px; font-weight:700; letter-spacing:-.02em; }}
+    h1 {{ font-size:26px; letter-spacing:-.02em; margin:14px 0 6px; }}
+    .lede {{ color:var(--muted); font-size:15px; line-height:1.55; margin-bottom:22px; }}
+    .opt {{ background:var(--panel); border:1px solid var(--line); border-radius:16px;
+      box-shadow:0 12px 34px rgba(18,32,51,.08); padding:20px 22px; margin-bottom:16px; }}
+    .opt h2 {{ font-size:17px; margin-bottom:4px; }}
+    .opt p {{ color:var(--muted); font-size:13.5px; line-height:1.5; margin-bottom:14px; }}
+    .opt.primary {{ border:1.5px solid var(--purple); }}
+    input {{ width:100%; padding:11px 12px; border:1px solid #d6dee9; border-radius:10px;
+      font-size:16px; background:#fbfcfe; margin-bottom:10px; }}
+    input:focus {{ outline:2px solid var(--purple); outline-offset:1px; border-color:transparent; }}
+    button {{ width:100%; padding:12px; border:0; border-radius:10px; background:var(--purple);
+      color:#fff; font-size:15px; font-weight:600; cursor:pointer; }}
+    button:hover {{ background:#5b21b6; }}
+    button.ghost {{ background:transparent; color:var(--purple); border:1px solid var(--line); }}
+    button.ghost:hover {{ background:var(--purple-soft); }}
+    button[disabled] {{ opacity:.6; cursor:default; }}
+    .alt {{ font-size:13px; color:var(--muted); margin-top:8px; text-align:center; }}
+    .notice {{ background:#fef2f2; color:#991b1b; border-radius:10px; padding:10px 12px;
+      font-size:13px; margin-bottom:10px; }}
+    footer {{ text-align:center; font-size:11.5px; color:var(--muted); margin-top:14px; }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand"><img src="/logo.svg" alt="" /><span>Owlet Dashboard</span></div>
+    <h1>How do you want to use this app?</h1>
+    <p class="lede">Point this window at an always-on server you run, or collect right here on
+      this PC.</p>
+    {error}
+    <div class="opt primary">
+      <h2>Connect to a live server</h2>
+      <p>Best if you run the Docker/Unraid version somewhere always-on. This window becomes a
+        viewer for it — real 24/7 history, nothing lost when this PC sleeps, and a normal login.</p>
+      <input id="serverUrl" type="url" inputmode="url" placeholder="https://owlet.yourdomain.com"
+        value="{prefill}" autocomplete="off" />
+      <button id="connectBtn" type="button">Connect</button>
+    </div>
+    <div class="opt">
+      <h2>Collect on this PC</h2>
+      <p>No server needed. This app collects readings itself — but only while it's open and the PC
+        is awake, so expect gaps. Good for trying it out or travel.</p>
+      <form method="post" action="/desktop/use-local"><button class="ghost" type="submit">Use this PC</button></form>
+    </div>
+    {change}
+    <footer>You can switch anytime from the Instance menu.</footer>
+  </div>
+  <script>
+    var btn = document.getElementById('connectBtn');
+    btn.addEventListener('click', function () {{
+      var url = document.getElementById('serverUrl').value.trim();
+      if (!/^https?:\\/\\//i.test(url)) {{ alert('Enter a full address starting with http:// or https://'); return; }}
+      btn.disabled = true; btn.textContent = 'Connecting…';
+      fetch('/desktop/connect', {{ method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{ url: url }}) }})
+        .then(function (r) {{ return r.json().then(function (d) {{ return {{ ok: r.ok, d: d }}; }}); }})
+        .then(function (res) {{ if (!res.ok) throw new Error(res.d.detail || 'Could not connect'); window.location.href = res.d.url; }})
+        .catch(function (e) {{ btn.disabled = false; btn.textContent = 'Connect'; alert(e.message); }});
+    }});
+  </script>
+</body>
+</html>"""
+
+
 _LANDING = """<!doctype html>
 <html lang="en">
 <head>
