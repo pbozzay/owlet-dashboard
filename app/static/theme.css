@@ -445,6 +445,9 @@ body.themed * { box-sizing: border-box; }
   border: 1px solid var(--surface-line); color: var(--dim);
   font-size: 13px; font-weight: 600;
 }
+/* `all: unset` resets display to inline, which defeats the [hidden] attribute —
+   restore it so these buttons actually hide when toggled off per mode. */
+.pp-actions .pp-install[hidden], .pp-actions .pp-switch[hidden] { display: none; }
 .pp-actions .pp-install:hover, .pp-actions .pp-switch:hover {
   color: var(--accent); border-color: var(--accent);
 }

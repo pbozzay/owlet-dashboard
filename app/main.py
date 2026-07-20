@@ -210,7 +210,9 @@ def create_app(
         if user is None:
             return RedirectResponse("/login", status_code=303)
         accounts = await store.list_accounts(user_id=user["id"])
-        if not accounts:
+        # A logged-out ("disconnected") account keeps its data but doesn't count
+        # as linked — fall through to onboarding so the user can sign back in.
+        if not any(a.get("status") != "disconnected" for a in accounts):
             return HTMLResponse(auth_pages.onboarding_page(desktop_mode=settings.desktop_mode))
         return HTMLResponse(render_now_page())
 
@@ -251,7 +253,7 @@ def create_app(
         if user is None:
             return RedirectResponse("/login", status_code=303)
         accounts = await store.list_accounts(user_id=user["id"])
-        if not accounts:
+        if not any(a.get("status") != "disconnected" for a in accounts):
             return RedirectResponse("/", status_code=303)
         return HTMLResponse(render_dashboard())
 
@@ -364,10 +366,13 @@ def create_app(
 
     @app.get("/api/accounts")
     async def accounts(user: dict = Depends(require_user)):
+        # Logged-out accounts stay in the DB (so re-linking reactivates them)
+        # but are hidden from the picker — they're not connected.
         return {
             "accounts": [
                 _public_account(account)
                 for account in await store.list_accounts(user_id=user["id"])
+                if account.get("status") != "disconnected"
             ]
         }
 
@@ -509,6 +514,23 @@ def create_app(
             live.remove(poller)
         deleted = await store.delete_account(account_id, user_id=user["id"])
         if not deleted:
+            raise HTTPException(status_code=404, detail="Not found")
+        return {"ok": True}
+
+    @app.post("/api/accounts/{account_id}/disconnect")
+    async def disconnect_account(
+        account_id: int = Path(ge=1), user: dict = Depends(require_user)
+    ):
+        """Log an Owlet account out: stop its collector and clear the stored
+        login, but keep all collected history. Non-destructive — re-linking the
+        same login reactivates this account with its data intact."""
+        await _scope(user, account_id)  # 404s unless the user owns it
+        live = state.setdefault("pollers", [])  # type: ignore[union-attr]
+        for poller in [p for p in live if getattr(p, "account_id", None) == account_id]:
+            await poller.stop()
+            live.remove(poller)
+        updated = await store.disconnect_account(account_id, user_id=user["id"])
+        if not updated:
             raise HTTPException(status_code=404, detail="Not found")
         return {"ok": True}
 

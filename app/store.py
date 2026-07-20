@@ -503,6 +503,32 @@ class ReadingStore:
             await db.commit()
             return cursor.rowcount or 0
 
+    async def disconnect_account(self, account_id: int, user_id: int | None = None) -> int:
+        """Log an Owlet account out: clear its stored credentials and mark it
+        disconnected, but KEEP all collected history. Re-linking the same login
+        later finds this row by email and reactivates it with its data intact.
+        Scoped by user_id when given."""
+        await self.init()
+        async with self._connect() as db:
+            if user_id is not None:
+                cursor = await db.execute(
+                    "SELECT 1 FROM accounts WHERE id = ? AND user_id = ?", (account_id, user_id)
+                )
+                if await cursor.fetchone() is None:
+                    return 0
+            cursor = await db.execute(
+                """
+                UPDATE accounts
+                SET api_token = NULL, api_token_expiry = NULL, refresh_token = NULL,
+                    owlet_password = NULL, status = 'disconnected',
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (account_id,),
+            )
+            await db.commit()
+            return cursor.rowcount or 0
+
     async def get_account(self, account_id: int, user_id: int | None = None) -> dict[str, Any]:
         await self.init()
         where = "WHERE id = ?"

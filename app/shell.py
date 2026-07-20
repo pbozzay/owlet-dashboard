@@ -1141,6 +1141,28 @@ SHELL_JS = """<script>
         window.location.href = 'http://127.0.0.1:8877/desktop';
       });
     }
+    // Log out = disconnect the Owlet login but keep the history. There's no
+    // online session here, so this is the local equivalent of signing out;
+    // re-linking the same login later restores everything.
+    var logoutBtn = document.getElementById('logoutOwlet');
+    if (logoutBtn) {
+      logoutBtn.hidden = false;
+      logoutBtn.addEventListener('click', function () {
+        var account = shellSelectedAccount();
+        if (!account) { window.location.href = '/'; return; }
+        var label = account.email || account.display_name || 'your Owlet login';
+        if (!confirm('Log out of ' + label + '? Collection stops, but all of your '
+          + 'history is kept — sign back in anytime to pick up where you left off.')) return;
+        logoutBtn.disabled = true; logoutBtn.textContent = 'Logging out…';
+        fetch('/api/accounts/' + account.id + '/disconnect', { method: 'POST' })
+          .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+          .then(function () { window.location.href = '/'; })
+          .catch(function () {
+            logoutBtn.disabled = false; logoutBtn.textContent = 'Log out';
+            alert('Could not log out — try again.');
+          });
+      });
+    }
     var signinTab = document.querySelector('.set-rail [data-pane="signin"]');
     if (signinTab) signinTab.hidden = true;
     if (localStorage.getItem('owletSettingsPane') === 'signin') {
@@ -1282,6 +1304,8 @@ def render_shell(
           <form method="post" action="/auth/logout" class="pp-signout" style="margin:0">
             <button type="submit">Sign out</button>
           </form>
+          <button id="logoutOwlet" class="pp-switch" type="button" hidden
+            title="Sign out of your Owlet login — your history is kept">Log out</button>
           <button id="switchServer" class="pp-switch" type="button" hidden
             title="Connect to a different server, or collect on this PC">Switch server…</button>
         </div>

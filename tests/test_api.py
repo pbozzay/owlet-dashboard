@@ -1053,6 +1053,63 @@ async def test_relinking_same_owlet_email_updates_not_duplicates(tmp_path, monke
 
 
 @pytest.mark.asyncio
+async def test_disconnect_keeps_data_and_reactivates_on_relink(tmp_path, monkeypatch):
+    import app.main as main_module
+
+    class FakeOwletClient:
+        def __init__(self, email=None, password=None, region="world", **kwargs):
+            pass
+
+        async def connect(self):
+            return None
+
+        def discard_password(self):
+            return None
+
+        @property
+        def tokens(self):
+            return {"api_token": "tok", "expiry": None, "refresh": "ref"}
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(main_module, "OwletClient", FakeOwletClient)
+
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    account = await store.create_account(
+        email="sock@owlet.test", user_id=user["id"], owlet_password="pw"
+    )
+    await _seed_reading(store, "2026-07-02T01:00:00Z", account_id=account["id"])
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+
+    with client_for(app, session) as client:
+        # log out: non-destructive — drops off the picker and home falls to onboarding
+        assert client.post(f"/api/accounts/{account['id']}/disconnect").json() == {"ok": True}
+        assert client.get("/api/accounts").json()["accounts"] == []
+        assert "link your owlet sock" in client.get("/").text.lower()
+        # disconnecting a stranger's / missing account is a 404
+        assert client.post("/api/accounts/9999/disconnect").status_code == 404
+
+    # the row and its readings survive; stored credentials are wiped
+    row = await store.get_account(account["id"])
+    assert row["status"] == "disconnected"
+    assert row["refresh_token"] is None and row["owlet_password"] is None
+    assert len(await store.get_readings(hours=None, account_ids=[account["id"]])) == 1
+
+    # re-linking the same login reactivates THIS account (same id) with data intact
+    with client_for(app, session) as client:
+        relink = client.post("/api/accounts", json={"email": "sock@owlet.test", "password": "pw"})
+        assert relink.status_code == 200
+        assert relink.json()["account"]["id"] == account["id"]
+    reactivated = await store.get_account(account["id"])
+    assert reactivated["status"] == "active"
+    assert len(await store.get_readings(hours=None, account_ids=[account["id"]])) == 1
+
+
+@pytest.mark.asyncio
 async def test_feed_events_carry_method_and_amounts(tmp_path):
     store = ReadingStore(tmp_path / "owlet.sqlite3")
     await store.init()
