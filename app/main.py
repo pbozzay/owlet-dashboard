@@ -349,30 +349,58 @@ def create_app(
             client = OwletClient(email=email, password=password, region=region)
             await client.connect()
             client.discard_password()
-            account = await store.create_account(
-                email=email,
-                region=region,
-                display_name=display_name,
-                api_token=client.tokens.get("api_token"),
-                api_token_expiry=client.tokens.get("expiry"),
-                refresh_token=client.tokens.get("refresh"),
-                status="active",
-                user_id=user["id"],
-                # Desktop installs keep the Owlet login locally so a dead refresh
-                # token (e.g. after weeks powered off) never strands collection.
-                owlet_password=password if settings.desktop_mode else None,
+            # Re-linking the same Owlet login must refresh the existing account,
+            # not spawn a duplicate that double-polls the same sock.
+            existing = next(
+                (
+                    a
+                    for a in await store.list_accounts(user_id=user["id"])
+                    if str(a.get("email") or "").strip().lower() == email.lower()
+                ),
+                None,
             )
+            if existing is not None:
+                account_id = int(existing["id"])
+                await store.update_account_tokens(
+                    account_id,
+                    api_token=client.tokens.get("api_token"),
+                    api_token_expiry=client.tokens.get("expiry"),
+                    refresh_token=client.tokens.get("refresh"),
+                    status="active",
+                )
+                account = await store.get_account(account_id)
+            else:
+                account = await store.create_account(
+                    email=email,
+                    region=region,
+                    display_name=display_name,
+                    api_token=client.tokens.get("api_token"),
+                    api_token_expiry=client.tokens.get("expiry"),
+                    refresh_token=client.tokens.get("refresh"),
+                    status="active",
+                    user_id=user["id"],
+                    # Desktop installs keep the Owlet login locally so a dead refresh
+                    # token (e.g. after weeks powered off) never strands collection.
+                    owlet_password=password if settings.desktop_mode else None,
+                )
+            account_id = int(account["id"])
             if start_poller:
+                # Exactly one poller per account: stop any already running for
+                # this account (e.g. started on boot) before attaching the new client.
+                live = state.setdefault("pollers", [])  # type: ignore[union-attr]
+                for stale in [p for p in live if getattr(p, "account_id", None) == account_id]:
+                    await stale.stop()
+                    live.remove(stale)
                 client_for_poller = client
                 poller = Poller(
                     store=store,
                     read_once=client_for_poller.read_once,
                     interval_seconds=settings.poll_interval_seconds,
-                    account_id=int(account["id"]),
+                    account_id=account_id,
                     token_snapshot=lambda client=client_for_poller: client.tokens,
                 )
                 poller.start()
-                state.setdefault("pollers", []).append(poller)  # type: ignore[union-attr]
+                live.append(poller)
                 state.setdefault("clients", []).append(client)  # type: ignore[union-attr]
                 client = None
             return account

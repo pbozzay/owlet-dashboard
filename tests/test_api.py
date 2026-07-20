@@ -981,6 +981,52 @@ async def test_care_events_crud_and_tenancy(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_relinking_same_owlet_email_updates_not_duplicates(tmp_path, monkeypatch):
+    import app.main as main_module
+
+    class FakeOwletClient:
+        counter = 0
+
+        def __init__(self, email=None, password=None, region="world", **kwargs):
+            FakeOwletClient.counter += 1
+            self._n = FakeOwletClient.counter
+
+        async def connect(self):
+            return None
+
+        def discard_password(self):
+            return None
+
+        @property
+        def tokens(self):
+            return {"api_token": f"tok{self._n}", "expiry": None, "refresh": f"ref{self._n}"}
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(main_module, "OwletClient", FakeOwletClient)
+
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+
+    with client_for(app, session) as client:
+        first = client.post("/api/accounts", json={"email": "SOCK@owlet.test", "password": "pw"})
+        assert first.status_code == 200
+        second = client.post("/api/accounts", json={"email": "sock@owlet.test", "password": "pw"})
+        assert second.status_code == 200
+        accounts = client.get("/api/accounts").json()["accounts"]
+
+    # same Owlet login (case-insensitive) collapses to one account, tokens refreshed
+    assert len(accounts) == 1
+    assert first.json()["account"]["id"] == second.json()["account"]["id"]
+    refreshed = await store.get_account(accounts[0]["id"])
+    assert refreshed["refresh_token"] == "ref2"
+
+
+@pytest.mark.asyncio
 async def test_feed_events_carry_method_and_amounts(tmp_path):
     store = ReadingStore(tmp_path / "owlet.sqlite3")
     await store.init()
