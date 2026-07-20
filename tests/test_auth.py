@@ -204,12 +204,17 @@ def test_desktop_launcher_and_remote_connect(tmp_path, monkeypatch):
         client.post("/desktop/use-local", follow_redirects=False)
         assert "link your owlet sock" in client.get("/").text.lower()
 
+        # reset (what logout does) drops the choice and returns to the launcher
+        assert client.post("/desktop/reset").json() == {"ok": True}
+        assert "How do you want to use this app?" in client.get("/").text
+
 
 def test_desktop_routes_are_404_off_desktop(app_bundle):
     app, *_ = app_bundle  # hosted mode
     with client_for(app) as client:
         assert client.post("/desktop/connect", json={"url": "https://x"}).status_code == 404
         assert client.post("/desktop/use-local", follow_redirects=False).status_code == 404
+        assert client.post("/desktop/reset").status_code == 404
         bounced = client.get("/desktop", follow_redirects=False)
         assert bounced.status_code == 303 and bounced.headers["location"] == "/"
 

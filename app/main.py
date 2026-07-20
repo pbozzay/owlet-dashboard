@@ -233,6 +233,16 @@ def create_app(
         _write_desktop_config(settings, {"mode": "local"})
         return RedirectResponse("/", status_code=303)
 
+    @app.post("/desktop/reset")
+    async def desktop_reset():
+        """Clear the local/remote choice so the app returns to the launcher —
+        used on logout, so signing out lands on the 'how do you want to use
+        this app?' chooser rather than straight back on the local link page."""
+        if not settings.desktop_mode:
+            raise HTTPException(status_code=404, detail="Not found")
+        _write_desktop_config(settings, {})
+        return {"ok": True}
+
     @app.post("/desktop/connect")
     async def desktop_connect(payload: dict[str, object] = JSON_BODY):
         if not settings.desktop_mode:

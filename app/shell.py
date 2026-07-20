@@ -1156,7 +1156,10 @@ SHELL_JS = """<script>
         logoutBtn.disabled = true; logoutBtn.textContent = 'Logging out…';
         fetch('/api/accounts/' + account.id + '/disconnect', { method: 'POST' })
           .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
-          .then(function () { window.location.href = '/'; })
+          // Reset the local/remote choice so we land on the launcher, not the
+          // local link page — logging out should let you re-pick how to connect.
+          .then(function () { return fetch('/desktop/reset', { method: 'POST' }).catch(function () {}); })
+          .then(function () { window.location.href = 'http://127.0.0.1:8877/desktop'; })
           .catch(function () {
             logoutBtn.disabled = false; logoutBtn.textContent = 'Log out';
             alert('Could not log out — try again.');
