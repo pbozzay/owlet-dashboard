@@ -433,10 +433,38 @@ SHELL_JS = """<script>
     patchSelectedAccount({ dashboard_preferences: { birth_date: event.target.value || null } })
       .then(function () { loadShellAccounts(); });
   });
+  // The desktop app exposes Tauri's invoke bridge (withGlobalTauri); a plain
+  // browser has none, so we fall back to the web Notification API there.
+  function tauriInvoke() {
+    var t = window.__TAURI__;
+    return (t && t.core && typeof t.core.invoke === 'function') ? t.core.invoke : null;
+  }
+  function ensureNotifyPermission() {
+    // Windows has no per-app prompt: the native command works straight away,
+    // so treat the desktop app as already granted.
+    if (tauriInvoke()) return Promise.resolve('granted');
+    if ('Notification' in window && Notification.permission !== 'granted') {
+      return Notification.requestPermission().catch(function () { return 'denied'; });
+    }
+    return Promise.resolve('Notification' in window ? Notification.permission : 'denied');
+  }
+  function pingDevice(title, body, tag) {
+    var invoke = tauriInvoke();
+    if (invoke) {
+      try { Promise.resolve(invoke('show_native_toast', { title: title, body: body })).catch(function () {}); }
+      catch (error) { /* bridge missing at runtime */ }
+      return;
+    }
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try { new Notification(title, { body: body, tag: tag }); } catch (error) { /* SW-only platforms */ }
+    }
+  }
   function updateNotifHint() {
     var hint = byId('o2AlertHint');
     if (!hint) return;
-    if (!('Notification' in window)) {
+    if (tauriInvoke()) {
+      hint.textContent = 'Crossing below rings the bell, shows a toast, and raises a Windows notification while the app is open.';
+    } else if (!('Notification' in window)) {
       hint.textContent = 'This browser cannot show system notifications; alerts still ring the bell and toast in-app.';
     } else if (Notification.permission === 'granted') {
       hint.textContent = 'Crossing below rings the bell, shows a toast, and pings this device while the dashboard is open in any tab.';
@@ -450,8 +478,8 @@ SHELL_JS = """<script>
   if (byId('o2AlertSetting')) byId('o2AlertSetting').addEventListener('change', function (event) {
     var value = event.target.value;
     patchSelectedAccount({ dashboard_preferences: { o2_alert_threshold: value ? Number(value) : null } });
-    if (value && 'Notification' in window && Notification.permission !== 'granted') {
-      Notification.requestPermission().then(updateNotifHint).catch(updateNotifHint);
+    if (value) {
+      ensureNotifyPermission().then(updateNotifHint).catch(updateNotifHint);
     } else {
       updateNotifHint();
     }
@@ -473,9 +501,7 @@ SHELL_JS = """<script>
       readiness_report_time: value || null,
       tz_offset_minutes: -new Date().getTimezoneOffset()
     } });
-    if (value && 'Notification' in window && Notification.permission !== 'granted') {
-      Notification.requestPermission().catch(function () {});
-    }
+    if (value) { ensureNotifyPermission().catch(function () {}); }
   });
   if (byId('movementSourceSetting')) byId('movementSourceSetting').addEventListener('change', function (event) {
     patchSelectedAccount({ dashboard_preferences: { movement_source: event.target.value } });
@@ -998,13 +1024,12 @@ SHELL_JS = """<script>
     if (latest.id <= lastToasted) return;
     localStorage.setItem('owletLastToastId', String(latest.id));
     var wantsPing = latest.severity === 'critical' || latest.event_type === 'night_readiness';
-    if (wantsPing && 'Notification' in window && Notification.permission === 'granted') {
-      try {
-        new Notification(latest.title, {
-          body: (latest.message || '') + ' · ' + notificationTime(latest.recorded_at),
-          tag: 'owlet-' + latest.id,
-        });
-      } catch (error) { /* some platforms only allow SW notifications */ }
+    if (wantsPing) {
+      pingDevice(
+        latest.title,
+        (latest.message || '') + ' · ' + notificationTime(latest.recorded_at),
+        'owlet-' + latest.id
+      );
     }
     if (bellPop && !bellPop.hidden) return;   // already looking at the list
     showToast(latest);

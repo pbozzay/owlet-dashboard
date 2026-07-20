@@ -11,6 +11,15 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 
+[target.'cfg(windows)'.dependencies]
+# SetCurrentProcessExplicitAppUserModelID: without it, Windows drops our toasts
+# because the process AUMID doesn't match the installer's shortcut AUMID.
+windows = { version = "0.61", features = ["Win32_UI_Shell", "Win32_Foundation"] }
+# We call this crate directly instead of tauri-plugin-notification: the plugin
+# routes through notify-rust, whose show() registers activation handlers on a
+# spawned task and swallows the error, and the toast never actually appears.
+tauri-winrt-notification = "0.7"
+
 [profile.release]
 strip = true
 lto = true

@@ -42,10 +42,50 @@ fn launcher_url() -> String {
     format!("http://{}:{}/desktop", SERVER_ADDR.0, SERVER_ADDR.1)
 }
 
+/// Declare our AppUserModelID so Windows accepts toast notifications from this
+/// process. The installer's Start Menu shortcut carries the same id; without
+/// this call the process id doesn't match and Windows silently drops toasts.
+#[cfg(windows)]
+fn set_app_user_model_id(identifier: &str) {
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+    let wide: Vec<u16> = identifier.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        if let Err(err) = SetCurrentProcessExplicitAppUserModelID(PCWSTR(wide.as_ptr())) {
+            log_line(&format!("SetCurrentProcessExplicitAppUserModelID failed: {err}"));
+        }
+    }
+}
+
+/// Raise a native Windows toast. Called from the dashboard JS for critical
+/// alerts. We build the toast directly (no activation handlers) so it matches
+/// the code path that actually displays, and fire it off the command thread.
+#[tauri::command]
+fn show_native_toast(app: tauri::AppHandle, title: String, body: String) {
+    #[cfg(windows)]
+    {
+        let app_id = app.config().identifier.clone();
+        std::thread::spawn(move || {
+            use tauri_winrt_notification::{Duration, Toast};
+            let result = Toast::new(&app_id)
+                .title(&title)
+                .text1(&body)
+                .duration(Duration::Short)
+                .show();
+            if let Err(err) = result {
+                log_line(&format!("toast failed: {err:?}"));
+            }
+        });
+    }
+    #[cfg(not(windows))]
+    let _ = (app, title, body);
+}
+
 fn main() {
     log_line("--- app start ---");
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .invoke_handler(tauri::generate_handler![show_native_toast])
         .manage(ServerProcess(Mutex::new(None)))
         .menu(|handle| {
             use tauri::menu::{MenuBuilder, SubmenuBuilder};
@@ -71,6 +111,8 @@ fn main() {
             }
         })
         .setup(|app| {
+            #[cfg(windows)]
+            set_app_user_model_id(&app.config().identifier);
             // Reuse an already-running server (e.g. dev instance); otherwise spawn the sidecar.
             if TcpStream::connect(SERVER_ADDR).is_err() {
                 log_line("spawning sidecar");

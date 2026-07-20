@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions for the locally-served dashboard page. Scoped to the local sidecar origin only, so a page loaded from a remote backend gets none of these.",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:8877/*"]
+  },
+  "permissions": [
+    "core:default",
+    "allow-show-native-toast"
+  ]
+}

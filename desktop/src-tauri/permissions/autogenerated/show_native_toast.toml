@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-show-native-toast"
+description = "Enables the show_native_toast command without any pre-configured scope."
+commands.allow = ["show_native_toast"]
+
+[[permission]]
+identifier = "deny-show-native-toast"
+description = "Denies the show_native_toast command without any pre-configured scope."
+commands.deny = ["show_native_toast"]
