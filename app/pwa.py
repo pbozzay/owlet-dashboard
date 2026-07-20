@@ -35,7 +35,7 @@ MANIFEST = {
 }
 
 SERVICE_WORKER_JS = """
-const CACHE_NAME = 'owlet-dashboard-v2';
+const CACHE_NAME = 'owlet-dashboard-v3';
 // Only truly immutable assets are safe to serve cache-first. Styles and
 // scripts change with every release, so they go network-first below —
 // otherwise one stale theme.css leaves the app half-styled until the
@@ -91,19 +91,13 @@ self.addEventListener('fetch', event => {
   if (url.pathname.includes('/api/')) return;
   if (url.pathname.startsWith('/share/')) return;
 
-  // Serve the cached page instantly and refresh it in the background — tab
-  // switches paint at once instead of waiting a server round trip. Pages are
-  // static shells (all data arrives via /api/*, which is never cached here),
-  // so a slightly stale shell is always safe. waitUntil keeps the worker
-  // alive long enough for the background refresh to actually land.
+  // Navigations are network-first: always serve the freshest shell when
+  // online (so a new release shows up immediately, not one reload later),
+  // falling back to the cache only when offline. The shells are tiny and the
+  // sidecar is on localhost, so the round trip is imperceptible; serving a
+  // stale shell after an update is not worth the few milliseconds saved.
   if (request.mode === 'navigate') {
-    event.respondWith(
-      caches.match(url.pathname).then(cached => {
-        const network = networkFirst(request, url.pathname);
-        if (cached) { event.waitUntil(network.then(() => {}, () => {})); return cached; }
-        return network;
-      })
-    );
+    event.respondWith(networkFirst(request, url.pathname));
     return;
   }
 

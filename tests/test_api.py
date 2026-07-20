@@ -823,8 +823,8 @@ async def test_pwa_assets_are_served(tmp_path):
     assert {icon["sizes"] for icon in payload["icons"]} >= {"32x32", "192x192", "512x512"}
     assert worker.status_code == 200
     assert "CACHE_NAME" in worker.text
-    assert "owlet-dashboard-v2" in worker.text
-    assert "networkFirst" in worker.text     # styles/scripts must not be served cache-first
+    assert "owlet-dashboard-v3" in worker.text
+    assert "networkFirst" in worker.text     # styles/scripts/navigations must not be served cache-first
     assert "/favicon.ico" in worker.text
     assert "/logo.svg" in worker.text
     assert favicon.status_code == 200
