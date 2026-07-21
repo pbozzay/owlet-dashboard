@@ -176,28 +176,41 @@ _LANDING = """<!doctype html>
         radial-gradient(1100px 500px at 15% -10%, var(--purple-soft), transparent 60%),
         radial-gradient(900px 400px at 110% 30%, #e0f2fe, transparent 55%),
         var(--bg);
-      color:var(--text); min-height:100vh;
-      display:flex; align-items:center; justify-content:center; padding:32px 20px;
+      color:var(--text); min-height:100vh; padding:40px 24px 30px;
     }}
+    /* Two zones: the pitch flows down the left, the sign-in sits top-right and
+       stays put while you read. align-items:start matters — centering columns
+       of very different heights is what left the old layout floating in space. */
     .wrap {{
-      display:grid; grid-template-columns: 1.15fr .85fr; gap:48px;
-      width:100%; max-width:980px; align-items:center;
+      display:grid; grid-template-columns: minmax(0,1fr) 356px;
+      gap:26px 56px; align-items:start;
+      width:100%; max-width:1140px; margin:0 auto;
+    }}
+    .hero {{ grid-column:1; grid-row:1; align-self:center; }}
+    .auth {{ grid-column:2; grid-row:1; align-self:start; }}
+    /* the screenshot reads as evidence for the feature list beside it */
+    .showcase {{
+      grid-column:1 / -1; grid-row:2;
+      display:grid; grid-template-columns:206px minmax(0,1fr); gap:46px;
+      align-items:start; padding-top:34px; margin-top:8px;
+      border-top:1px solid var(--line);
     }}
     .brand {{ display:flex; align-items:center; gap:12px; margin-bottom:22px; }}
     .brand img {{ width:44px; height:44px; }}
     .brand span {{ font-size:20px; font-weight:700; letter-spacing:-.02em; }}
-    h1 {{ font-size:clamp(30px, 4.2vw, 42px); line-height:1.12; letter-spacing:-.03em;
-         margin-bottom:14px; }}
+    h1 {{ font-size:clamp(30px, 4.2vw, 44px); line-height:1.08; letter-spacing:-.03em;
+         margin-bottom:14px; max-width:15ch; text-wrap:balance; }}
     h1 em {{ font-style:normal; color:var(--purple); }}
-    .lede {{ color:var(--muted); font-size:16px; line-height:1.55; max-width:44ch;
-            margin-bottom:14px; }}
-    .oss {{ font-size:13.5px; color:var(--muted); margin-bottom:24px; }}
+    .lede {{ color:var(--muted); font-size:16.5px; line-height:1.55; max-width:52ch;
+            margin-bottom:14px; text-wrap:pretty; }}
+    .oss {{ font-size:13.5px; color:var(--muted); max-width:52ch; }}
     .oss a {{ color:var(--purple); font-weight:600; text-decoration:none; }}
-    ul.features {{ list-style:none; display:grid; gap:13px; }}
-    ul.features li {{ display:flex; gap:12px; align-items:flex-start; font-size:14.5px;
-                     line-height:1.45; }}
-    ul.features b {{ display:block; font-size:14.5px; }}
-    ul.features span {{ color:var(--muted); }}
+    ul.features {{ list-style:none; columns:2; column-gap:44px; }}
+    ul.features li {{ display:flex; gap:12px; align-items:flex-start;
+                     break-inside:avoid; margin-bottom:21px; }}
+    ul.features b {{ display:block; font-size:14px; letter-spacing:-.01em; margin-bottom:3px; }}
+    ul.features span {{ display:block; color:var(--muted); font-size:13.5px; line-height:1.5;
+                       text-wrap:pretty; }}
     .dot {{ flex:none; width:30px; height:30px; border-radius:9px; background:var(--purple-soft);
            color:var(--purple); display:flex; align-items:center; justify-content:center;
            margin-top:1px; }}
@@ -206,8 +219,7 @@ _LANDING = """<!doctype html>
             box-shadow:0 16px 44px rgba(18,32,51,.10); padding:30px; }}
     .card h2 {{ font-size:19px; margin-bottom:4px; }}
     .card p.sub {{ color:var(--muted); font-size:13.5px; margin-bottom:14px; }}
-    .rightcol {{ display:flex; flex-direction:column; gap:18px; }}
-    .shot {{ align-self:center; width:100%; max-width:250px; background:var(--panel);
+    .shot {{ width:100%; background:var(--panel);
             border:1px solid var(--line); border-radius:20px; padding:9px;
             box-shadow:0 12px 34px rgba(18,32,51,.12); }}
     .shot svg, .shot img {{ display:block; width:100%; height:auto; border-radius:13px; }}
@@ -227,15 +239,22 @@ _LANDING = """<!doctype html>
               font-size:13px; margin-bottom:6px; }}
     footer {{ grid-column:1 / -1; text-align:center; font-size:11.5px; color:var(--muted);
              margin-top:8px; }}
-    @media (max-width: 800px) {{
-      .wrap {{ grid-template-columns:1fr; gap:30px; max-width:460px; }}
+    @media (max-width: 1000px) {{
+      .wrap {{ grid-template-columns:1fr; gap:28px; max-width:540px; }}
+      .hero, .auth, .showcase {{ grid-column:1; grid-row:auto; }}
+      .auth {{ position:static; }}
+      .showcase {{ grid-template-columns:1fr; gap:26px; justify-items:center;
+                   margin-top:0; padding-top:26px; }}
+      .shot {{ max-width:250px; }}
+      ul.features {{ justify-self:stretch; columns:1; }}
+      h1 {{ max-width:none; }}
       body {{ padding:26px 16px; }}
     }}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <section>
+    <section class="hero">
       <div class="brand"><img src="/logo.svg" alt="" /><span>Owlet Dashboard</span></div>
       <h1>A free web client for <em>Owlet</em> users.</h1>
       <p class="lede">Sign in with your Owlet account and Owlet Dashboard turns your sock's
@@ -244,6 +263,26 @@ _LANDING = """<!doctype html>
       <p class="oss">Free, open source, and unofficial — provided as-is, not affiliated with
         Owlet Baby Care. <a href="https://github.com/pbozzay/owlet-dashboard"
         rel="noopener">View the project on GitHub</a>.</p>
+    </section>
+    <section class="card auth">
+      <h2>Sign in</h2>
+      <p class="sub">{signin_sub}</p>
+      {error}
+      <form method="post" action="/auth/login">
+        <label for="email">{email_label}</label>
+        <input id="email" name="email" type="text" inputmode="email" required
+               autocomplete="username" />
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" required autocomplete="current-password" />
+        <button type="submit">Sign in</button>
+      </form>
+      {signup_line}
+    </section>
+    <div class="showcase">
+      <figure class="shot">
+        {preview}
+        <figcaption class="shot-cap">A peek at the Today view</figcaption>
+      </figure>
       <ul class="features">
         <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg></span>
           <div><b>Live vitals, kept for good</b>
@@ -264,26 +303,6 @@ _LANDING = """<!doctype html>
           <div><b>Private, and yours to run</b>
           <span>{privacy_copy} Installable as an app, or self-host it with Docker.</span></div></li>
       </ul>
-    </section>
-    <div class="rightcol">
-      <div class="shot">
-        {preview}
-        <div class="shot-cap">A peek at the Today view</div>
-      </div>
-      <section class="card">
-        <h2>Sign in</h2>
-        <p class="sub">{signin_sub}</p>
-        {error}
-        <form method="post" action="/auth/login">
-          <label for="email">{email_label}</label>
-          <input id="email" name="email" type="text" inputmode="email" required
-                 autocomplete="username" />
-          <label for="password">Password</label>
-          <input id="password" name="password" type="password" required autocomplete="current-password" />
-          <button type="submit">Sign in</button>
-        </form>
-        {signup_line}
-      </section>
     </div>
     <footer>Retrospective trend viewing only — not a medical monitor or alert replacement.
       Not affiliated with Owlet Baby Care.</footer>
