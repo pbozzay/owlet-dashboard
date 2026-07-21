@@ -15,7 +15,13 @@ from fastapi import Body, Depends, FastAPI, Form, HTTPException, Path, Query, Re
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from app import auth_pages
-from app.analytics import build_insights, build_rollups
+from app.analytics import (
+    O2_THRESHOLD_MAX,
+    O2_THRESHOLD_MIN,
+    build_insights,
+    build_rollups,
+    resolve_o2_thresholds,
+)
 from app.auth_routes import current_user, require_user
 from app.auth_routes import router as auth_router
 from app.auth_store import AuthStore
@@ -691,6 +697,17 @@ def create_app(
         rows = await store.exclude_challenge_readings(rows)
         return build_insights(rows)
 
+    async def _o2_thresholds_for(user: dict, ids: list[int]) -> tuple[int, int]:
+        """The account's oxygen tiers, so rollup counters match what the pages
+        paint. Falls back to the shipped defaults when nothing is configured."""
+        accounts = await store.list_accounts(user_id=user["id"])
+        scoped = set(ids)
+        prefs = next(
+            (a.get("dashboard_preferences") for a in accounts if int(a["id"]) in scoped),
+            None,
+        )
+        return resolve_o2_thresholds(prefs)
+
     @app.get("/api/rollups")
     async def rollups(
         bucket: Literal["5m", "15m", "30m", "hour", "6h", "12h", "day"] = Query(default="hour"),
@@ -700,9 +717,11 @@ def create_app(
         user: dict = Depends(require_user),
     ):
         ids = await _scope(user, account)
+        o2_warn, o2_critical = await _o2_thresholds_for(user, ids)
         # History is immutable; only the newest bucket moves. A short server-side
         # cache turns repeat loads (every page needs rollups) into instant hits.
-        key = (tuple(ids), bucket, hours, device)
+        # Thresholds are part of the key so retuning them re-counts immediately.
+        key = (tuple(ids), bucket, hours, device, o2_warn, o2_critical)
         cached = rollup_cache.get(key)
         now_monotonic = time.monotonic()
         if cached and now_monotonic - cached[0] < 45:
@@ -714,7 +733,12 @@ def create_app(
                 hours=hours, limit=300_000, device_serial=device, account_ids=ids
             )
             rows = await store.exclude_challenge_readings(rows, account_ids=ids)
-            payload = {"bucket": bucket, "rollups": build_rollups(rows, bucket=bucket)}
+            payload = {
+                "bucket": bucket,
+                "rollups": build_rollups(
+                    rows, bucket=bucket, o2_warn=o2_warn, o2_critical=o2_critical
+                ),
+            }
             rollup_cache[key] = (now_monotonic, payload)
             while len(rollup_cache) > 64:
                 rollup_cache.pop(next(iter(rollup_cache)))
@@ -1093,6 +1117,19 @@ def _public_dashboard_preferences_patch(value: object) -> dict[str, object] | No
             allowed["o2_alert_threshold"] = None
         elif isinstance(raw_threshold, (int, float)) and 80 <= int(raw_threshold) <= 95:
             allowed["o2_alert_threshold"] = int(raw_threshold)
+    # Two-tier oxygen colouring. Each bound is validated on its own; the
+    # ordering rule (critical strictly below warn) is applied when the pair is
+    # resolved, so saving one half of the pair can never wedge the other.
+    for key in ("o2_warn_threshold", "o2_critical_threshold"):
+        if key in value:
+            raw_bound = value.get(key)
+            if raw_bound in (None, ""):
+                allowed[key] = None
+            elif (
+                isinstance(raw_bound, (int, float))
+                and O2_THRESHOLD_MIN <= int(raw_bound) <= O2_THRESHOLD_MAX
+            ):
+                allowed[key] = int(raw_bound)
     for key in ("night_start", "night_end"):
         if key in value:
             clock = _valid_clock(value.get(key))

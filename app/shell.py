@@ -30,6 +30,25 @@ THEME_RESOLVER = """<script>
 
 SHELL_JS = """<script>
 (function () {
+  // ---- oxygen severity tiers, shared by every page ------------------------
+  // One resolver so the card tint, the charts, the heatmap, the night report
+  // and the copy can never disagree about what "low" means. Amber below warn,
+  // red below critical; critical is clamped under warn so the tiers can't
+  // invert. Defaults match what the app shipped with (90 / 86).
+  window.OWLET_O2_DEFAULTS = { warn: 90, critical: 86, min: 70, max: 99 };
+  window.owletO2 = function (prefs) {
+    var d = window.OWLET_O2_DEFAULTS;
+    prefs = prefs || {};
+    function bound(value, fallback) {
+      var n = Number(value);
+      return (isFinite(n) && n >= d.min && n <= d.max) ? Math.round(n) : fallback;
+    }
+    var warn = bound(prefs.o2_warn_threshold, d.warn);
+    var critical = bound(prefs.o2_critical_threshold, d.critical);
+    if (critical >= warn) critical = warn - 1;
+    return { warn: warn, critical: critical };
+  };
+
   // ---- theme: auto | light | dark, segmented control in the profile menu ----
   function currentSetting() { return localStorage.getItem('owletTheme') || 'auto'; }
   function applyTheme(setting) {
@@ -320,6 +339,12 @@ SHELL_JS = """<script>
     var id = select && select.value;
     return shellAccounts.find(function (a) { return String(a.id) === String(id); }) || shellAccounts[0] || null;
   }
+  // Preferences of the account currently in view — feeds the shared oxygen
+  // tier resolver so the focus modal matches the page behind it.
+  function shellPrefs() {
+    var account = shellSelectedAccount();
+    return (account && account.dashboard_preferences) || null;
+  }
   function renderShellMenu(devices) {
     var account = shellSelectedAccount();
     var device = (devices || [])[0];
@@ -341,6 +366,12 @@ SHELL_JS = """<script>
     if (byId('o2AlertSetting')) {
       var threshold = account && account.dashboard_preferences && account.dashboard_preferences.o2_alert_threshold;
       byId('o2AlertSetting').value = threshold ? String(threshold) : '';
+    }
+    if (byId('o2WarnSetting') && document.activeElement !== byId('o2WarnSetting')
+        && document.activeElement !== byId('o2CritSetting')) {
+      var tiers = window.owletO2(account && account.dashboard_preferences);
+      byId('o2WarnSetting').value = String(tiers.warn);
+      byId('o2CritSetting').value = String(tiers.critical);
     }
     var prefs = (account && account.dashboard_preferences) || {};
     if (byId('birthDateSetting') && document.activeElement !== byId('birthDateSetting')) {
@@ -475,6 +506,33 @@ SHELL_JS = """<script>
     }
   }
   updateNotifHint();
+  // Two colour tiers. Rather than rejecting an inverted pair we nudge the red
+  // bound below the amber one — the user sees what was saved and moves on.
+  function saveO2Tiers() {
+    var warnEl = byId('o2WarnSetting');
+    var critEl = byId('o2CritSetting');
+    if (!warnEl || !critEl) return;
+    var limits = window.OWLET_O2_DEFAULTS;
+    var hint = byId('o2TierHint');
+    var warn = Math.round(Number(warnEl.value));
+    var critical = Math.round(Number(critEl.value));
+    var sane = function (n) { return isFinite(n) && n >= limits.min && n <= limits.max; };
+    if (!sane(warn) || !sane(critical)) {
+      if (hint) hint.textContent = 'Enter whole numbers between ' + limits.min + ' and ' + limits.max + '%.';
+      return;
+    }
+    if (critical >= warn) {
+      critical = warn - 1;
+      critEl.value = String(critical);
+    }
+    if (hint) hint.textContent = 'Amber below ' + warn + '%, red below ' + critical + '%.';
+    patchSelectedAccount({ dashboard_preferences: {
+      o2_warn_threshold: warn, o2_critical_threshold: critical
+    } });
+  }
+  ['o2WarnSetting', 'o2CritSetting'].forEach(function (id) {
+    if (byId(id)) byId(id).addEventListener('change', saveO2Tiers);
+  });
   if (byId('o2AlertSetting')) byId('o2AlertSetting').addEventListener('change', function (event) {
     var value = event.target.value;
     patchSelectedAccount({ dashboard_preferences: { o2_alert_threshold: value ? Number(value) : null } });
@@ -851,7 +909,9 @@ SHELL_JS = """<script>
       || (row.oxygen_saturation != null && row.oxygen_saturation <= 0));
   }
   function focusO2Zone(value) {
-    return value < 86 ? 'var(--bad)' : value < 90 ? 'var(--awake)' : 'var(--accent)';
+    var o2 = window.owletO2(shellPrefs());
+    if (value == null || value <= 0) return 'var(--faint)';   // sock off the foot
+    return value < o2.critical ? 'var(--bad)' : value < o2.warn ? 'var(--warn)' : 'var(--accent)';
   }
   function focusChartSvg(pts, t0, t1, height, zoneOf, isO2) {
     if (pts.length < 2) return null;
@@ -864,7 +924,7 @@ SHELL_JS = """<script>
     var yOf = function (v) { return (height - 2) - ((v - min) / (max - min)) * (height - 6); };
     var thresholds = '';
     if (isO2) {
-      [90, 86].forEach(function (v) {
+      [window.owletO2(shellPrefs()).warn, window.owletO2(shellPrefs()).critical].forEach(function (v) {
         if (v > min && v < max) thresholds += '<line class="threshold" x1="0" x2="360" y1="' + yOf(v).toFixed(1) + '" y2="' + yOf(v).toFixed(1) + '"/>';
       });
     }
@@ -924,7 +984,7 @@ SHELL_JS = """<script>
         o2pts.forEach(function (p) {
           if (Math.abs(p.x - focusState.center) <= 5 * 60000 && (lowest === null || p.y < lowest.y)) lowest = p;
         });
-        if (lowest && lowest.y < 92) markerFrac = (lowest.x - t0) / (t1 - t0);
+        if (lowest && lowest.y < window.owletO2(shellPrefs()).warn + 2) markerFrac = (lowest.x - t0) / (t1 - t0);
       }
       html += '<div class="focus-marker" style="left:' + (markerFrac * 100).toFixed(2) + '%"><span>'
         + escapeHtml(focusState.label || 'this moment') + '</span></div>';
@@ -1412,6 +1472,16 @@ def render_shell(
                 <option value="88">Below 88%</option>
                 <option value="86">Below 86%</option>
               </select>
+            </div>
+            <div class="set-row">
+              <div class="set-lab"><b>Colour thresholds</b><small id="o2TierHint">Where readings turn
+                amber, then red — across every chart, report and number in the app.</small></div>
+              <div class="set-tiers">
+                <label><span class="tier-swatch warn"></span>Amber below
+                  <input id="o2WarnSetting" type="number" min="70" max="99" step="1" inputmode="numeric" />%</label>
+                <label><span class="tier-swatch bad"></span>Red below
+                  <input id="o2CritSetting" type="number" min="70" max="99" step="1" inputmode="numeric" />%</label>
+              </div>
             </div>
             <div class="set-row">
               <div class="set-lab"><b>Evening prep report</b><small>A daily nudge before bedtime — awake

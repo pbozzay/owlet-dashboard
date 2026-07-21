@@ -22,6 +22,35 @@ LOW_OXYGEN_SAMPLE_THRESHOLD = 92
 BREATHING_TREND_THRESHOLD = 0.5
 MOVEMENT_AWAKE_THRESHOLD = 10
 
+# Two-tier oxygen severity, shared by the charts, the night report and the
+# rollup counters so one number can't drift out of step with another.
+# Amber below WARN, red below CRITICAL. Users may override both in settings.
+DEFAULT_O2_WARN = 90
+DEFAULT_O2_CRITICAL = 86
+O2_THRESHOLD_MIN = 70
+O2_THRESHOLD_MAX = 99
+
+
+def _coerce_o2(value: Any, fallback: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return number if O2_THRESHOLD_MIN <= number <= O2_THRESHOLD_MAX else fallback
+
+
+def resolve_o2_thresholds(preferences: dict[str, Any] | None) -> tuple[int, int]:
+    """(warn, critical) oxygen tiers for an account's preferences.
+
+    Critical is clamped strictly below warn, so a bad preference pair can never
+    invert the tiers (which would paint every reading red)."""
+    prefs = preferences or {}
+    warn = _coerce_o2(prefs.get("o2_warn_threshold"), DEFAULT_O2_WARN)
+    critical = _coerce_o2(prefs.get("o2_critical_threshold"), DEFAULT_O2_CRITICAL)
+    if critical >= warn:
+        critical = warn - 1
+    return warn, critical
+
 
 def sleep_state_label(value: str | int | float | None) -> str:
     if value is None:
@@ -30,7 +59,13 @@ def sleep_state_label(value: str | int | float | None) -> str:
     return SLEEP_STATE_LABELS.get(key, f"state {key}")
 
 
-def build_rollups(readings: list[OwletReading], bucket: Bucket = "hour") -> list[dict[str, Any]]:
+def build_rollups(
+    readings: list[OwletReading],
+    bucket: Bucket = "hour",
+    *,
+    o2_warn: int = DEFAULT_O2_WARN,
+    o2_critical: int = DEFAULT_O2_CRITICAL,
+) -> list[dict[str, Any]]:
     groups: dict[datetime, list[tuple[OwletReading, int]]] = defaultdict(list)
     for index, reading in enumerate(readings):
         groups[_bucket_start(reading.recorded_at, bucket)].append(
@@ -92,11 +127,12 @@ def build_rollups(readings: list[OwletReading], bucket: Bucket = "hour") -> list
                 "min_oxygen_saturation": _min([row.oxygen_saturation for row in valid_rows]),
                 "low_oxygen_seconds": sum(
                     duration for reading, duration in valid_pairs
-                    if reading.oxygen_saturation is not None and reading.oxygen_saturation < 90
+                    if reading.oxygen_saturation is not None and reading.oxygen_saturation < o2_warn
                 ),
                 "critical_oxygen_seconds": sum(
                     duration for reading, duration in valid_pairs
-                    if reading.oxygen_saturation is not None and reading.oxygen_saturation < 86
+                    if reading.oxygen_saturation is not None
+                    and reading.oxygen_saturation < o2_critical
                 ),
                 "avg_movement": _avg(movement_values),
                 "max_movement": _max(movement_values),

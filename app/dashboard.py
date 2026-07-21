@@ -757,29 +757,30 @@ DATA_BODY = r"""
         }
       }
     };
-    const oxygen85ThresholdPlugin = {
-      id: 'oxygen85Threshold',
+    const oxygenCriticalThresholdPlugin = {
+      id: 'oxygenCriticalThreshold',
       afterDraw(chart) {
         if (!['vitalsChart', 'spo2PanelChart'].includes(chart.canvas.id)) return;
         const scale = chart.scales?.spo2;
         const { chartArea, ctx } = chart;
         if (!scale || !chartArea) return;
-        const y = scale.getPixelForValue(85);
+        const critical = window.owletO2(dashboardPreferences()).critical;
+        const y = scale.getPixelForValue(critical);
         if (!Number.isFinite(y) || y < chartArea.top || y > chartArea.bottom) return;
         ctx.save();
         ctx.setLineDash([6, 5]);
         ctx.lineWidth = 1.5;
-        ctx.strokeStyle = 'rgba(220, 38, 38, .85)';
+        ctx.strokeStyle = SERIES.bad;
         ctx.beginPath();
         ctx.moveTo(chartArea.left, y);
         ctx.lineTo(chartArea.right, y);
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = 'rgba(220, 38, 38, .92)';
+        ctx.fillStyle = SERIES.bad;
         ctx.font = '700 11px ui-sans-serif, system-ui, sans-serif';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'bottom';
-        ctx.fillText('85% O₂', chartArea.right - 4, y - 4);
+        ctx.fillText(`${critical}% O₂`, chartArea.right - 4, y - 4);
         ctx.restore();
       }
     };
@@ -858,7 +859,7 @@ DATA_BODY = r"""
         ctx.restore();
       }
     };
-    Chart.register(sleepBandsPlugin, challengeBandsPlugin, offlineBandsPlugin, noDataBandsPlugin, dayBoundaryPlugin, sleepPhaseHoverPlugin, stateChartHoverPlugin, notificationGlyphsPlugin, notificationHoverPlugin, oxygen85ThresholdPlugin);
+    Chart.register(sleepBandsPlugin, challengeBandsPlugin, offlineBandsPlugin, noDataBandsPlugin, dayBoundaryPlugin, sleepPhaseHoverPlugin, stateChartHoverPlugin, notificationGlyphsPlugin, notificationHoverPlugin, oxygenCriticalThresholdPlugin);
 
     const el = (id) => document.getElementById(id);
     const fmt = (value, suffix = '') => value === null || value === undefined ? '—' : `${value}${suffix}`;
@@ -910,8 +911,10 @@ DATA_BODY = r"""
     function oxygenValueClass(level) {
       const value = Number(level);
       if (!Number.isFinite(value)) return 'unknown';
-      if (value >= 92) return 'good';
-      if (value >= 86) return 'caution';
+      const o2 = window.owletO2(dashboardPreferences());
+      if (value <= 0) return 'unknown';        // sock off the foot, not a desat
+      if (value >= o2.warn) return 'good';
+      if (value >= o2.critical) return 'caution';
       return 'danger';
     }
 
@@ -2230,11 +2233,12 @@ DATA_BODY = r"""
       return el('chartLayout')?.value === 'split' ? 'split' : 'combined';
     }
 
-    // Same zone language as the Today page: amber under 90%, red under 86%,
-    // grey where the sock reported nothing (zeroed no-signal readings).
+    // Same zone language as the Today page, off the same configured tiers:
+    // amber under the warning bound, red under the critical bound, grey where
+    // the sock reported nothing (zeroed no-signal readings).
     const o2ZoneColor = value => value <= 0 ? SERIES.prior
-      : value < 86 ? SERIES.bad
-      : value < 90 ? SERIES.awake
+      : value < window.owletO2(dashboardPreferences()).critical ? SERIES.bad
+      : value < window.owletO2(dashboardPreferences()).warn ? SERIES.warn
       : SERIES.o2;
     function readingLineDataset(id, label, key, color, axis, hiddenDefault) {
       const dataset = { id, label, data: readingSeries(key), borderColor: color, backgroundColor: `${color}20`, yAxisID: axis, hidden: preferredDatasetHidden(id, hiddenDefault), spanGaps: false, pointRadius: 0, tension: .25 };

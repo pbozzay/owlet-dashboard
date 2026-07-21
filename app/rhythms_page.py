@@ -54,7 +54,7 @@ RHYTHMS_HEAD = """<style>
     .wear-bars span { font-size: 10px; color: var(--faint); white-space: nowrap; }
     .wear-bars em.dip-floor { font-style: normal; font-size: 9.5px; color: var(--faint);
       font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .floor-warn { color: var(--awake) !important; font-weight: 700 !important; }
+    .floor-warn { color: var(--warn) !important; font-weight: 700 !important; }
     .floor-bad { color: var(--bad) !important; font-weight: 700 !important; }
 
     /* day-prep vs night pairs */
@@ -284,9 +284,9 @@ RHYTHMS_SCRIPTS = """<script>
     function dipColor(row) {
       if (!row || row.min_oxygen_saturation == null) return 'var(--nodata)';
       const v = row.min_oxygen_saturation;
-      if (v < 86) return 'var(--bad)';
-      if (v < 90) return 'var(--awake)';
-      if (v < 92) return 'color-mix(in srgb, var(--awake) 28%, var(--surface))';
+      if (v < O2.critical) return 'var(--bad)';
+      if (v < O2.warn) return 'var(--warn)';
+      if (v < O2.warn + SOFT_BAND) return 'color-mix(in srgb, var(--warn) 28%, var(--surface))';
       return 'color-mix(in srgb, var(--good) 10%, var(--surface))';
     }
     function dipTitle(day, col, row) {
@@ -301,10 +301,10 @@ RHYTHMS_SCRIPTS = """<script>
         `<div class="acto-card card">${actogramTable(days, ivs, dipColor, dipTitle,
           (day, col, row) => row && row.min_oxygen_saturation != null ? `Low ${Math.round(row.min_oxygen_saturation)}%` : 'This half-hour')}
         <div class="acto-legend">
-          <span><i style="background:color-mix(in srgb, var(--good) 10%, var(--surface))"></i>Fine (≥92%)</span>
-          <span><i style="background:color-mix(in srgb, var(--awake) 28%, var(--surface))"></i>Soft (90–92%)</span>
-          <span><i style="background:var(--awake)"></i>Dip (&lt;90%)</span>
-          <span><i style="background:var(--bad)"></i>Deep dip (&lt;86%)</span>
+          <span><i style="background:color-mix(in srgb, var(--good) 10%, var(--surface))"></i>Fine (≥${O2.warn + SOFT_BAND}%)</span>
+          <span><i style="background:color-mix(in srgb, var(--warn) 28%, var(--surface))"></i>Soft (${O2.warn}–${O2.warn + SOFT_BAND}%)</span>
+          <span><i style="background:var(--warn)"></i>Dip (&lt;${O2.warn}%)</span>
+          <span><i style="background:var(--bad)"></i>Deep dip (&lt;${O2.critical}%)</span>
           ${ivs.length ? RIBBON_LEGEND : ''}
         </div>
         <p class="tile" style="padding:10px 0 0; font-size:13px; color:var(--dim)">Each cell is that half-hour's <b style="font-size:13px">lowest</b> reading. Recurring desats line up in columns — a 3 AM sag shows as a vertical stripe.</p>
@@ -313,6 +313,10 @@ RHYTHMS_SCRIPTS = """<script>
 
     // ----- nights helper (user's night window, keyed by the evening's date) ----
     // Defaults 7 PM → 7 AM; overwritten from preferences in boot().
+    // Oxygen severity tiers from settings; SOFT_BAND is the width of the
+    // "nearly fine" wash that sits just above the warning tier on the heatmap.
+    const SOFT_BAND = 2;
+    let O2 = window.owletO2(null);
     let NIGHT = { start: 19 * 60, end: 7 * 60 };
     let BIRTH = null;   // ISO 'YYYY-MM-DD' once known, for age-adjusted framing
     let FEEDS = true;   // feed-tracking preference gates the feed sections
@@ -463,7 +467,7 @@ RHYTHMS_SCRIPTS = """<script>
         const rec = nights.get(key) || { date: nightDate, dips: 0, floor: 100, buckets: 0 };
         rec.buckets += 1;
         rec.floor = Math.min(rec.floor, row.min_oxygen_saturation);
-        const low = row.min_oxygen_saturation < 90;
+        const low = row.min_oxygen_saturation < O2.warn;
         if (low && !(lastLow && lastKey === key)) rec.dips += 1;
         lastLow = low; lastKey = key;
         nights.set(key, rec);
@@ -473,8 +477,8 @@ RHYTHMS_SCRIPTS = """<script>
       if (list.length < 2) return '';
       const maxDips = Math.max(...list.map(n => n.dips), 1);
       const bars = list.map(n => {
-        const tint = n.floor < 86 ? 'var(--bad)' : 'var(--awake)';
-        const floorClass = n.floor < 86 ? 'floor-bad' : n.floor < 90 ? 'floor-warn' : '';
+        const tint = n.floor < O2.critical ? 'var(--bad)' : 'var(--warn)';
+        const floorClass = n.floor < O2.critical ? 'floor-bad' : n.floor < O2.warn ? 'floor-warn' : '';
         return `<div class="wb">
         <b>${n.dips}</b>
         <i style="height:${Math.max(5, (n.dips / maxDips) * 64).toFixed(0)}px; background: color-mix(in srgb, ${tint} 26%, var(--surface)); border-color: color-mix(in srgb, ${tint} 55%, transparent)"></i>
@@ -483,7 +487,7 @@ RHYTHMS_SCRIPTS = """<script>
       }).join('');
       const week = list.slice(-7), prior = list.slice(0, -7);
       const now = avg(week.map(n => n.dips)), before = avg(prior.map(n => n.dips));
-      let note = 'Each bar counts that night’s dip episodes below 90% — taller means a busier night. Under each night sits its lowest reading; a red bar means the floor went under 86%.';
+      let note = `Each bar counts that night’s dip episodes below ${O2.warn}% — taller means a busier night. Under each night sits its lowest reading; a red bar means the floor went under ${O2.critical}%.`;
       if (now != null && before != null) {
         const diff = Math.round((now - before) * 10) / 10;
         note += diff <= -0.5 ? ` Averaging ${-diff} fewer episodes per night than the week before.`
@@ -491,7 +495,7 @@ RHYTHMS_SCRIPTS = """<script>
           : ' Holding about even with the week before.';
       }
       return section('Desat burden, night by night',
-        `<div class="tile card"><h3>Dip episodes below 90% per night</h3>
+        `<div class="tile card"><h3>Dip episodes below ${O2.warn}% per night</h3>
         <div class="wear-bars">${bars}</div><p>${note}</p></div>`);
     }
 
@@ -597,7 +601,7 @@ RHYTHMS_SCRIPTS = """<script>
         rec.spanSeconds += 300;
         if (row.min_oxygen_saturation != null) {
           rec.floor = rec.floor == null ? row.min_oxygen_saturation : Math.min(rec.floor, row.min_oxygen_saturation);
-          const low = row.min_oxygen_saturation < 90;
+          const low = row.min_oxygen_saturation < O2.warn;
           if (low && !(lastLow && lastGroup === g)) rec.dips += 1;
           lastLow = low; lastGroup = g;
         }
@@ -607,9 +611,9 @@ RHYTHMS_SCRIPTS = """<script>
         const hours = rec.spanSeconds / 3600;
         return `<div class="tile card"><h3>${label} — ${fmtDur(rec.spanSeconds)}</h3>
           <div class="report-row"><span>Median SpO₂</span><b>${median(rec.o2).toFixed(1)}%</b></div>
-          <div class="report-row"><span>Dips &lt;90% per hour</span><b>${(rec.dips / hours).toFixed(2)}</b></div>
-          <div class="report-row"><span>Time under 90%</span><b>${((rec.lowSeconds / rec.spanSeconds) * 100).toFixed(1)}%</b></div>
-          <div class="report-row"><span>Floor</span><b class="${rec.floor < 86 ? 'floor-bad' : rec.floor < 90 ? 'floor-warn' : ''}">${Math.round(rec.floor)}%</b></div>
+          <div class="report-row"><span>Dips &lt;${O2.warn}% per hour</span><b>${(rec.dips / hours).toFixed(2)}</b></div>
+          <div class="report-row"><span>Time under ${O2.warn}%</span><b>${((rec.lowSeconds / rec.spanSeconds) * 100).toFixed(1)}%</b></div>
+          <div class="report-row"><span>Floor</span><b class="${rec.floor < O2.critical ? 'floor-bad' : rec.floor < O2.warn ? 'floor-warn' : ''}">${Math.round(rec.floor)}%</b></div>
         </div>`;
       };
       return section('On oxygen vs off',
@@ -862,6 +866,7 @@ RHYTHMS_SCRIPTS = """<script>
         challenges = ch.items || [];
         const account = (accounts.accounts || [])[0];
         const prefs = (account && account.dashboard_preferences) || {};
+        O2 = window.owletO2(prefs);
         deviceName = prefs.baby_name || null;
         NIGHT = nightWindowFrom(prefs);
         BIRTH = prefs.birth_date || null;

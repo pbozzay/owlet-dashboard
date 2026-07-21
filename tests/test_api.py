@@ -571,8 +571,8 @@ async def test_dashboard_endpoint_serves_html(tmp_path):
     assert "row?.sock_disconnected" in response.text
     assert "row?.sock_off" in response.text
     assert "notificationGlyphs" in response.text
-    assert "oxygen85Threshold" in response.text
-    assert "85% O₂" in response.text
+    assert "oxygenCriticalThreshold" in response.text
+    assert "${critical}% O₂" in response.text
     assert "notificationHoverPriority" in response.text
     assert "attachNotificationHover" in response.text
     assert "function tooltipTitle(items)" in response.text
@@ -776,8 +776,8 @@ async def test_dashboard_endpoint_serves_html(tmp_path):
     assert "lowOxygen" not in response.text
     assert "oxygen-value.good" in response.text
     assert "function oxygenValueClass" in response.text
-    assert "if (value >= 92) return 'good'" in response.text
-    assert "if (value >= 86) return 'caution'" in response.text
+    assert "if (value >= o2.warn) return 'good'" in response.text   # tiers come from settings
+    assert "if (value >= o2.critical) return 'caution'" in response.text
     assert "return 'danger'" in response.text
     assert "const visibility = new Map" in response.text
     assert "readings-grid" in response.text
@@ -1513,3 +1513,52 @@ async def test_readings_window_returns_precise_slice(tmp_path):
         "2026-07-02T01:35:00Z",
     ]
     assert bad.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_o2_thresholds_resolve_with_defaults_and_stay_ordered():
+    from app.analytics import DEFAULT_O2_CRITICAL, DEFAULT_O2_WARN, resolve_o2_thresholds
+
+    defaults = (DEFAULT_O2_WARN, DEFAULT_O2_CRITICAL)
+    assert resolve_o2_thresholds(None) == defaults
+    assert resolve_o2_thresholds({}) == defaults
+    assert resolve_o2_thresholds({"o2_warn_threshold": "nonsense"}) == defaults
+    assert resolve_o2_thresholds({"o2_warn_threshold": 200}) == defaults  # out of range
+    # honoured when sane
+    assert resolve_o2_thresholds({"o2_warn_threshold": 94, "o2_critical_threshold": 88}) == (94, 88)
+    # an inverted pair must never paint every reading red
+    assert resolve_o2_thresholds({"o2_warn_threshold": 90, "o2_critical_threshold": 93}) == (90, 89)
+
+
+@pytest.mark.asyncio
+async def test_o2_threshold_prefs_round_trip_and_retint_rollups(tmp_path):
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    account = await store.create_account(email="sock@x.y", user_id=user["id"])
+    # one reading at 91%: fine under the default 90 bound, "low" once warn moves to 93
+    await _seed_reading(store, "2026-07-02T01:00:00Z", spo2=91, account_id=account["id"])
+    await _seed_reading(store, "2026-07-02T01:05:00Z", spo2=91, account_id=account["id"])
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+
+    with client_for(app, session) as client:
+        before = client.get("/api/rollups?bucket=hour").json()["rollups"]
+        assert sum(r["low_oxygen_seconds"] for r in before) == 0
+
+        saved = client.patch(
+            f"/api/accounts/{account['id']}",
+            json={"dashboard_preferences": {"o2_warn_threshold": 93, "o2_critical_threshold": 88}},
+        ).json()["account"]["dashboard_preferences"]
+        assert saved["o2_warn_threshold"] == 93 and saved["o2_critical_threshold"] == 88
+
+        # the same readings now count as low, and the cache must not serve stale counts
+        after = client.get("/api/rollups?bucket=hour").json()["rollups"]
+        assert sum(r["low_oxygen_seconds"] for r in after) > 0
+
+        # out-of-range values are rejected rather than stored
+        rejected = client.patch(
+            f"/api/accounts/{account['id']}",
+            json={"dashboard_preferences": {"o2_warn_threshold": 400}},
+        ).json()["account"]["dashboard_preferences"]
+        assert rejected["o2_warn_threshold"] == 93

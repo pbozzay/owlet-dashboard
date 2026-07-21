@@ -37,6 +37,7 @@ NIGHT_HEAD = """<style>
     .stat span { font-size: 12px; color: var(--dim); }
     .stat .sub { font-size: 11.5px; color: var(--faint); margin-top: 4px; display: block; }
     .stat.alert b { color: var(--bad); }
+    .stat.warnish b { color: var(--warn); }
     .stat.calm b { color: var(--good); }
     .timeline-card { padding: 20px; margin-bottom: 34px; }
     .timeline { display: flex; height: 44px; border-radius: 10px; overflow: hidden;
@@ -87,6 +88,8 @@ NIGHT_BODY = """<div class="stars" aria-hidden="true"></div>
 NIGHT_SCRIPTS = """<script>
     const BUCKET_MIN = 5;
     const BUCKET_SEC = BUCKET_MIN * 60;
+    // Oxygen severity tiers from the account's settings (defaults until loaded).
+    let O2 = window.owletO2(null);
     let rollups = [];
     let deviceName = 'your little one';
     let nightOffset = 0; // 0 = most recent night
@@ -167,13 +170,15 @@ NIGHT_SCRIPTS = """<script>
     }
 
     function dipEvents(buckets) {
-      // A "dip" groups adjacent 5m buckets whose floor fell under 90 — but the
+      // A "dip" groups adjacent 5m buckets whose floor fell under the warning
+      // tier — but the
       // bucket span wildly overstates a blip, so we carry the actual seconds
-      // spent under 90 (low_oxygen_seconds) and report THAT.
+      // bucket over-reports, so we take the seconds actually spent under it
+      // (low_oxygen_seconds) and report THAT.
       const dips = [];
       let current = null;
       buckets.forEach(row => {
-        const low = row.min_oxygen_saturation != null && row.min_oxygen_saturation < 90;
+        const low = row.min_oxygen_saturation != null && row.min_oxygen_saturation < O2.warn;
         if (low) {
           const lowSec = row.low_oxygen_seconds != null ? row.low_oxygen_seconds : BUCKET_SEC;
           if (!current) {
@@ -193,9 +198,9 @@ NIGHT_SCRIPTS = """<script>
     function dipDepthText(dip) {
       if (dip.lowSec < 50) {
         const secs = Math.max(5, Math.round(dip.lowSec / 5) * 5);
-        return `Momentary dip — about ${secs}s under 90%`;
+        return `Momentary dip — about ${secs}s under ${O2.warn}%`;
       }
-      return `About ${fmtDur(dip.lowSec)} under 90%`;
+      return `About ${fmtDur(dip.lowSec)} under ${O2.warn}%`;
     }
 
     function narrative(stats, dips, inProgress) {
@@ -208,7 +213,7 @@ NIGHT_SCRIPTS = """<script>
       let mood;
       if (!dips.length) mood = 'a smooth night — oxygen held steady the whole way';
       else if (dips.length === 1) mood = `one brief dip to <b>${Math.round(dips[0].min)}%</b> around ${fmtClock(dips[0].start)}, otherwise steady`;
-      else mood = `<b>${dips.length}</b> dips below 90%, the lowest at <b>${Math.round(Math.min(...dips.map(d => d.min)))}%</b>`;
+      else mood = `<b>${dips.length}</b> dips below ${O2.warn}%, the lowest at <b>${Math.round(Math.min(...dips.map(d => d.min)))}%</b>`;
       const capName = name.charAt(0) === '<' ? name.replace(/<b>(.)/, (m, c) => '<b>' + c.toUpperCase()) : name;
       const opener = inProgress ? `So far tonight, ${name} has logged` : `${capName} logged`;
       return `${opener} ${sleepText}, with ${mood}.`;
@@ -249,16 +254,16 @@ NIGHT_SCRIPTS = """<script>
         <div class="stat card"><b>${fmtDur(stats.sleep)}</b><span>total sleep</span>
           <span class="sub">${fmtDur(stats.deep)} deep · ${fmtDur(stats.awake)} awake</span></div>
         <div class="stat card"><b>${stats.avgO2 != null ? stats.avgO2.toFixed(1) + '%' : '—'}</b><span>average O₂</span></div>
-        <div class="stat card ${stats.minO2 != null && stats.minO2 < 88 ? 'alert' : ''}">${minO2Text}</div>
+        <div class="stat card ${stats.minO2 != null && stats.minO2 < O2.critical ? 'alert' : stats.minO2 != null && stats.minO2 < O2.warn ? 'warnish' : ''}">${minO2Text}</div>
         <div class="stat card"><b>${stats.avgHr != null ? Math.round(stats.avgHr) : '—'}</b><span>avg heart rate (bpm)</span></div>
-        <div class="stat card ${dips.length ? 'alert' : 'calm'}"><b>${dips.length}</b><span>O₂ dips below 90%</span></div>
+        <div class="stat card ${dips.length ? 'alert' : 'calm'}"><b>${dips.length}</b><span>O₂ dips below ${O2.warn}%</span></div>
       </div>`;
     }
 
     function renderEvents(dips) {
       if (!dips.length) {
         return `<section><h2 class="section-title">Oxygen events</h2><div class="events">
-          <div class="event card fine"><span class="tick">✓</span>No dips below 90% — nothing to review.</div>
+          <div class="event card fine"><span class="tick">✓</span>No dips below ${O2.warn}% — nothing to review.</div>
         </div></section>`;
       }
       const items = dips.map(dip => {
@@ -363,6 +368,7 @@ NIGHT_SCRIPTS = """<script>
         const account = (accounts.accounts || [])[0];
         const prefs = (account && account.dashboard_preferences) || {};
         if (prefs.baby_name) deviceName = prefs.baby_name;
+        O2 = window.owletO2(prefs);
         NIGHT = nightWindowFrom(prefs);
       } catch (error) {
         el('lede').textContent = 'Could not load readings — is the collector running?';

@@ -53,8 +53,12 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .vital.minor .value { font-size: clamp(28px, 5vw, 40px); }
     .vital.minor .value small { font-size: 15px; }
     .vital.minor .chartzone { height: 44px; }
-    .vital.out .value { color: var(--warn); }
-    .vital.low .value { color: var(--awake); }
+    /* Two severity tiers, both user-tunable: amber warning, red critical.
+       "out" (outside this baby's own baseline band) shares the warning tier —
+       the band text under the number already says which kind of low it is.
+       --awake is the sleep-state amber and fails contrast as text; --warn is
+       the semantic caution token, so severity uses that everywhere. */
+    .vital.out .value, .vital.low .value { color: var(--warn); }
     .vital.critical .value { color: var(--bad); }
     .vital .band { font-size: 12.5px; color: var(--dim); margin-top: 2px; }
     .vital.inspecting .band { color: var(--accent); font-weight: 600; }
@@ -73,8 +77,8 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
       opacity: .75; }
     /* amber = the sock isn't on her properly (same language as the title dot);
        grey stays for charging and collector-off */
-    .chartzone .ghostline.warn, .ms-chartwrap .ghostline.warn { stroke: var(--awake); }
-    .gaplabels span.warn { color: var(--awake); }
+    .chartzone .ghostline.warn, .ms-chartwrap .ghostline.warn { stroke: var(--warn); }
+    .gaplabels span.warn { color: var(--warn); }
     /* hypnogram: rounded state bars in three lanes, tracker-style, with thin
        gradient connectors between stages the way Apple draws transitions */
     /* Butt caps: rounded ones extend half the bar width past each end and
@@ -150,7 +154,7 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
       border: 1px solid var(--surface-line); border-radius: var(--radius-control);
       font-size: 12.5px; font-variant-numeric: tabular-nums; }
     .ms-dips button:hover { border-color: var(--accent); }
-    .ms-dips b { color: var(--awake); }
+    .ms-dips b { color: var(--warn); }
     .ms-dips b.deep { color: var(--bad); }
     .ms-link { display: block; margin-top: 14px; text-align: center; color: var(--accent);
       text-decoration: none; font-size: 13px; font-weight: 600; }
@@ -370,7 +374,14 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       || (row?.heart_rate != null && row.heart_rate <= 0)
       || (row?.oxygen_saturation != null && row.oxygen_saturation <= 0));
 
-    const o2Zone = value => value < 86 ? 'var(--bad)' : (value < 90 ? 'var(--awake)' : 'var(--accent)');
+    // Resolved from the account's settings once prefs load; defaults until then.
+    let O2 = window.owletO2(null);
+    // A zeroed reading means the sock is off the foot, not a desaturation —
+    // grey it out rather than screaming red (the Data page already did this).
+    const o2Zone = value => (value == null || value <= 0) ? 'var(--faint)'
+      : value < O2.critical ? 'var(--bad)'
+      : value < O2.warn ? 'var(--warn)'
+      : 'var(--accent)';
     const moveWord = avg => avg < 4 ? 'calm' : avg < 20 ? 'stirring' : 'active';
 
     const METRICS = [
@@ -706,7 +717,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const yOf = v => (h - 2) - ((v - min) / (max - min)) * (h - 6);
       let thresholds = '';
       if (key === 'o2' && opts.thresholds) {
-        thresholds = [90, 86].filter(v => v > min && v < max)
+        thresholds = [O2.warn, O2.critical].filter(v => v > min && v < max)
           .map(v => `<line class="threshold" x1="0" x2="${w}" y1="${yOf(v).toFixed(2)}" y2="${yOf(v).toFixed(2)}"/>`)
           .join('');
       }
@@ -1407,7 +1418,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       rollups.forEach(row => {
         const t = new Date(row.bucket_start);
         if (t < today.start) return;
-        const low = row.min_oxygen_saturation != null && row.min_oxygen_saturation < 90;
+        const low = row.min_oxygen_saturation != null && row.min_oxygen_saturation < O2.warn;
         if (low) {
           const lowSec = row.low_oxygen_seconds != null ? row.low_oxygen_seconds : 300;
           if (!current) current = { start: t, end: t, min: row.min_oxygen_saturation, minAt: t, lowSec: 0 };
@@ -1419,7 +1430,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         } else if (current) { dips.push(current); current = null; }
       });
       if (current) dips.push(current);
-      if (!dips.length) return openSheet('O₂ dips today', '<p class="note">No dips below 90% today. 🎉</p>');
+      if (!dips.length) return openSheet('O₂ dips today', `<p class="note">No dips below ${O2.warn}% today. 🎉</p>`);
       const underText = d => d.lowSec < 50
         ? `~${Math.max(5, Math.round(d.lowSec / 5) * 5)}s under`
         : `${fmtDur(d.lowSec)} under`;
@@ -1427,11 +1438,11 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         `<div class="row">
           <span>${fmtClock(d.start)}</span>
           <span class="mut">${underText(d)}</span>
-          <b style="color:${d.min < 86 ? 'var(--bad)' : 'var(--awake)'}">low ${Math.round(d.min)}%</b>
+          <b style="color:${d.min < O2.critical ? 'var(--bad)' : 'var(--warn)'}">low ${Math.round(d.min)}%</b>
           <a href="/data?focus=${encodeURIComponent(new Date(d.minAt.getTime() + 150000).toISOString())}&span=45&label=${encodeURIComponent('Dip to ' + Math.round(d.min) + '%')}">inspect →</a>
         </div>`).join('');
       openSheet('O₂ dips today', rows +
-        '<p class="note">"Under" is the actual time below 90% — a momentary blip counts its seconds, not its whole 5-minute bucket. "Inspect" opens the raw data at that moment.</p>');
+        `<p class="note">"Under" is the actual time below ${O2.warn}% — a momentary blip counts its seconds, not its whole 5-minute bucket. "Inspect" opens the raw data at that moment.</p>`);
     }
 
     // ---- supplemental O2 sheet: on/off with a flow setting --------------------
@@ -1619,7 +1630,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
           dips = '<div class="ms-dips">' + dipRuns.slice(-6).reverse().map(d =>
             `<button type="button" data-dip="${d.start}">
               <span>${fmtClock(new Date(d.start))} · ${fmtDur(Math.max(60, (d.end - d.start) / 1000))}</span>
-              <b class="${d.min < 86 ? 'deep' : ''}">low ${Math.round(d.min)}%</b>
+              <b class="${d.min < O2.critical ? 'deep' : ''}">low ${Math.round(d.min)}%</b>
             </button>`).join('') + '</div>';
         }
       }
@@ -1801,7 +1812,9 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       const hrOut = bands.hr && latest.hr != null
         && (Math.round(latest.hr) < Math.round(bands.hr.low) || Math.round(latest.hr) > Math.round(bands.hr.high));
       el('card-o2').className = 'vital card' +
-        (latest.o2 != null && latest.o2 < 86 ? ' critical' : latest.o2 != null && latest.o2 < 90 ? ' low' : o2Out ? ' out' : '');
+        (latest.o2 != null && latest.o2 < O2.critical ? ' critical'
+          : latest.o2 != null && latest.o2 < O2.warn ? ' low'
+          : o2Out ? ' out' : '');
       el('card-hr').className = 'vital card' + (hrOut ? ' out' : '');
     }
 
@@ -1859,7 +1872,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         const t = new Date(row.bucket_start);
         if (t < today.start) return;
         sleepToday += row.sleep_seconds || 0;
-        const low = row.min_oxygen_saturation != null && row.min_oxygen_saturation < 90;
+        const low = row.min_oxygen_saturation != null && row.min_oxygen_saturation < O2.warn;
         if (low && !inDip) dipsToday += 1;
         inDip = low;
       });
@@ -1974,6 +1987,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         const account = (accounts.accounts || [])[0];
         const prefs = (account && account.dashboard_preferences) || {};
         if (prefs.baby_name) deviceName = prefs.baby_name;
+        O2 = window.owletO2(prefs);
         NIGHT = nightWindowFrom(prefs);
         DISPLAY = {
           o2: prefs.o2_display === 'smoothed' ? 'smoothed' : 'raw',
@@ -1997,6 +2011,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       document.addEventListener('owlet:prefs-changed', event => {
         const prefs = (event.detail && event.detail.dashboard_preferences) || null;
         if (!prefs) return;
+        O2 = window.owletO2(prefs);
         DISPLAY = {
           o2: prefs.o2_display === 'smoothed' ? 'smoothed' : 'raw',
           move: prefs.movement_source === 'bucket' ? 'bucket' : 'raw'
@@ -2004,6 +2019,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         const feedsWere = FEEDS_ON;
         FEEDS_ON = prefs.feed_tracking !== false;
         rebuildPoints();
+        updateHeroLive();       // retint the vitals against the new O₂ tiers at once
         if (!gesture) renderCharts();
         if (feedsWere !== FEEDS_ON) refresh();   // add/remove the feeds chip now
       });
