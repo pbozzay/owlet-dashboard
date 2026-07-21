@@ -138,9 +138,13 @@ body.themed * { box-sizing: border-box; }
 .bp-head b { font-size: 14px; }
 .bp-meta { color: var(--faint); font-size: 11px; white-space: nowrap; }
 .bell-list { display: grid; gap: 8px; max-height: min(55vh, 420px); overflow: auto; }
+/* Every severity names its own colour. The base rule is deliberately neutral
+   so an unrecognised severity reads as "unknown" instead of silently looking
+   like a warning (it used to inherit amber by falling through). */
 .bell-item { display: block; text-decoration: none; color: var(--ink);
-  border: 1px solid var(--surface-line); border-left: 4px solid var(--warn);
-  border-radius: 12px; padding: 9px 11px;
+  border: 1px solid var(--surface-line); border-left: 4px solid var(--faint);
+  border-radius: 12px; padding: 9px 11px; background: transparent; }
+.bell-item.warning { border-left-color: var(--warn);
   background: color-mix(in srgb, var(--warn) 6%, transparent); }
 .bell-item.critical { border-left-color: var(--bad);
   background: color-mix(in srgb, var(--bad) 6%, transparent); }
@@ -367,8 +371,9 @@ body.themed * { box-sizing: border-box; }
 .toast-rack { position: fixed; right: 14px; bottom: 14px; z-index: 130; display: grid;
   gap: 10px; width: min(330px, calc(100vw - 28px)); pointer-events: none; }
 .toast { display: block; pointer-events: auto; text-decoration: none; color: var(--ink);
-  padding: 12px 14px; border-left: 4px solid var(--warn);
+  padding: 12px 14px; border-left: 4px solid var(--faint);
   animation: toastIn .35s cubic-bezier(.2, .9, .3, 1.15); }
+.toast.warning { border-left-color: var(--warn); }
 .toast.critical { border-left-color: var(--bad); }
 .toast.info { border-left-color: var(--accent); }
 .toast b { display: block; font-size: 13.5px; }

@@ -10,19 +10,19 @@ DATA_HEAD = r"""  <meta name="theme-color" content="#122033" />
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
 <style>
     :root {
-      /* Legacy palette names mapped onto the shared app tokens (theme.css). */
+      /* Legacy palette names still referenced by this page's CSS, mapped onto
+         the shared app tokens (theme.css). The severity aliases that used to
+         live here (--red/--amber/--green/--blue/--purple/--dark) were dead and
+         were removed: use --bad/--warn/--good/--accent/--ink directly, so
+         severity has exactly one name. */
       --panel: var(--surface);
       --text: var(--ink);
       --muted: var(--dim);
       --line: var(--surface-line);
-      --red: var(--bad);
-      --blue: var(--accent);
-      --green: var(--good);
-      --amber: var(--warn);
-      --purple: var(--accent);
-      --dark: var(--ink);
       /* Faint fill for inset panels/rows -- adapts to either theme. */
       --inset: color-mix(in srgb, var(--ink) 5%, transparent);
+      /* Read at runtime via themeToken('--series-temp'), not var() — renaming
+         it would fail silently, so keep the name in sync with that call. */
       --series-temp: #0f766e;
     }
     :root[data-theme="dark"] { --series-temp: #2dd4bf; }
@@ -494,11 +494,11 @@ DATA_BODY = r"""
       // the app: hairline series, faint horizontal grid only, inverted-card
       // tooltips (same treatment as the sleep-strip tooltip).
       const styles = getComputedStyle(document.documentElement);
-      const ink = styles.getPropertyValue('--ink').trim() || '#122033';
+      const ink = styles.getPropertyValue('--ink').trim() || '#1c1917';
       const bg = styles.getPropertyValue('--bg').trim() || '#faf7f2';
       const dim = styles.getPropertyValue('--dim').trim() || '#78716c';
       const faint = styles.getPropertyValue('--faint').trim() || '#a8a29e';
-      const line = styles.getPropertyValue('--surface-line').trim() || '#e2e8f0';
+      const line = styles.getPropertyValue('--surface-line').trim() || '#e7e0d5';
       if (window.Chart) {
         Chart.defaults.color = dim;
         Chart.defaults.borderColor = line;
@@ -2693,7 +2693,7 @@ DATA_BODY = r"""
       attachStateStripHover();
       if (!range || range.max <= range.min || !readings.length) {
         stateStripSegments = [];
-        el('stateStrip').style.background = themeToken('--nodata', '#e2e8f0');
+        el('stateStrip').style.background = themeToken('--nodata', '#f0ece5');
         el('stateStrip').innerHTML = '';
         el('stateTimeAxis').innerHTML = '';
         return;
@@ -2710,7 +2710,7 @@ DATA_BODY = r"""
         const color = stateStripColors[segment.cls] || stateStripColors.inactive;
         return [`${color} ${Math.max(0, left).toFixed(3)}%`, `${color} ${Math.min(100, right).toFixed(3)}%`];
       });
-      el('stateStrip').style.background = stops.length ? `linear-gradient(to right, ${stops.join(', ')})` : themeToken('--nodata', '#e2e8f0');
+      el('stateStrip').style.background = stops.length ? `linear-gradient(to right, ${stops.join(', ')})` : themeToken('--nodata', '#f0ece5');
       const ticks = timeTickValues(range).map(value => {
         const position = ((value - range.min) / (range.max - range.min)) * 100;
         return `<span style="left:${position}%">${timeTick(value)}</span>`;
@@ -3088,7 +3088,11 @@ DATA_BODY = r"""
         const health = await fetchJson(`${API_BASE}/api/health`);
         if (!health.desktop_mode) return;
         const banner = document.createElement('div');
-        banner.style.cssText = 'background:#fef3c7;color:#92400e;padding:9px 14px;font-size:13px;'
+        // Same treatment as .desktop-notice in theme.css — tokens, not a second
+        // hardcoded amber that ignores dark mode.
+        banner.style.cssText = 'background:color-mix(in srgb, var(--awake) 10%, var(--surface));'
+          + 'color:var(--dim);border:1px solid color-mix(in srgb, var(--awake) 45%, transparent);'
+          + 'padding:9px 14px;font-size:13px;'
           + 'border-radius:10px;margin:8px 0;display:flex;justify-content:space-between;gap:12px;align-items:center';
         banner.innerHTML = '<span>Desktop mode: readings are only collected while this app is running. '
           + 'Time it spends closed appears as “collector off” gaps in the charts.</span>'
