@@ -162,109 +162,111 @@ _LANDING = """<!doctype html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b1023" />
   <title>Owlet Dashboard — every night, remembered</title>
   <link rel="icon" href="/favicon.ico" sizes="any" />
   <style>
+    /* Split screen: the story lives on a night-coloured panel (the app's own
+       Tonight palette), the sign-in gets an uncontested half of the page. */
     :root {{
-      --bg:#f5f7fb; --panel:#fff; --text:#122033; --muted:#5b6b80;
-      --purple:#6d28d9; --purple-soft:#ede9fe; --line:#e3e9f2;
+      --night:#0b1023; --night-2:#232b5c; --ink-dark:#e8ecf8; --dim-dark:#9aa3c8;
+      --line-dark:rgba(139,148,184,.28); --indigo:#a5b4fc; --accent:#4f46e5;
+      --paper:#faf7f2; --ink:#1c1917; --dim:#78716c; --faint:#a8a29e; --line:#e7e0d5;
     }}
     * {{ box-sizing:border-box; margin:0; }}
     body {{
-      font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-      background:
-        radial-gradient(1100px 500px at 15% -10%, var(--purple-soft), transparent 60%),
-        radial-gradient(900px 400px at 110% 30%, #e0f2fe, transparent 55%),
-        var(--bg);
-      color:var(--text); min-height:100vh; padding:40px 24px 30px;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; color:var(--ink);
+      min-height:100vh; display:grid; grid-template-columns:1.08fr .92fr;
     }}
-    /* Two zones: the pitch flows down the left, the sign-in sits top-right and
-       stays put while you read. align-items:start matters — centering columns
-       of very different heights is what left the old layout floating in space. */
-    .wrap {{
-      display:grid; grid-template-columns: minmax(0,1fr) 356px;
-      gap:26px 56px; align-items:start;
-      width:100%; max-width:1140px; margin:0 auto;
+    /* ---- left: the pitch ------------------------------------------------ */
+    .story {{
+      background:radial-gradient(900px 600px at 20% -10%, var(--night-2) 0%, transparent 60%),
+                 var(--night);
+      color:var(--ink-dark); padding:52px 56px 0;
+      display:flex; flex-direction:column; overflow:hidden;
     }}
-    .hero {{ grid-column:1; grid-row:1; align-self:center; }}
-    .auth {{ grid-column:2; grid-row:1; align-self:start; }}
-    /* the screenshot reads as evidence for the feature list beside it */
-    .showcase {{
-      grid-column:1 / -1; grid-row:2;
-      display:grid; grid-template-columns:206px minmax(0,1fr); gap:46px;
-      align-items:start; padding-top:34px; margin-top:8px;
-      border-top:1px solid var(--line);
+    .brand {{ display:flex; align-items:center; gap:11px; margin-bottom:40px; }}
+    .brand img {{ width:32px; height:32px; border-radius:8px; }}
+    .brand span {{ font-size:14.5px; font-weight:650; color:#c7cdf0; letter-spacing:.01em; }}
+    /* A system serif — editorial voice with no webfont to download, which
+       keeps the self-hosted/offline story intact. */
+    h1 {{
+      font-family:ui-serif,Georgia,'Times New Roman',serif; font-weight:500;
+      font-size:clamp(32px,3.5vw,48px); line-height:1.05; letter-spacing:-.025em;
+      max-width:13ch; margin-bottom:16px;
     }}
-    .brand {{ display:flex; align-items:center; gap:12px; margin-bottom:22px; }}
-    .brand img {{ width:44px; height:44px; }}
-    .brand span {{ font-size:20px; font-weight:700; letter-spacing:-.02em; }}
-    h1 {{ font-size:clamp(30px, 4.2vw, 44px); line-height:1.08; letter-spacing:-.03em;
-         margin-bottom:14px; max-width:15ch; text-wrap:balance; }}
-    h1 em {{ font-style:normal; color:var(--purple); }}
-    .lede {{ color:var(--muted); font-size:16.5px; line-height:1.55; max-width:52ch;
-            margin-bottom:14px; text-wrap:pretty; }}
-    .oss {{ font-size:13.5px; color:var(--muted); max-width:52ch; }}
-    .oss a {{ color:var(--purple); font-weight:600; text-decoration:none; }}
-    ul.features {{ list-style:none; columns:2; column-gap:44px; }}
-    ul.features li {{ display:flex; gap:12px; align-items:flex-start;
-                     break-inside:avoid; margin-bottom:21px; }}
-    ul.features b {{ display:block; font-size:14px; letter-spacing:-.01em; margin-bottom:3px; }}
-    ul.features span {{ display:block; color:var(--muted); font-size:13.5px; line-height:1.5;
-                       text-wrap:pretty; }}
-    .dot {{ flex:none; width:30px; height:30px; border-radius:9px; background:var(--purple-soft);
-           color:var(--purple); display:flex; align-items:center; justify-content:center;
-           margin-top:1px; }}
-    .dot svg {{ width:16px; height:16px; }}
-    .card {{ background:var(--panel); border:1px solid var(--line); border-radius:18px;
-            box-shadow:0 16px 44px rgba(18,32,51,.10); padding:30px; }}
-    .card h2 {{ font-size:19px; margin-bottom:4px; }}
-    .card p.sub {{ color:var(--muted); font-size:13.5px; margin-bottom:14px; }}
-    .shot {{ width:100%; background:var(--panel);
-            border:1px solid var(--line); border-radius:20px; padding:9px;
-            box-shadow:0 12px 34px rgba(18,32,51,.12); }}
-    .shot svg, .shot img {{ display:block; width:100%; height:auto; border-radius:13px; }}
-    .shot-cap {{ text-align:center; font-size:11.5px; color:var(--muted); margin-top:9px; }}
-    label {{ display:block; font-size:13px; font-weight:600; margin:14px 0 5px; }}
+    h1 em {{ font-style:italic; color:var(--indigo); }}
+    .lede {{ color:var(--dim-dark); font-size:16px; line-height:1.6; max-width:44ch;
+            margin-bottom:24px; }}
+    .pills {{ display:flex; flex-wrap:wrap; gap:8px; }}
+    .pills span {{ font-size:12.5px; color:#c7cdf0; border:1px solid var(--line-dark);
+                  padding:6px 12px; border-radius:999px; }}
+    /* the phone runs off the bottom edge — implies there is more below */
+    .shot {{ margin:38px auto -2px; width:min(300px,78%); }}
+    .shot img {{ width:100%; height:auto; display:block; border-radius:22px 22px 0 0;
+                border:1px solid var(--line-dark); border-bottom:0;
+                box-shadow:0 -10px 80px rgba(129,140,248,.22); }}
+    /* ---- right: sign in -------------------------------------------------- */
+    .signin {{ background:var(--paper); display:flex; align-items:center;
+              justify-content:center; padding:48px 44px; }}
+    .panel {{ width:100%; max-width:352px; }}
+    .panel h2 {{ font-size:26px; letter-spacing:-.02em; margin-bottom:5px; }}
+    .panel p.sub {{ color:var(--dim); font-size:14px; line-height:1.5; margin-bottom:18px; }}
+    label {{ display:block; font-size:12.5px; font-weight:650; margin:14px 0 5px; }}
     /* 16px minimum stops mobile Safari's forced zoom-on-focus */
-    input {{ width:100%; padding:11px 12px; border:1px solid #d6dee9; border-radius:10px;
-            font-size:16px; background:#fbfcfe; }}
-    input:focus {{ outline:2px solid var(--purple); outline-offset:1px; border-color:transparent; }}
-    button {{ margin-top:18px; width:100%; padding:12px; border:0; border-radius:10px;
-             background:var(--purple); color:#fff; font-size:15px; font-weight:600;
+    input {{ width:100%; padding:12px; border:1px solid var(--line); border-radius:11px;
+            font-size:16px; background:#fff; }}
+    input:focus {{ outline:2px solid var(--accent); outline-offset:1px; border-color:transparent; }}
+    button {{ margin-top:20px; width:100%; padding:13px; border:0; border-radius:11px;
+             background:var(--accent); color:#fff; font-size:15px; font-weight:650;
              cursor:pointer; }}
-    button:hover {{ background:#5b21b6; }}
-    .alt {{ margin-top:14px; font-size:13.5px; color:var(--muted); text-align:center; }}
-    .alt a {{ color:var(--purple); font-weight:600; text-decoration:none; }}
+    button:hover {{ background:#4338ca; }}
+    .alt {{ margin-top:14px; font-size:13px; color:var(--dim); text-align:center; }}
+    .alt a {{ color:var(--accent); font-weight:650; text-decoration:none; }}
     .notice {{ background:#fef2f2; color:#991b1b; border-radius:10px; padding:10px 12px;
               font-size:13px; margin-bottom:6px; }}
-    footer {{ grid-column:1 / -1; text-align:center; font-size:11.5px; color:var(--muted);
-             margin-top:8px; }}
-    @media (max-width: 1000px) {{
-      .wrap {{ grid-template-columns:1fr; gap:28px; max-width:540px; }}
-      .hero, .auth, .showcase {{ grid-column:1; grid-row:auto; }}
-      .auth {{ position:static; }}
-      .showcase {{ grid-template-columns:1fr; gap:26px; justify-items:center;
-                   margin-top:0; padding-top:26px; }}
-      .shot {{ max-width:250px; }}
-      ul.features {{ justify-self:stretch; columns:1; }}
+    .fine {{ margin-top:28px; padding-top:18px; border-top:1px solid var(--line);
+            font-size:11.5px; color:var(--faint); line-height:1.55; }}
+    .fine a {{ color:var(--dim); font-weight:600; }}
+    .fine p + p {{ margin-top:7px; }}
+    /* Side by side, the split owns exactly one screen: the phone clips at the
+       bottom edge instead of stretching the page into a scroll. The sign-in
+       half scrolls on its own so a short laptop can still reach the button. */
+    @media (min-width: 901px) {{
+      body {{ height:100vh; }}
+      .story {{ overflow:hidden; }}
+      .signin {{ overflow-y:auto; }}
+    }}
+    /* ---- stacked ---------------------------------------------------------- */
+    @media (max-width: 900px) {{
+      body {{ grid-template-columns:1fr; }}
+      .story {{ padding:34px 26px 0; }}
+      .brand {{ margin-bottom:26px; }}
       h1 {{ max-width:none; }}
-      body {{ padding:26px 16px; }}
+      /* On a phone the mockup earns less than the ~550px of scroll it costs
+         before the sign-in form — show the top of the Today view as a peek. */
+      .shot {{ margin:26px auto 0; width:min(240px,66%); max-height:210px;
+              overflow:hidden; border-radius:18px 18px 0 0; }}
+      .signin {{ padding:34px 26px 40px; }}
+      .panel {{ max-width:420px; }}
     }}
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <section class="hero">
-      <div class="brand"><img src="/logo.svg" alt="" /><span>Owlet Dashboard</span></div>
-      <h1>A free web client for <em>Owlet</em> users.</h1>
-      <p class="lede">Sign in with your Owlet account and Owlet Dashboard turns your sock's
-        readings into a private history you can explore — live vitals, nightly sleep
-        reports, and long-term rhythms, on any device.</p>
-      <p class="oss">Free, open source, and unofficial — provided as-is, not affiliated with
-        Owlet Baby Care. <a href="https://github.com/pbozzay/owlet-dashboard"
-        rel="noopener">View the project on GitHub</a>.</p>
-    </section>
-    <section class="card auth">
+  <section class="story">
+    <div class="brand"><img src="/logo.svg" alt="" /><span>Owlet Dashboard</span></div>
+    <h1>Every night, <em>remembered</em>.</h1>
+    <p class="lede">Sign in with your Owlet account and your sock's readings become a private
+      history you can explore — live vitals, a plain-language report each night, and the
+      rhythms that emerge as your baby grows.</p>
+    <div class="pills">
+      <span>Live vitals every 30s</span><span>Nightly reports</span>
+      <span>Long-term rhythms</span><span>O₂ and feed logging</span><span>Self-hostable</span>
+    </div>
+    <div class="shot">{preview}</div>
+  </section>
+  <main class="signin">
+    <div class="panel">
       <h2>Sign in</h2>
       <p class="sub">{signin_sub}</p>
       {error}
@@ -273,40 +275,20 @@ _LANDING = """<!doctype html>
         <input id="email" name="email" type="text" inputmode="email" required
                autocomplete="username" />
         <label for="password">Password</label>
-        <input id="password" name="password" type="password" required autocomplete="current-password" />
+        <input id="password" name="password" type="password" required
+               autocomplete="current-password" />
         <button type="submit">Sign in</button>
       </form>
       {signup_line}
-    </section>
-    <div class="showcase">
-      <figure class="shot">
-        {preview}
-        <figcaption class="shot-cap">A peek at the Today view</figcaption>
-      </figure>
-      <ul class="features">
-        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg></span>
-          <div><b>Live vitals, kept for good</b>
-          <span>Oxygen, heart rate, movement, and sleep every 30 seconds — zoom from the last minute to the last month, or export to CSV.</span></div></li>
-        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></span>
-          <div><b>A plain-language report every night</b>
-          <span>“Tonight” recaps each night in words: sleep stages, wake-ups, and every oxygen dip, with a seven-night trend.</span></div></li>
-        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V11M10 20V4M16 20v-6M21 20H3"/></svg></span>
-          <div><b>Patterns as your baby grows</b>
-          <span>“Rhythms” charts the day-night rhythm, sleep consolidation, and recurring dips across weeks — age-adjusted when you add a birth date.</span></div></li>
-        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8.5v7M8.5 12h7"/></svg></span>
-          <div><b>Oxygen and feeds, logged in a tap</b>
-          <span>Mark supplemental O₂ and its flow, feeds, and oxygen challenges — with real numbers against baseline for pediatrician visits.</span></div></li>
-        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.5 21a2 2 0 0 1-3 0"/></svg></span>
-          <div><b>Alerts and status at a glance</b>
-          <span>Set a low-oxygen threshold and get a toast or phone notification; battery and sock status ride in the top bar.</span></div></li>
-        <li><span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
-          <div><b>Private, and yours to run</b>
-          <span>{privacy_copy} Installable as an app, or self-host it with Docker.</span></div></li>
-      </ul>
+      <div class="fine">
+        <p>{privacy_copy}</p>
+        <p>Free, open source, and unofficial — provided as-is, not affiliated with Owlet Baby
+          Care. <a href="https://github.com/pbozzay/owlet-dashboard" rel="noopener">View the
+          project on GitHub</a>.</p>
+        <p>Retrospective trend viewing only — not a medical monitor or alert replacement.</p>
+      </div>
     </div>
-    <footer>Retrospective trend viewing only — not a medical monitor or alert replacement.
-      Not affiliated with Owlet Baby Care.</footer>
-  </div>
+  </main>
 </body>
 </html>"""
 
