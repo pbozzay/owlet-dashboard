@@ -525,7 +525,7 @@ SHELL_JS = """<script>
       critical = warn - 1;
       critEl.value = String(critical);
     }
-    if (hint) hint.textContent = 'Amber below ' + warn + '%, red below ' + critical + '%.';
+    if (hint) hint.textContent = 'Oxygen: amber below ' + warn + '%, red below ' + critical + '%.';
     patchSelectedAccount({ dashboard_preferences: {
       o2_warn_threshold: warn, o2_critical_threshold: critical
     } });
@@ -1474,12 +1474,13 @@ def render_shell(
               </select>
             </div>
             <div class="set-row">
-              <div class="set-lab"><b>Colour thresholds</b><small id="o2TierHint">Where readings turn
-                amber, then red — across every chart, report and number in the app.</small></div>
+              <div class="set-lab"><b>Oxygen colour thresholds</b><small id="o2TierHint">Where an oxygen
+                reading turns amber, then red — across every chart, report and number in the
+                app.</small></div>
               <div class="set-tiers">
-                <label><span class="tier-swatch warn"></span>Amber below
+                <label><span class="tier-swatch warn"></span>Oxygen amber below
                   <input id="o2WarnSetting" type="number" min="70" max="99" step="1" inputmode="numeric" />%</label>
-                <label><span class="tier-swatch bad"></span>Red below
+                <label><span class="tier-swatch bad"></span>Oxygen red below
                   <input id="o2CritSetting" type="number" min="70" max="99" step="1" inputmode="numeric" />%</label>
               </div>
             </div>
