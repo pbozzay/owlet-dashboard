@@ -528,7 +528,7 @@ DATA_BODY = r"""
     // Chart series pull from the shared theme so both skins stay coherent.
     const SERIES = {
       o2: themeToken('--accent', '#6d28d9'),
-      hr: themeToken('--bad', '#b91c1c'),
+      hr: themeToken('--series-hr', '#a21caf'),
       move: themeToken('--good', '#15803d'),
       temp: themeToken('--series-temp', '#0f766e'),
       sleep: themeToken('--sleep-deep', '#5b21b6'),

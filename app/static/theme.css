@@ -25,6 +25,9 @@
   --awake: #f59e0b;
   --nodata: #f0ece5;
   --o2-on: #3b82f6;
+  /* Heart rate is a data series, not a severity: keep it clear of
+     --bad/--warn so a normal trace never reads as an alarm. */
+  --series-hr: #a21caf;
   --shadow: 0 12px 34px rgba(28, 25, 23, .05);
   --radius-card: 18px;
   --radius-control: 10px;
@@ -51,6 +54,7 @@
   --awake: #f59e0b;
   --nodata: rgba(15, 20, 45, .8);
   --o2-on: #60a5fa;
+  --series-hr: #e879f9;
   --shadow: 0 12px 34px rgba(0, 0, 0, .3);
   --nav-bg: rgba(11, 16, 35, .78);
 }
