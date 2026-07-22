@@ -120,6 +120,27 @@ SHELL_JS = """<script>
     });
   }
 
+  // ---- app version badge (so you can see which build you're on) ----
+  (function () {
+    var el = byId('appVersion');
+    if (!el) return;
+    function show(v, label) {
+      if (!v) return;
+      el.textContent = label + ' v' + String(v).replace(/^v/, '');
+      el.hidden = false;
+    }
+    if (window.__OWLET_APP_VERSION__) {
+      // Desktop app: the Tauri shell injected its own version. This is the value
+      // the auto-updater compares, so it confirms whether an update has landed.
+      show(window.__OWLET_APP_VERSION__, 'Desktop app');
+    } else {
+      // Hosted / PWA: fall back to the server's reported package version.
+      fetch('/api/health').then(function (r) { return r.json(); }).then(function (h) {
+        if (h && h.version) show(h.version, 'Server');
+      }).catch(function () {});
+    }
+  })();
+
   // ---- settings modal ----
   var settingsBackdrop = byId('settingsBackdrop');
   function openSettingsModal() {
@@ -1373,6 +1394,7 @@ def render_shell(
             title="Connect to a different server, or collect on this PC">Switch server…</button>
         </div>
         <div class="pp-status" id="status"><span class="status-dot"></span>Checking collector…</div>
+        <div class="pp-version" id="appVersion" hidden></div>
       </div>
     </span>
   </header>

@@ -49,6 +49,24 @@ async def _seed_reading(
 
 
 @pytest.mark.asyncio
+async def test_health_reports_app_version(tmp_path):
+    from app.main import _app_version
+
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    auth = AuthStore(store.db_path)
+    _, session = await make_user(auth, "owner@example.test")
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+
+    with client_for(app, session) as client:
+        health = client.get("/api/health").json()
+
+    # The UI version badge reads this field; it must always be a usable string.
+    assert health["version"] == _app_version()
+    assert isinstance(health["version"], str) and health["version"]
+
+
+@pytest.mark.asyncio
 async def test_account_api_is_public_metadata_only_and_scopes_data(tmp_path):
     db_path = tmp_path / "owlet.sqlite3"
     store = ReadingStore(db_path)

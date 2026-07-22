@@ -44,6 +44,21 @@ STATIC_DIR = FilePath(__file__).parent / "static"
 JSON_BODY = Body(default_factory=dict)
 
 
+def _app_version() -> str:
+    """Installed package version, for the health check / UI version badge.
+
+    The container installs the package (``pip install .``), so this reflects the
+    running build. In the frozen desktop sidecar the metadata may be absent —
+    that's fine, the desktop shell injects its own (authoritative) version.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("owlet-dashboard")
+    except PackageNotFoundError:
+        return "dev"
+
+
 def _desktop_config_path(settings: Settings) -> FilePath:
     return FilePath(settings.database_path).parent / "desktop-config.json"
 
@@ -364,6 +379,7 @@ def create_app(
             "has_credentials": settings.has_owlet_credentials,
             "desktop_mode": settings.desktop_mode,
             "database_path": str(settings.database_path),
+            "version": _app_version(),
         }
 
     @app.get("/share/{token}/api/health")

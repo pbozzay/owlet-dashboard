@@ -110,13 +110,15 @@ async fn run_update(app: tauri::AppHandle, silent: bool) {
         }
     };
 
+    let current = app.package_info().version.to_string();
     match updater.check().await {
         Ok(Some(update)) => {
-            log_line(&format!("update available: {}", update.version));
+            log_line(&format!("update available: {} (on {current})", update.version));
             alert(
                 &app,
                 &format!(
-                    "Owlet Dashboard {} is available. Installing now — the app will restart.",
+                    "Owlet Dashboard {} is available (you're on {current}). \
+                     Installing now — the app will restart.",
                     update.version
                 ),
             );
@@ -139,7 +141,7 @@ async fn run_update(app: tauri::AppHandle, silent: bool) {
         Ok(None) => {
             log_line("no update available");
             if !silent {
-                alert(&app, "You're on the latest version.");
+                alert(&app, &format!("You're on the latest version ({current})."));
             }
         }
         Err(err) => {
@@ -210,6 +212,14 @@ fn main() {
             let reachable = TcpStream::connect(SERVER_ADDR).is_ok();
             log_line(&format!("server reachable: {reachable}; creating window"));
             let url = format!("http://{}:{}/", SERVER_ADDR.0, SERVER_ADDR.1);
+            // Hand the web UI our own version so it can show which desktop build
+            // is running — this is the value the updater compares, so it's the
+            // one that proves an update actually landed. Runs before page scripts.
+            let version = app.package_info().version.to_string();
+            let inject = format!(
+                "window.__OWLET_APP_VERSION__ = {};",
+                serde_json::to_string(&version).unwrap_or_else(|_| "\"\"".into())
+            );
             let window = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -219,6 +229,7 @@ fn main() {
             .inner_size(1280.0, 860.0)
             .center()
             .focused(true)
+            .initialization_script(&inject)
             .build();
             match window {
                 Ok(win) => {

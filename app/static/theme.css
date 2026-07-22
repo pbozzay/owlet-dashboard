@@ -475,6 +475,9 @@ body.themed * { box-sizing: border-box; }
 .pp-status .status-dot.good { background: var(--good); }
 .pp-status .status-dot.warn { background: var(--warn); }
 .pp-status .status-dot.offline { background: var(--bad); }
+.pp-version { margin-top: 6px; font-size: 10.5px; color: var(--faint);
+  letter-spacing: .02em; opacity: .8; }
+.pp-version[hidden] { display: none; }
 .pp-label {
   display: block; font-size: 11px; letter-spacing: .13em; text-transform: uppercase;
   color: var(--faint); font-weight: 700; margin-bottom: 8px;
