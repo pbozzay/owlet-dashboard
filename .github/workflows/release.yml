@@ -110,23 +110,35 @@ jobs:
     - name: Build desktop app
       working-directory: desktop/src-tauri
       run: tauri build
+      env:
+        # Signs the installer so the in-app updater can verify it. The public
+        # half is baked into tauri.conf.json; without these, no .sig is produced.
+        TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
     - name: Extract version from tag
       id: version
       shell: bash
       run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-    - name: Collect installer
+    - name: Collect installer + update manifest
       shell: bash
       run: |
+        VER="${{ steps.version.outputs.version }}"
+        export OUT="Owlet-Dashboard-${VER}-windows-setup.exe"
         mkdir -p dist-installer
-        cp "desktop/src-tauri/target/release/bundle/nsis/"*-setup.exe \
-           "dist-installer/Owlet-Dashboard-${{ steps.version.outputs.version }}-windows-setup.exe"
+        SETUP=$(ls "desktop/src-tauri/target/release/bundle/nsis/"*-setup.exe | head -1)
+        export SIGFILE=$(ls "desktop/src-tauri/target/release/bundle/nsis/"*-setup.exe.sig | head -1)
+        cp "$SETUP" "dist-installer/$OUT"
+        # latest.json is what the app polls; the endpoint resolves to the newest
+        # release's copy, so an older app sees the new version + its signature.
+        VER="$VER" python desktop/ci/make_latest_json.py > dist-installer/latest.json
+        echo "--- latest.json ---"; cat dist-installer/latest.json
 
     - uses: actions/upload-artifact@v4
       with:
         name: windows-installer
-        path: dist-installer/*.exe
+        path: dist-installer/*
         if-no-files-found: error
 
   release:
@@ -148,7 +160,9 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         name: Release ${{ steps.version.outputs.version }}
-        files: dist-installer/*.exe
+        files: |
+          dist-installer/*.exe
+          dist-installer/latest.json
         body: |
           ## Desktop app (Windows)
 
@@ -157,6 +171,10 @@ jobs:
           Settings → Sign-in). Note: the desktop app only collects readings **while it is
           running**; for gapless 24/7 history run the Docker version and use the desktop
           app as a viewer.
+
+          **Automatic updates:** the app checks for a new release on launch and installs it
+          (also available from the window's **Instance → Check for updates…** menu). Updates
+          are signed and verified, so this is the last version you'll need to install by hand.
 
           ## Docker Image
 

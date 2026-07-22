@@ -16,3 +16,7 @@ desktop/src-tauri/target/
 desktop/src-tauri/binaries/
 desktop/src-tauri/gen/
 desktop/src-tauri/icons/
+
+# Tauri updater signing keys — private key lives only in CI secrets, never here
+*.key
+*.key.pub
