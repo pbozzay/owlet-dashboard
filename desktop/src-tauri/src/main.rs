@@ -120,6 +120,11 @@ async fn run_update(app: tauri::AppHandle, silent: bool) {
                     update.version
                 ),
             );
+            // Stop the sidecar first. The updater terminates the shell to swap
+            // its exe, but that abrupt kill skips our Exit handler, so the
+            // sidecar is left running — and the installer then blocks on a
+            // "close the running application" prompt trying to replace it.
+            kill_sidecar(&app);
             match update.download_and_install(|_, _| {}, || {}).await {
                 Ok(_) => {
                     log_line("update installed; restarting");
