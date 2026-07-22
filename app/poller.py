@@ -91,12 +91,17 @@ class Poller:
             self._stop.clear()
             self._task = asyncio.create_task(self._run(), name="owlet-poller")
 
-    async def stop(self) -> None:
+    async def stop(self, *, drain_timeout: float = 4.0) -> None:
+        """Stop collecting. Bounded so it can't hang a request: if the poll loop
+        is mid-flight on a slow/flaky Owlet call, cancellation may not land until
+        that call returns, so we wait only briefly for a clean unwind and then
+        move on. The task is already cancelled and its account disconnected, so
+        it does nothing further even if it outlives this await."""
         self._stop.set()
         if self._task:
             self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._task
+            with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
+                await asyncio.wait_for(asyncio.shield(self._task), timeout=drain_timeout)
 
     async def _run(self) -> None:
         while not self._stop.is_set():

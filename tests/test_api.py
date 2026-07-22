@@ -1562,3 +1562,43 @@ async def test_o2_threshold_prefs_round_trip_and_retint_rollups(tmp_path):
             json={"dashboard_preferences": {"o2_warn_threshold": 400}},
         ).json()["account"]["dashboard_preferences"]
         assert rejected["o2_warn_threshold"] == 93
+
+
+@pytest.mark.asyncio
+async def test_poller_stop_is_bounded_when_read_hangs():
+    """Logging out / unlinking calls poller.stop(); if the poll loop is mid-flight
+    on a wedged Owlet request, stop() must still return promptly rather than hang
+    the HTTP request behind it (which stranded a real user on 'Logging out…')."""
+    import asyncio
+    import time
+
+    from app.poller import Poller
+
+    started = asyncio.Event()
+
+    async def slow_read():
+        started.set()
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            try:
+                await asyncio.sleep(3.0)
+            except asyncio.CancelledError:
+                if time.monotonic() >= deadline:
+                    raise
+        raise asyncio.CancelledError
+
+    class _Store:
+        async def insert_reading(self, *a, **k):
+            return None
+
+    poller = Poller(store=_Store(), read_once=slow_read, interval_seconds=5, account_id=1)
+    poller.start()
+    await started.wait()
+
+    began = time.monotonic()
+    await poller.stop(drain_timeout=1.0)
+    elapsed = time.monotonic() - began
+    assert elapsed < 1.6, f"stop() blocked {elapsed:.2f}s — not bounded"
+
+    # let the shielded task unwind so it doesn't leak into other tests
+    await asyncio.sleep(2.5)
