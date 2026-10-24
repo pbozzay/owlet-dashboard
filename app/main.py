@@ -30,7 +30,7 @@ from app.dashboard import render_dashboard
 from app.night_page import render_night_page
 from app.now_page import render_now_page
 from app.owlet_client import OwletClient
-from app.poller import Poller, create_account_poller, create_owlet_poller
+from app.poller import Poller, create_account_poller, create_owlet_poller, history_for_client
 from app.pwa import MANIFEST, SERVICE_WORKER_JS
 from app.quality import is_offline_reading
 from app.ratelimit import RateLimiter
@@ -157,6 +157,8 @@ def create_app(
                                 account.get("poll_interval_seconds") or settings.poll_interval_seconds
                             ),
                             password=account.get("owlet_password"),
+                            history_days=settings.history_days,
+                            history_interval_seconds=settings.history_interval_seconds,
                         )
                         poller.start()
                         pollers.append(poller)
@@ -185,6 +187,8 @@ def create_app(
                         region=settings.owlet_region,
                         interval_seconds=settings.poll_interval_seconds,
                         account_id=default_account_id,
+                        history_days=settings.history_days,
+                        history_interval_seconds=settings.history_interval_seconds,
                     )
                     poller.start()
                     pollers.append(poller)
@@ -511,6 +515,10 @@ def create_app(
                     interval_seconds=settings.poll_interval_seconds,
                     account_id=account_id,
                     token_snapshot=lambda client=client_for_poller: client.tokens,
+                    history=history_for_client(
+                        store, account_id, region, client_for_poller, settings.history_days
+                    ),
+                    history_interval_seconds=settings.history_interval_seconds,
                 )
                 poller.start()
                 live.append(poller)

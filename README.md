@@ -34,8 +34,8 @@ There are three ways to run Owlet Dashboard, and the app can be any of them:
 - **Standalone app — _Collect on this PC._** The app polls Owlet and stores everything
   locally (`%LOCALAPPDATA%\owlet-dashboard`), no server needed. The catch: it only
   records **while the app is open and the PC is awake**, so a closed laptop or sleeping
-  PC leaves permanent gaps (Owlet's API can't backfill) — the charts show them honestly.
-  Great for trying it out or for travel.
+  PC leaves gaps in the full-detail data. Next time it runs, [history backfill](#history-backfill)
+  fills them with Owlet's 10-minute averages. Great for trying it out or for travel.
 - **Always-on server — the [Docker/Unraid deployment](#run-with-docker-recommended).** Runs 24/7
   and never sleeps, so you get gapless history. Reach it from any browser.
 - **Connected viewer app — _Connect to a live server._** Point the desktop app at your
@@ -64,6 +64,49 @@ Each poll stores:
 - battery
 - skin temperature, when available
 - raw normalized payload for future fields
+
+## History backfill
+
+The live feed only remembers the last few minutes, so time the collector was off used to be
+lost. Owlet's own app draws its History screen from separate services that keep **10-minute
+averages** of heart rate, SpO₂ and movement, plus minute-by-minute sleep states, for weeks.
+Each collector now pulls those about a minute after it starts, then once a day:
+
+- The first run reaches back `HISTORY_BACKFILL_DAYS` (default 90). Later runs refresh the
+  last week, to pick up revised values and fill any new gaps.
+- Each window is stored as **one reading per minute** carrying the window's averages and
+  that minute's sleep state, so the charts draw continuous (stepped) lines rather than dots.
+  The window's min/max and sample count go in `raw_json`.
+- Backfilled rows are tagged `raw_json.source = "owlet_history_backfill"`. They never replace
+  a live reading, and minutes with live data in the same or an adjacent minute are skipped, so
+  full-detail data always wins. Re-runs update earlier backfilled minutes in place and never
+  delete older nights.
+- Sign-in reuses the stored Firebase refresh token: no password, and the live Ayla session is
+  untouched, so it does not count as a second collector.
+- A run that fails (Owlet outage, rate limit) is retried within the hour, not the next day.
+
+| Setting | Default | |
+| --- | --- | --- |
+| `HISTORY_BACKFILL` | `true` | set `false` to turn it off |
+| `HISTORY_BACKFILL_DAYS` | `90` | how far back the first run reaches |
+| `HISTORY_BACKFILL_INTERVAL_HOURS` | `24` | how often it runs |
+
+Run it by hand, or undo it:
+
+```bash
+python -m app.owlet_history                 # backfill every linked sock now
+python -m app.owlet_history --days 30
+python -m app.owlet_history --remove        # delete backfilled rows; live readings stay
+python -m app.owlet_history --account 2 --remove
+# in Docker (run as the app's user, so the database files stay writable by it):
+docker exec -u 1000 owlet-dashboard python -m app.owlet_history
+```
+
+Caveats: these are undocumented Owlet services, so they can change. They hold averages only,
+so brief SpO₂ dips inside a 10-minute window aren't visible in backfilled time, and averaged
+movement rarely crosses the awake threshold, so movement-based figures run low there. It was
+verified with an EU Dream Sock (the requests send `version=smartSock4`); older socks may
+reject that, in which case the job logs the error and live collection carries on.
 
 ## Run with Docker (recommended)
 

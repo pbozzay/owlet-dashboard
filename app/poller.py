@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone, tzinfo
-from typing import Any
+from typing import Any, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.models import OwletReading
 from app.owlet_client import OwletClient
+from app.owlet_history import HistoryBackfill
 from app.quality import is_offline_reading
 from app.store import ReadingStore
 
@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 
 ReadOnce = Callable[[], Awaitable[OwletReading]]
 TokenSnapshot = Callable[[], dict[str, Any]]
+
+
+class HistoryJob(Protocol):
+    async def run_once(self) -> int: ...
 
 
 def _account_tz(prefs: dict[str, Any]) -> tzinfo:
@@ -74,13 +78,22 @@ class Poller:
         interval_seconds: int = 30,
         account_id: int | None = None,
         token_snapshot: TokenSnapshot | None = None,
+        history: HistoryJob | None = None,
+        history_interval_seconds: float = 24 * 3600,
+        history_initial_delay_seconds: float = 60,
+        history_retry_seconds: float = 3600,
     ):
         self.store = store
         self.read_once = read_once
         self.interval_seconds = interval_seconds
         self.account_id = account_id
         self.token_snapshot = token_snapshot
+        self.history = history
+        self.history_interval_seconds = history_interval_seconds
+        self.history_initial_delay_seconds = history_initial_delay_seconds
+        self.history_retry_seconds = history_retry_seconds
         self._task: asyncio.Task[None] | None = None
+        self._history_task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
         self._last_alert_o2: float | None = None
         self._last_alert_at = float("-inf")   # monotonic clock starts near 0 on fresh boots
@@ -90,6 +103,11 @@ class Poller:
         if self._task is None or self._task.done():
             self._stop.clear()
             self._task = asyncio.create_task(self._run(), name="owlet-poller")
+        if self.history is not None and (self._history_task is None or self._history_task.done()):
+            # separate task, so a slow backfill never delays live polling
+            self._history_task = asyncio.create_task(
+                self._run_history(), name="owlet-history-backfill"
+            )
 
     async def stop(self, *, drain_timeout: float = 4.0) -> None:
         """Stop collecting. Bounded so it can't hang a request: if the poll loop
@@ -98,10 +116,14 @@ class Poller:
         move on. The task is already cancelled and its account disconnected, so
         it does nothing further even if it outlives this await."""
         self._stop.set()
-        if self._task:
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
-                await asyncio.wait_for(asyncio.shield(self._task), timeout=drain_timeout)
+        tasks = [task for task in (self._task, self._history_task) if task]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            done, _pending = await asyncio.wait(tasks, timeout=drain_timeout)
+            for task in done:
+                if not task.cancelled():
+                    task.exception()  # retrieve it, so asyncio doesn't warn at shutdown
 
     async def _run(self) -> None:
         while not self._stop.is_set():
@@ -129,6 +151,20 @@ class Poller:
             except Exception:
                 logger.exception("Readiness report failed; will retry")
             await asyncio.sleep(self.interval_seconds)
+
+    async def _run_history(self) -> None:
+        """Backfill shortly after start, then on an interval (sooner after a failure)."""
+        await asyncio.sleep(self.history_initial_delay_seconds)
+        while not self._stop.is_set():
+            delay = self.history_interval_seconds
+            try:
+                await self.history.run_once()  # type: ignore[union-attr]
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                delay = min(delay, self.history_retry_seconds)
+                logger.exception("Owlet history backfill failed; retrying in %.0f s", delay)
+            await asyncio.sleep(delay)
 
     async def _check_custom_alert(self, reading: OwletReading) -> None:
         """User-configurable low-O2 alert: crossing below the account's chosen
@@ -290,12 +326,31 @@ class Poller:
         )
 
 
+def history_for_client(
+    store: ReadingStore, account_id: int, region: str, client: OwletClient, days: int
+) -> HistoryBackfill | None:
+    """The account's history job, or None when backfill is off. The token and serial are
+    read lazily because both can change after start."""
+    if days <= 0:
+        return None
+    return HistoryBackfill(
+        store,
+        account_id,
+        region,
+        refresh_token=lambda: client.tokens.get("refresh"),
+        device_serial=lambda: client.sock.serial if client.sock else None,
+        initial_days=days,
+    )
+
+
 async def create_account_poller(
     store: ReadingStore,
     account: dict[str, Any],
     interval_seconds: int,
     *,
     password: str | None = None,
+    history_days: int = 0,
+    history_interval_seconds: float = 24 * 3600,
 ) -> tuple[Poller, OwletClient]:
     client = OwletClient(
         email=account.get("email") or None,
@@ -320,6 +375,8 @@ async def create_account_poller(
         interval_seconds=interval_seconds,
         account_id=int(account["id"]),
         token_snapshot=lambda: client.tokens,
+        history=history_for_client(store, int(account["id"]), client.region, client, history_days),
+        history_interval_seconds=history_interval_seconds,
     )
     return poller, client
 
@@ -331,6 +388,9 @@ async def create_owlet_poller(
     region: str,
     interval_seconds: int,
     account_id: int,
+    *,
+    history_days: int = 0,
+    history_interval_seconds: float = 24 * 3600,
 ) -> tuple[Poller, OwletClient]:
     account = {
         "id": account_id,
@@ -340,4 +400,11 @@ async def create_owlet_poller(
         "api_token_expiry": None,
         "refresh_token": None,
     }
-    return await create_account_poller(store, account, interval_seconds, password=password)
+    return await create_account_poller(
+        store,
+        account,
+        interval_seconds,
+        password=password,
+        history_days=history_days,
+        history_interval_seconds=history_interval_seconds,
+    )

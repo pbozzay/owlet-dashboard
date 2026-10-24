@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     seed_default_admin: bool = Field(default=False, alias="SEED_DEFAULT_ADMIN")
     # Set by the desktop shell: surfaces the collects-only-while-running warning.
     desktop_mode: bool = Field(default=False, alias="OWLET_DESKTOP")
+    # Gap backfill from Owlet's history services; see app/owlet_history.py.
+    history_backfill: bool = Field(default=True, alias="HISTORY_BACKFILL")
+    history_backfill_days: int = Field(default=90, alias="HISTORY_BACKFILL_DAYS")
+    history_backfill_interval_hours: float = Field(
+        default=24, alias="HISTORY_BACKFILL_INTERVAL_HOURS"
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
@@ -37,3 +43,11 @@ class Settings(BaseSettings):
     @property
     def share_enabled(self) -> bool:
         return bool(self.owlet_share_token)
+
+    @property
+    def history_days(self) -> int:
+        return self.history_backfill_days if self.history_backfill else 0
+
+    @property
+    def history_interval_seconds(self) -> float:
+        return self.history_backfill_interval_hours * 3600

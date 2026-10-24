@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,10 @@ from app.models import OwletReading, raw_alert_mask_has, raw_flag_active
 from app.notifications import NotificationEvent, extract_notifications
 from app.oxygen_challenges import challenge_analysis, parse_time, reading_in_any_period
 from app.quality import is_offline_reading
+
+
+# raw_json "source" tag on readings backfilled from Owlet's history services.
+HISTORY_SOURCE = "owlet_history_backfill"
 
 
 # Per-reading raw storage keeps only what changes and what downstream code
@@ -786,6 +791,110 @@ class ReadingStore:
             cursor = await db.execute(f"SELECT MAX(recorded_at) FROM readings {where}", params)
             row = await cursor.fetchone()
             return row[0] if row and row[0] else None
+
+    async def live_reading_minutes(
+        self, account_id: int, device_serial: str, start: datetime, end: datetime
+    ) -> list[int]:
+        """Minute-aligned epochs (ascending) of the minutes holding a live reading in
+        [start, end]. Bucketed in SQL so a 5 s collector returns one row per minute."""
+        await self.init()
+        async with self._connect() as db:
+            cursor = await db.execute(
+                """
+                SELECT DISTINCT substr(recorded_at, 1, 16) AS minute FROM readings
+                WHERE account_id = ? AND device_serial = ?
+                  AND recorded_at >= ? AND recorded_at <= ?
+                  AND json_extract(raw_json, '$.source') IS NOT ?
+                ORDER BY minute
+                """,
+                (account_id, device_serial, start.isoformat(), end.isoformat(), HISTORY_SOURCE),
+            )
+            rows = await cursor.fetchall()
+        # recorded_at is ISO UTC; its first 16 characters are the minute
+        return [
+            int(datetime.fromisoformat(row[0] + ":00+00:00").timestamp()) for row in rows
+        ]
+
+    async def upsert_history_minutes(
+        self, account_id: int, device_serial: str, minutes: Iterable[Any]
+    ) -> int:
+        """Upsert backfilled minutes (app.owlet_history.HistoryMinute); returns rows written.
+        A live reading at the same timestamp is never overwritten."""
+        await self.init()
+        if not minutes:
+            return 0
+        async with self._connect() as db:
+            cursor = await db.executemany(
+                """
+                INSERT INTO readings (
+                    account_id, device_serial, recorded_at, heart_rate, oxygen_saturation,
+                    movement, sleep_state, raw_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(account_id, device_serial, recorded_at) DO UPDATE SET
+                    heart_rate=excluded.heart_rate,
+                    oxygen_saturation=excluded.oxygen_saturation,
+                    movement=excluded.movement,
+                    sleep_state=excluded.sleep_state,
+                    raw_json=excluded.raw_json
+                WHERE json_extract(readings.raw_json, '$.source') IS ?
+                """,
+                [
+                    (
+                        account_id,
+                        device_serial,
+                        minute.recorded_at.isoformat(),
+                        minute.heart_rate,
+                        minute.oxygen_saturation,
+                        minute.movement,
+                        minute.sleep_state,
+                        json.dumps(minute.raw),
+                        HISTORY_SOURCE,
+                    )
+                    for minute in minutes
+                ],
+            )
+            await db.commit()
+            return cursor.rowcount
+
+    async def history_backfill_state(self, account_id: int) -> dict[str, Any] | None:
+        """When the account's history backfill last completed, or None if it never has.
+        Kept in dashboard_preferences, which the UI's patches merge into, never replace."""
+        account = await self.get_account(account_id)
+        state = (account.get("dashboard_preferences") or {}).get("history_backfill")
+        return state if isinstance(state, dict) else None
+
+    async def set_history_backfill_state(
+        self, account_id: int, state: dict[str, Any] | None
+    ) -> None:
+        await self.update_account_preferences(
+            account_id, dashboard_preferences={"history_backfill": state}
+        )
+
+    async def delete_history_minutes(self, account_id: int | None = None) -> int:
+        await self.init()
+        where = "json_extract(raw_json, '$.source') IS ?"
+        params: list[Any] = [HISTORY_SOURCE]
+        if account_id is not None:
+            where += " AND account_id = ?"
+            params.append(account_id)
+        async with self._connect() as db:
+            cursor = await db.execute(f"DELETE FROM readings WHERE {where}", params)
+            await db.commit()
+            return cursor.rowcount
+
+    async def latest_live_device_serial(self, account_id: int) -> str | None:
+        await self.init()
+        async with self._connect() as db:
+            cursor = await db.execute(
+                """
+                SELECT device_serial FROM readings
+                WHERE account_id = ? AND json_extract(raw_json, '$.source') IS NOT ?
+                ORDER BY recorded_at DESC LIMIT 1
+                """,
+                (account_id, HISTORY_SOURCE),
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else None
 
     async def get_readings(
         self,
