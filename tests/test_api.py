@@ -511,11 +511,14 @@ async def test_api_exposes_insights_and_rollups(tmp_path):
     with client_for(app, session) as client:
         insights = client.get("/api/insights").json()
         rollups = client.get("/api/rollups?bucket=hour").json()
+        ten_minute = client.get("/api/rollups?bucket=10m").json()
 
     assert insights["breathing"]["direction"] == "improving"
     assert insights["sleep"]["sleep_seconds"] == 3600
     assert rollups["bucket"] == "hour"
     assert [row["avg_oxygen_saturation"] for row in rollups["rollups"]] == [92.5, 96.5]
+    assert ten_minute["bucket"] == "10m"
+    assert len(ten_minute["rollups"]) == 4
 
 
 @pytest.mark.asyncio
@@ -958,6 +961,10 @@ async def test_night_and_rhythms_pages_are_session_gated(tmp_path):
         assert rhythms.status_code == 200
         assert "Two weeks, half-hour by half-hour" in rhythms.text
         assert "/api/rollups?bucket=30m" in rhythms.text
+        # The actogram resolution picker offers 5m/10m/15m/30m, 30m by default.
+        for bucket in ("5m", "10m", "15m", "30m"):
+            assert f'data-bucket="{bucket}"' in rhythms.text
+        assert 'data-bucket="30m" class="active"' in rhythms.text
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@ from typing import Any, Literal
 from app.models import OwletReading
 from app.quality import is_offline_reading
 
-Bucket = Literal["5m", "15m", "30m", "hour", "6h", "12h", "day"]
+Bucket = Literal["5m", "10m", "15m", "30m", "hour", "6h", "12h", "day"]
 
 SLEEP_STATE_LABELS = {
     "0": "inactive",
@@ -289,7 +289,7 @@ def _duration_to_next(readings: list[OwletReading], index: int) -> int:
 def _bucket_start(dt: datetime, bucket: Bucket) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
-    if bucket in {"5m", "15m", "30m"}:
+    if bucket in {"5m", "10m", "15m", "30m"}:
         minutes = int(bucket.removesuffix("m"))
         return dt.replace(
             minute=(dt.minute // minutes) * minutes,
@@ -307,7 +307,7 @@ def _bucket_start(dt: datetime, bucket: Bucket) -> datetime:
 
 
 def _bucket_label(dt: datetime, bucket: Bucket) -> str:
-    if bucket in {"5m", "15m", "30m"}:
+    if bucket in {"5m", "10m", "15m", "30m"}:
         return f"{dt.strftime('%b')} {dt.day}, {_hour_minute_label(dt)}"
     if bucket == "hour":
         return f"{dt.strftime('%b')} {dt.day}, {_hour_label(dt)}"

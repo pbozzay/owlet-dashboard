@@ -726,7 +726,7 @@ def create_app(
 
     @app.get("/api/rollups")
     async def rollups(
-        bucket: Literal["5m", "15m", "30m", "hour", "6h", "12h", "day"] = Query(default="hour"),
+        bucket: Literal["5m", "10m", "15m", "30m", "hour", "6h", "12h", "day"] = Query(default="hour"),
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         device: str | None = Query(default=None),
         account: int | None = Query(default=None, ge=1),
@@ -763,7 +763,7 @@ def create_app(
     @app.get("/share/{token}/api/rollups")
     async def shared_rollups(
         token: str = Path(min_length=20),
-        bucket: Literal["5m", "15m", "30m", "hour", "6h", "12h", "day"] = Query(default="hour"),
+        bucket: Literal["5m", "10m", "15m", "30m", "hour", "6h", "12h", "day"] = Query(default="hour"),
         hours: int | None = Query(default=None, ge=1, le=24 * 365),
         device: str | None = Query(default=None),
     ):
