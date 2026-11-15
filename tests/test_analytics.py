@@ -60,6 +60,7 @@ def test_build_rollups_supports_requested_average_windows():
     ]
 
     five_minute = build_rollups(readings, bucket="5m")
+    ten_minute = build_rollups(readings, bucket="10m")
     six_hour = build_rollups(readings, bucket="6h")
     twelve_hour = build_rollups(readings, bucket="12h")
 
@@ -67,6 +68,12 @@ def test_build_rollups_supports_requested_average_windows():
         "Jul 3, 10:00 AM",
         "Jul 3, 10:05 AM",
     ]
+    assert [row["bucket_label"] for row in ten_minute[:2]] == [
+        "Jul 3, 10:00 AM",
+        "Jul 3, 4:10 PM",
+    ]
+    # 10:04 and 10:06 land in the same ten-minute bucket.
+    assert ten_minute[0]["samples"] == 2
     assert [row["bucket_label"] for row in six_hour] == [
         "Jul 3, 6 AM",
         "Jul 3, 12 PM",
