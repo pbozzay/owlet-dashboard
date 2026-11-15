@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from pyowletapi.api import OwletAPI
+from pyowletapi.exceptions import OwletDevicesError
 from pyowletapi.sock import Sock
 
 from app.models import OwletReading, normalize_reading
@@ -51,7 +52,7 @@ class OwletClient:
         devices_response = await self.api.get_devices()
         devices = _unwrap_devices(devices_response)
         if not devices:
-            raise RuntimeError("No Owlet devices found for this account")
+            raise OwletDevicesError("No Owlet devices found for this account")
 
         # Prefer Smart Sock / Dream Sock v3 devices, but fall back to first device.
         chosen = devices[0]

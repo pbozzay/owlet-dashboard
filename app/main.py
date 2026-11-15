@@ -30,6 +30,7 @@ from app.dashboard import render_dashboard
 from app.night_page import render_night_page
 from app.now_page import render_now_page
 from app.owlet_client import OwletClient
+from app.owlet_errors import link_error
 from app.poller import Poller, create_account_poller, create_owlet_poller
 from app.pwa import MANIFEST, SERVICE_WORKER_JS
 from app.quality import is_offline_reading
@@ -520,7 +521,9 @@ def create_app(
         except HTTPException:
             raise
         except Exception as exc:
-            raise HTTPException(status_code=400, detail="Could not validate Owlet account") from exc
+            status, message = link_error(exc)
+            logger.warning("Owlet account linking failed: category=%s status=%s", type(exc).__name__, status)
+            raise HTTPException(status_code=status, detail=message) from exc
         finally:
             if client is not None:
                 await client.close()
@@ -576,14 +579,12 @@ def create_app(
         try:
             await _link_owlet_account({"email": email, "password": password, "region": region}, user)
         except HTTPException as exc:
-            if exc.status_code == 429:
-                raise
             return HTMLResponse(
                 auth_pages.onboarding_page(
-                    error="Owlet rejected that login - check email/password/region",
+                    error=str(exc.detail),
                     desktop_mode=settings.desktop_mode,
                 ),
-                status_code=400,
+                status_code=exc.status_code,
             )
         return RedirectResponse("/", status_code=303)
 
