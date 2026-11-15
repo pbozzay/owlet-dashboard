@@ -1412,6 +1412,29 @@ async def test_timezone_and_display_preferences_whitelist(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_baby_pronouns_preference_whitelist(tmp_path):
+    store = ReadingStore(tmp_path / "owlet.sqlite3")
+    await store.init()
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    owned = await store.create_account(email="mine@x.y", user_id=user["id"])
+    app = create_app(store=store, settings=_test_settings(), start_poller=False, auth_store=auth)
+    with client_for(app, session) as client:
+        for choice in ("he", "they", "she"):
+            updated = client.patch(
+                f"/api/accounts/{owned['id']}",
+                json={"dashboard_preferences": {"baby_pronouns": choice}},
+            ).json()["account"]
+            assert updated["dashboard_preferences"]["baby_pronouns"] == choice
+
+        garbage = client.patch(
+            f"/api/accounts/{owned['id']}",
+            json={"dashboard_preferences": {"baby_pronouns": "<script>"}},
+        ).json()["account"]
+        assert garbage["dashboard_preferences"]["baby_pronouns"] == "she"  # junk keeps prior value
+
+
+@pytest.mark.asyncio
 async def test_birth_date_preference_whitelist(tmp_path):
     store = ReadingStore(tmp_path / "owlet.sqlite3")
     await store.init()

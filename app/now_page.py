@@ -75,7 +75,7 @@ NOW_HEAD = """<link rel="manifest" href="/manifest.webmanifest" />
     .chartzone .ghostline, .ms-chartwrap .ghostline { stroke: var(--faint);
       stroke-width: 1.4; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke;
       opacity: .75; }
-    /* amber = the sock isn't on her properly (same language as the title dot);
+    /* amber = the sock isn't on the baby properly (same language as the title dot);
        grey stays for charging and collector-off */
     .chartzone .ghostline.warn, .ms-chartwrap .ghostline.warn { stroke: var(--warn); }
     .gaplabels span.warn { color: var(--warn); }
@@ -376,6 +376,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
 
     // Resolved from the account's settings once prefs load; defaults until then.
     let O2 = window.owletO2(null);
+    let PRON = window.owletPronouns(null);   // she / he / they, from Settings → Baby
     // A zeroed reading means the sock is off the foot, not a desaturation —
     // grey it out rather than screaming red (the Data page already did this).
     const o2Zone = value => (value == null || value <= 0) ? 'var(--faint)'
@@ -1547,7 +1548,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         ${action}
         ${history ? '<h3 class="section-title" style="margin-top:18px">Recent sessions</h3>' + history : ''}
         <p class="note">Every on/off is a logged event — the charts shade on-O₂ time, and Rhythms
-          compares how she does on oxygen vs off. ✕ removes a mislogged session.</p>`);
+          compares how ${PRON.subj} ${PRON.does} on oxygen vs off. ✕ removes a mislogged session.</p>`);
       el('flowPresets').addEventListener('click', async event => {
         const flow = event.target.dataset && event.target.dataset.flow;
         if (!flow) return;
@@ -1790,7 +1791,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     // ---- live vitals + narrative --------------------------------------------
     const bandText = (band, unit) => band
       ? `typical ${baselineState} range ${Math.round(band.low)}–${Math.round(band.high)}${unit}`
-      : 'building her baseline — needs a couple of days';
+      : `building ${PRON.poss} baseline — needs a couple of days`;
 
     let sleepSessionText = 'watching for the first session';
     function updateHeroLive() {
@@ -1988,6 +1989,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         const prefs = (account && account.dashboard_preferences) || {};
         if (prefs.baby_name) deviceName = prefs.baby_name;
         O2 = window.owletO2(prefs);
+        PRON = window.owletPronouns(prefs);
         NIGHT = nightWindowFrom(prefs);
         DISPLAY = {
           o2: prefs.o2_display === 'smoothed' ? 'smoothed' : 'raw',
@@ -2012,6 +2014,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         const prefs = (event.detail && event.detail.dashboard_preferences) || null;
         if (!prefs) return;
         O2 = window.owletO2(prefs);
+        PRON = window.owletPronouns(prefs);
         DISPLAY = {
           o2: prefs.o2_display === 'smoothed' ? 'smoothed' : 'raw',
           move: prefs.movement_source === 'bucket' ? 'bucket' : 'raw'

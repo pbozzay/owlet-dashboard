@@ -1119,6 +1119,8 @@ def _public_dashboard_preferences_patch(value: object) -> dict[str, object] | No
     baby_name = value.get("baby_name")
     if isinstance(baby_name, str):
         allowed["baby_name"] = baby_name.strip()[:40]
+    if str(value.get("baby_pronouns")) in {"she", "he", "they"}:
+        allowed["baby_pronouns"] = str(value.get("baby_pronouns"))
     if "birth_date" in value:
         raw_birth = value.get("birth_date")
         if raw_birth in (None, ""):
