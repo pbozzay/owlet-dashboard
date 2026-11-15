@@ -464,7 +464,16 @@ def create_app(
             for poller in state.get("pollers", []):  # type: ignore[union-attr]
                 if getattr(poller, "account_id", None) == account_id:
                     poller.interval_seconds = poll_interval
+        if "owlet_profile_id" in payload or (dashboard_preferences and "history_backfill_enabled" in dashboard_preferences):
+            enabled = settings.history_backfill and (account.get("dashboard_preferences") or {}).get("history_backfill_enabled", True)
+            for poller in state.get("pollers", []):
+                if getattr(poller, "account_id", None) == account_id:
+                    await poller.restart_history(bool(enabled))
         return {"account": _public_account(account)}
+
+    @app.get("/api/history-settings")
+    async def history_settings(user: dict = Depends(require_user)):
+        return {"enabled": settings.history_backfill, "days": settings.history_days}
 
     async def _scope(user: dict, account: int | None) -> list[int]:
         owned = [int(a["id"]) for a in await store.list_accounts(user_id=user["id"])]
@@ -1117,6 +1126,8 @@ def _public_dashboard_preferences_patch(value: object) -> dict[str, object] | No
     if not isinstance(value, dict):
         return None
     allowed: dict[str, object] = {}
+    if isinstance(value.get("history_backfill_enabled"), bool):
+        allowed["history_backfill_enabled"] = value["history_backfill_enabled"]
     chart_visibility = value.get("chart_visibility")
     if isinstance(chart_visibility, dict):
         allowed["chart_visibility"] = {

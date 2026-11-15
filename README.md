@@ -83,6 +83,16 @@ lost. Owlet's own app draws its History screen from separate services that keep 
 averages** of heart rate, SpO₂ and movement, plus minute-by-minute sleep states, for weeks.
 Each collector now pulls those about a minute after it starts, then once a day:
 
+**Settings → Device → Fill gaps from Owlet history** is on by default for each
+linked account. Turning it off cancels its pending import and keeps existing data.
+The status shows the last check and whether history was imported, already covered
+by live readings, unavailable, or could not be fetched. `HISTORY_BACKFILL=false`
+disables automatic imports for the entire server after restart and disables the
+account toggles. The explicit command-line import below remains a manual action.
+
+Empty responses do not mark the initial scan complete. Live readings take priority
+even if they arrive during or after an import; adjacent averaged rows are removed.
+
 - The first run reaches back `HISTORY_BACKFILL_DAYS` (default 90). Later runs refresh the
   last week, or the time since the last successful run plus overlap after a longer
   outage, capped at `HISTORY_BACKFILL_DAYS`.

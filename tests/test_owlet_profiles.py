@@ -148,3 +148,49 @@ async def test_refresh_selection_override_reset_and_tenant_isolation(tmp_path, m
             client.get("/api/accounts").json()["accounts"][0]["dashboard_preferences"]["birth_date"]
             == BIRTH
         )
+
+
+@pytest.mark.asyncio
+async def test_backfill_toggle_is_persistent_and_owner_scoped(tmp_path):
+    store = ReadingStore(tmp_path / "test.sqlite3")
+    await store.init()
+    auth = AuthStore(store.db_path)
+    user, session = await make_user(auth, "owner@example.test")
+    own = await store.create_account(email="own@example.test", user_id=user["id"])
+    other_user, _ = await make_user(auth, "other@example.test")
+    other = await store.create_account(email="other-sock@example.test", user_id=other_user["id"])
+    app = create_app(
+        store=store,
+        auth_store=auth,
+        settings=Settings(_env_file=None, HISTORY_BACKFILL=False),
+        start_poller=False,
+    )
+    with client_for(app, session) as client:
+        assert client.get("/api/history-settings").json()["enabled"] is False
+        assert (
+            client.patch(
+                f"/api/accounts/{other['id']}",
+                json={"dashboard_preferences": {"history_backfill_enabled": False}},
+            ).status_code
+            == 404
+        )
+        for enabled in [False, True]:
+            response = client.patch(
+                f"/api/accounts/{own['id']}",
+                json={"dashboard_preferences": {"history_backfill_enabled": enabled}},
+            )
+            assert response.status_code == 200
+            assert (
+                response.json()["account"]["dashboard_preferences"]["history_backfill_enabled"]
+                is enabled
+            )
+            assert (await store.get_account(own["id"]))["dashboard_preferences"][
+                "history_backfill_enabled"
+            ] is enabled
+        client.patch(
+            f"/api/accounts/{own['id']}",
+            json={"dashboard_preferences": {"history_backfill_enabled": "false"}},
+        )
+        assert (await store.get_account(own["id"]))["dashboard_preferences"][
+            "history_backfill_enabled"
+        ] is True

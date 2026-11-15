@@ -368,6 +368,39 @@ SHELL_JS = """<script>
   });
 
   var shellAccounts = [];
+  var viewAccountId = new URLSearchParams(window.location.search).get('account') || sessionStorage.getItem('owletViewAccount') || '';
+  var accountReady = fetch('/api/accounts').then(function(r) { return r.json(); }).then(function(data) {
+    var accounts = data.accounts || [];
+    if (!accounts.some(function(a) { return String(a.id) === viewAccountId; })) viewAccountId = accounts.length ? String(accounts[0].id) : '';
+    if (viewAccountId) {
+      sessionStorage.setItem('owletViewAccount', viewAccountId);
+      document.querySelectorAll('a[href]').forEach(function(link) {
+        var url = new URL(link.getAttribute('href'), window.location.origin);
+        if (url.origin === window.location.origin && ['/', '/night', '/rhythms', '/data'].indexOf(url.pathname) >= 0) { url.searchParams.set('account', viewAccountId); link.href = url.pathname + url.search; }
+      });
+    }
+    return accounts;
+  }).catch(function() { return []; });
+  window.owletSelectedFrom = function(accounts) {
+    return accounts.find(function(a) { return String(a.id) === viewAccountId; }) || accounts[0];
+  };
+  window.owletFetch = async function(input, options) {
+    await accountReady;
+    var url = new URL(input, window.location.origin);
+    options = Object.assign({}, options || {});
+    if (viewAccountId && ['/api/readings', '/api/rollups', '/api/events', '/api/widget', '/api/devices', '/api/oxygen-challenges'].indexOf(url.pathname) >= 0) {
+      url.searchParams.set('account', viewAccountId);
+      if (url.pathname === '/api/events' && options.method === 'POST') {
+        var body = JSON.parse(options.body); body.account_id = Number(viewAccountId); options.body = JSON.stringify(body);
+      }
+    }
+    return fetch(url.pathname + url.search, options);
+  };
+  var historyGloballyEnabled = true;
+  fetch('/api/history-settings').then(function(r) { return r.json(); }).then(function(data) {
+    historyGloballyEnabled = data.enabled;
+    renderShellMenu([]);
+  }).catch(function() {});
   function shellSelectedAccount() {
     var select = byId('accountSelect');
     var id = select && select.value;
@@ -408,6 +441,13 @@ SHELL_JS = """<script>
       byId('o2CritSetting').value = String(tiers.critical);
     }
     var prefs = (account && account.dashboard_preferences) || {};
+    if (byId('historyBackfillSetting')) {
+      byId('historyBackfillSetting').value = prefs.history_backfill_enabled === false ? 'off' : 'on';
+      byId('historyBackfillSetting').disabled = !historyGloballyEnabled;
+      var status = prefs.history_backfill_status || {};
+      var messages = {empty: 'No history available from Owlet.', current: 'Live readings already cover the available history.', failed: 'Could not check Owlet history. Will retry.', imported: String(status.minutes || 0) + ' minutes imported or refreshed.'};
+      byId('historyBackfillStatus').textContent = !historyGloballyEnabled ? 'Disabled by the server setting.' : prefs.history_backfill_enabled === false ? 'Off. Previously imported history is kept.' : (messages[status.state] || 'Waiting to check Owlet history.') + (status.checked_at ? ' Last checked: ' + new Date(status.checked_at).toLocaleString() : '');
+    }
     var profileSelect = byId('babyProfileSetting');
     if (profileSelect) {
       profileSelect.replaceChildren(new Option('Choose a baby profile', ''));
@@ -464,7 +504,7 @@ SHELL_JS = """<script>
       // the select's contents; everywhere else the shell fills it.
       var select = byId('accountSelect');
       if (select && !window.__pageOwnsAccountSelect) {
-        var current = select.value;
+        var current = viewAccountId || select.value;
         select.innerHTML = shellAccounts.map(function (a) {
           return '<option value="' + a.id + '">' + (a.display_name || a.email) + '</option>';
         }).join('');
@@ -491,6 +531,12 @@ SHELL_JS = """<script>
   if (byId('pollIntervalSetting')) byId('pollIntervalSetting').addEventListener('change', function (event) {
     patchSelectedAccount({ poll_interval_seconds: Number(event.target.value) }).then(function (account) {
       if (account && account.poll_interval_seconds) pollInterval = account.poll_interval_seconds;
+    });
+  });
+  if (byId('historyBackfillSetting')) byId('historyBackfillSetting').addEventListener('change', function(event) {
+    patchSelectedAccount({dashboard_preferences: {history_backfill_enabled: event.target.value === 'on'}}).then(function(account) {
+      if (account) loadShellAccounts();
+      else byId('historyBackfillStatus').textContent = 'Could not save. Please try again.';
     });
   });
   function refreshBabyView(account) {
@@ -652,7 +698,12 @@ SHELL_JS = """<script>
     } });
   });
   if (byId('accountSelect')) byId('accountSelect').addEventListener('change', function () {
-    renderShellMenu([]);
+    viewAccountId = byId('accountSelect').value;
+    sessionStorage.setItem('owletViewAccount', viewAccountId);
+    if (!window.__pageOwnsAccountSelect) {
+      var url = new URL(window.location.href); url.searchParams.set('account', viewAccountId);
+      window.location.assign(url.pathname + url.search);
+    } else renderShellMenu([]);
   });
   if (byId('addAccount')) byId('addAccount').addEventListener('click', function () {
     var email = prompt('Owlet email');
@@ -1662,6 +1713,11 @@ def render_shell(
           </section>
           <section class="set-pane" data-pane="device">
             <h3>Device</h3>
+            <div class="set-row">
+              <div class="set-lab"><b>Fill gaps from Owlet history</b><small>Historical vitals use 10-minute averages. Turning this off keeps existing history.</small></div>
+              <select id="historyBackfillSetting" aria-label="Fill gaps from Owlet history"><option value="on">On</option><option value="off">Off</option></select>
+            </div>
+            <p class="set-lede" id="historyBackfillStatus">Waiting to check Owlet history.</p>
             <p class="set-lede">The sock and base as Owlet reports them — captured once, refreshed
               when firmware or settings change.</p>
             <div class="dev-facts" id="deviceFacts"><small class="pp-hint">Loading device details…</small></div>

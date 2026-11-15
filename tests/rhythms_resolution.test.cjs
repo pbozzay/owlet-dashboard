@@ -24,6 +24,7 @@ function setup() {
     updateLede() {}, paintRangeSeg() {},
     renderDayGrids: () => renders.push({bucket: context.BUCKET, rows: context.rollups}),
   });
+  context.window = {owletFetch: context.fetch};
   vm.runInContext(functions, context);
   const reply = (index, rows = [index], status = 200) => pending[index].resolve({
     ok: status === 200, status, json: async () => rows === null ? {detail: 'error'} : {rollups: rows},

@@ -361,11 +361,11 @@ NIGHT_SCRIPTS = """<script>
     async function boot() {
       try {
         const [rollupData, accounts] = await Promise.all([
-          fetch('/api/rollups?bucket=5m&hours=336&limit=100000').then(r => r.json()),
-          fetch('/api/accounts').then(r => r.json())
+          window.owletFetch('/api/rollups?bucket=5m&hours=336&limit=100000').then(r => r.json()),
+          window.owletFetch('/api/accounts').then(r => r.json())
         ]);
         rollups = rollupData.rollups || [];
-        const account = (accounts.accounts || [])[0];
+        const account = window.owletSelectedFrom(accounts.accounts || []);
         const prefs = (account && account.dashboard_preferences) || {};
         if (prefs.baby_name) deviceName = window.owletEscapeHtml(prefs.baby_name);
         O2 = window.owletO2(prefs);
@@ -379,7 +379,7 @@ NIGHT_SCRIPTS = """<script>
       el('nextNight').addEventListener('click', () => { nightOffset = Math.max(0, nightOffset - 1); render(); });
       setInterval(async () => {   // keep "still collecting" nights fresh
         if (nightOffset !== 0 || document.hidden) return;
-        const data = await fetch('/api/rollups?bucket=5m&hours=336&limit=100000').then(r => r.json()).catch(() => null);
+        const data = await window.owletFetch('/api/rollups?bucket=5m&hours=336&limit=100000').then(r => r.json()).catch(() => null);
         if (data) { rollups = data.rollups || rollups; render(); }
       }, 300000);
     }

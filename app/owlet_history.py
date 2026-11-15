@@ -59,6 +59,13 @@ Fetch = Callable[[str, str, dict[str, str], dict[str, str] | None], Awaitable[An
 Sleep = Callable[[float], Awaitable[None]]
 
 
+class BackfillResult(int):
+    def __new__(cls, written: int, has_history: bool):
+        result = super().__new__(cls, written)
+        result.has_history = has_history
+        return result
+
+
 class OwletHistoryError(RuntimeError):
     pass
 
@@ -82,7 +89,21 @@ def chunk_ranges(start: int, end: int, step: int = CHUNK_SECONDS) -> list[tuple[
 
 
 def _data(payload: Any) -> dict[str, Any]:
-    return (payload.get("data") or {}) if isinstance(payload, dict) else {}
+    if not isinstance(payload, dict):
+        if payload is None:
+            return {}
+        raise OwletHistoryError("Invalid history response")
+    if any(key in payload for key in ("error", "errors")):
+        raise OwletHistoryError("History service returned an error")
+    data = payload.get("data")
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise OwletHistoryError("Invalid history data")
+    for key in ("timeWindowStartTimes", "firstReadingTimes", "lastReadingTimes", "sleepStates"):
+        if key in data and not isinstance(data[key], list):
+            raise OwletHistoryError("Invalid history series")
+    return data
 
 
 def _at(values: list[Any] | None, index: int) -> Any:
@@ -144,6 +165,8 @@ def history_minutes(
         window = windows[start]
         first = int(window["first"] if window["first"] is not None else start)
         last = int(window["last"] if window["last"] is not None else start + 599)
+        if last < first or last - first > 1200 or abs(first - start) > 1200:
+            raise OwletHistoryError("Invalid history time window")
         first -= first % MINUTE
         if next_free is not None:
             first = max(first, next_free)
@@ -319,6 +342,7 @@ async def backfill_account(
     days: int,
     end: int | None = None,
     pause: Callable[[], Awaitable[None]] | None = None,
+    profile_id: str | None = None,
 ) -> int:
     """Fetch `days` of history ending at `end` (default now) and store it; returns rows written."""
     end = int(end if end is not None else time.time())
@@ -332,14 +356,15 @@ async def backfill_account(
             await pause()
     minutes = history_minutes(vitals, sleep)
     if not minutes:
-        return 0
+        return BackfillResult(0, False)
     margin = timedelta(seconds=MINUTE)
     live = await store.live_reading_minutes(
         account_id, device_serial, minutes[0].recorded_at - margin, minutes[-1].recorded_at + margin
     )
-    return await store.upsert_history_minutes(
-        account_id, device_serial, without_live(minutes, live)
+    written = await store.upsert_history_minutes(
+        account_id, device_serial, without_live(minutes, live), profile_id=profile_id
     )
+    return BackfillResult(written, True)
 
 
 async def _record_completed(
@@ -387,7 +412,13 @@ class HistoryBackfill:
         if not token or not serial:
             return 0
         account = await self.store.get_account(self.account_id)
-        profile_id = (account.get("dashboard_preferences") or {}).get("owlet_profile_id")
+        prefs = account.get("dashboard_preferences") or {}
+        profile_id = prefs.get("owlet_profile_id")
+        if (
+            prefs.get("history_backfill_enabled", True) is False
+            or account.get("status") != "active"
+        ):
+            return 0
         if not profile_id:
             return 0
         completed_before = await self.store.history_backfill_state(self.account_id)
@@ -408,11 +439,30 @@ class HistoryBackfill:
         client = self.client_factory(self.region, token, profile_id=profile_id)
         try:
             written = await backfill_account(
-                self.store, self.account_id, serial, client, days=days, pause=self.pause
+                self.store,
+                self.account_id,
+                serial,
+                client,
+                days=days,
+                pause=self.pause,
+                profile_id=profile_id,
             )
         finally:
             await client.close()
-        await _record_completed(self.store, self.account_id, days, written, profile_id)
+        await self.store.update_account_preferences(
+            self.account_id,
+            dashboard_preferences={
+                "history_backfill_status": {
+                    "state": "imported"
+                    if written
+                    else ("current" if written.has_history else "empty"),
+                    "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                    "minutes": written,
+                }
+            },
+        )
+        if written.has_history:
+            await _record_completed(self.store, self.account_id, days, written, profile_id)
         logger.info(
             "history backfill account_id=%s days=%s minutes=%s", self.account_id, days, written
         )
@@ -470,10 +520,13 @@ async def main(argv: list[str] | None = None) -> int:
             profile_id=profile_id,
         )
         try:
-            written = await backfill_account(store, account_id, serial, client, days=days)
+            written = await backfill_account(
+                store, account_id, serial, client, days=days, profile_id=profile_id
+            )
         finally:
             await client.close()
-        await _record_completed(store, account_id, days, written, profile_id)
+        if written.has_history:
+            await _record_completed(store, account_id, days, written, profile_id)
         print(f"account {account_id}: {written} minutes added or refreshed ({days} days)")
     return 0
 

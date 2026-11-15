@@ -323,7 +323,7 @@ async def test_store_upsert_leaves_a_live_reading_at_the_same_minute_untouched(t
         {"source": oh.HISTORY_SOURCE},
     )
     written = await store.upsert_history_minutes(account_id, "DSN1", [clash, other])
-    assert written == 1
+    assert written == 0
     assert (iso(live_at), 130.0, None) in rows(store)
 
 
@@ -702,3 +702,143 @@ async def test_long_offline_gap_is_recovered_with_overlap_and_retention_cap(
     )
     await recording_job(store, aid).run_once()
     assert (await store.history_backfill_state(aid))["days"] == expected_days
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "patch",
+    [{"owlet_profile_id": "accounts/acct1/profiles/prof2"}, {"history_backfill_enabled": False}],
+)
+async def test_settings_change_during_fetch_prevents_import(tmp_path, patch):
+    store, aid = await seeded_store(tmp_path)
+
+    class ChangedClient(RecordingClient):
+        async def vitals(self, start, end):
+            await store.update_account_preferences(aid, dashboard_preferences=patch)
+            return ONE_WINDOW
+
+    before = rows(store)
+    with pytest.raises(ValueError, match="settings changed"):
+        await recording_job(store, aid, client_factory=ChangedClient).run_once()
+    assert rows(store) == before
+    assert await store.history_backfill_state(aid) is None
+
+
+@pytest.mark.asyncio
+async def test_live_arriving_between_filter_and_write_is_not_crowded(tmp_path):
+    store, aid = await seeded_store(tmp_path)
+    original = store.live_reading_minutes
+
+    async def racing_live(*args):
+        result = await original(*args)
+        await store.insert_reading(
+            normalize_reading({"hr": 140, "ox": 98, "data_updated_at": iso(T0 + 5)}, "DSN1"),
+            account_id=aid,
+        )
+        return result
+
+    store.live_reading_minutes = racing_live
+    await oh.backfill_account(store, aid, "DSN1", OwletHistoryClientFor(ONE_WINDOW), days=1)
+    assert not any(
+        t in (iso(T0), iso(T0 + 60)) and source == oh.HISTORY_SOURCE for t, _, source in rows(store)
+    )
+    assert (iso(T0 + 5), 140.0, None) in rows(store)
+
+
+@pytest.mark.asyncio
+async def test_late_live_removes_only_adjacent_history(tmp_path):
+    store, aid = await seeded_store(tmp_path)
+    await oh.backfill_account(store, aid, "DSN1", OwletHistoryClientFor(ONE_WINDOW), days=1)
+    await store.insert_reading(
+        normalize_reading({"hr": 140, "ox": 98, "data_updated_at": iso(T0 + 305)}, "DSN1"),
+        account_id=aid,
+    )
+    assert len([r for r in rows(store) if r[2] == oh.HISTORY_SOURCE]) == 7
+    assert (iso(T0 + 305), 140.0, None) in rows(store)
+
+
+@pytest.mark.asyncio
+async def test_empty_result_does_not_shorten_next_scan_and_off_skips_requests(tmp_path):
+    store, aid = await seeded_store(tmp_path)
+
+    class EmptyClient(RecordingClient):
+        async def vitals(self, start, end):
+            self.vitals_calls += 1
+            return {"data": None}
+
+    RecordingClient.instances = []
+    job = recording_job(store, aid, client_factory=EmptyClient)
+    await job.run_once()
+    await job.run_once()
+    assert [c.vitals_calls for c in RecordingClient.instances] == [13, 13]
+    assert await store.history_backfill_state(aid) is None
+    assert (await store.get_account(aid))["dashboard_preferences"]["history_backfill_status"][
+        "state"
+    ] == "empty"
+    await store.update_account_preferences(
+        aid, dashboard_preferences={"history_backfill_enabled": False}
+    )
+    assert await job.run_once() == 0
+    assert len(RecordingClient.instances) == 2
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [{"error": "upstream secret"}, {"data": []}, {"data": {"timeWindowStartTimes": "bad"}}],
+)
+def test_malformed_history_is_not_treated_as_empty(payload):
+    with pytest.raises(oh.OwletHistoryError):
+        oh.history_minutes([payload], [])
+
+
+@pytest.mark.asyncio
+async def test_later_chunk_failure_keeps_rows_and_completion_unchanged(tmp_path):
+    store, aid = await seeded_store(tmp_path)
+    before = rows(store)
+
+    class PartialClient(RecordingClient):
+        async def vitals(self, start, end):
+            self.vitals_calls += 1
+            if self.vitals_calls > 1:
+                raise oh.OwletHistoryError("synthetic unavailable")
+            return ONE_WINDOW
+
+    with pytest.raises(oh.OwletHistoryError):
+        await recording_job(store, aid, client_factory=PartialClient).run_once()
+    assert rows(store) == before
+    assert await store.history_backfill_state(aid) is None
+
+
+@pytest.mark.asyncio
+async def test_turning_off_cancels_history_task_without_stopping_live(tmp_path):
+    from app.poller import Poller
+
+    store, aid = await seeded_store(tmp_path)
+    started, cancelled = asyncio.Event(), asyncio.Event()
+
+    class WaitingHistory:
+        async def run_once(self):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+    async def read_once():
+        return normalize_reading({"hr": 120, "data_updated_at": iso(T0)}, "DSN1")
+
+    poller = Poller(
+        store,
+        read_once,
+        interval_seconds=3600,
+        account_id=aid,
+        history=WaitingHistory(),
+        history_initial_delay_seconds=0,
+    )
+    poller.start()
+    await asyncio.wait_for(started.wait(), 1)
+    await poller.restart_history(False)
+    assert cancelled.is_set()
+    assert poller._history_task is None
+    assert poller._task is not None and not poller._task.done()
+    await poller.stop()

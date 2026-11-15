@@ -557,7 +557,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       if (!next || loadingHistory) return;
       loadingHistory = true;
       try {
-        const rows = await fetch(`/api/readings?hours=${next}&limit=40000`).then(r => r.json());
+        const rows = await window.owletFetch(`/api/readings?hours=${next}&limit=40000`).then(r => r.json());
         histReadings = rows; loadedHours = next;
         rebuildPoints();
         // Re-render immediately, even mid-drag — pan position derives from
@@ -576,7 +576,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     }
     async function loadEvents() {
       try {
-        const data = await fetch('/api/events?hours=336&limit=2000').then(r => r.json());
+        const data = await window.owletFetch('/api/events?hours=336&limit=2000').then(r => r.json());
         careEvents = (data.events || []).map(e => ({ ...e, x: Date.parse(e.at) }));
         computeO2();
         if (!gesture) renderCharts();
@@ -1151,7 +1151,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       if (!ids) return;
       event.target.disabled = true;
       for (const id of String(ids).split(',')) {
-        if (id) await fetch('/api/events/' + id, { method: 'DELETE' }).catch(() => {});
+        if (id) await window.owletFetch('/api/events/' + id, { method: 'DELETE' }).catch(() => {});
       }
       await loadEvents();
       if (sheetRerender) sheetRerender();   // sheet first — it's what the user is looking at
@@ -1397,7 +1397,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         else if (feedType === 'nursing') payload.duration_min = feedMin;
         else payload.note = (el('feedNote') && el('feedNote').value.trim()) || '';
         try {
-          const response = await fetch('/api/events', {
+          const response = await window.owletFetch('/api/events', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           });
@@ -1452,7 +1452,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     async function logO2(kind, note, atMs) {
       const payload = { kind, note: note || '' };
       if (atMs) payload.at = new Date(atMs).toISOString();
-      const response = await fetch('/api/events', {
+      const response = await window.owletFetch('/api/events', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
@@ -1961,8 +1961,8 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     async function refresh() {
       try {
         const [readings, widget] = await Promise.all([
-          fetch('/api/readings?hours=1&limit=2000').then(r => r.json()),
-          fetch('/api/widget?hours=24').then(r => r.json())
+          window.owletFetch('/api/readings?hours=1&limit=2000').then(r => r.json()),
+          window.owletFetch('/api/widget?hours=24').then(r => r.json())
         ]);
         liveReadings = readings;
         rebuildPoints();
@@ -1975,17 +1975,17 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
     async function boot() {
       // Rollups (baselines/sessions) can take seconds to compute server-side;
       // render live vitals immediately and fold history in when it arrives.
-      const rollupsReady = fetch('/api/rollups?bucket=5m&hours=192&limit=100000')
+      const rollupsReady = window.owletFetch('/api/rollups?bucket=5m&hours=192&limit=100000')
         .then(r => r.json())
         .then(data => { rollups = data.rollups || []; })
         .catch(() => {});
       loadEvents();
       try {
         const [devices, accounts] = await Promise.all([
-          fetch('/api/devices').then(r => r.json()),
-          fetch('/api/accounts').then(r => r.json())
+          window.owletFetch('/api/devices').then(r => r.json()),
+          window.owletFetch('/api/accounts').then(r => r.json())
         ]);
-        const account = (accounts.accounts || [])[0];
+        const account = window.owletSelectedFrom(accounts.accounts || []);
         const prefs = (account && account.dashboard_preferences) || {};
         if (prefs.baby_name) deviceName = window.owletEscapeHtml(prefs.baby_name);
         O2 = window.owletO2(prefs);
@@ -2006,13 +2006,14 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
       rollupsReady.then(refresh);
       setInterval(refresh, Math.max(5, pollSeconds) * 1000);
       setInterval(async () => {  // refresh baselines occasionally
-        const data = await fetch('/api/rollups?bucket=5m&hours=192&limit=100000').then(r => r.json()).catch(() => null);
+        const data = await window.owletFetch('/api/rollups?bucket=5m&hours=192&limit=100000').then(r => r.json()).catch(() => null);
         if (data) rollups = data.rollups || rollups;
       }, 5 * 60 * 1000);
       setInterval(loadEvents, 5 * 60 * 1000);
       document.addEventListener('owlet:prefs-changed', event => {
         const prefs = (event.detail && event.detail.dashboard_preferences) || null;
         if (!prefs) return;
+        deviceName = prefs.baby_name ? window.owletEscapeHtml(prefs.baby_name) : 'your little one';
         O2 = window.owletO2(prefs);
         PRON = window.owletPronouns(prefs);
         DISPLAY = {

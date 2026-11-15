@@ -661,6 +661,13 @@ class ReadingStore:
         if not account_id:
             raise ValueError("account_id is required")
         async with self._connect() as db:
+            # A late live sample replaces adjacent averaged history atomically.
+            minute = reading.recorded_at.replace(second=0, microsecond=0)
+            await db.execute(
+                "DELETE FROM readings WHERE account_id=? AND device_serial=? AND recorded_at>=? AND recorded_at<? AND json_extract(raw_json, '$.source')=?",
+                (account_id, reading.device_serial, (minute-timedelta(minutes=1)).isoformat(),
+                 (minute+timedelta(minutes=2)).isoformat(), HISTORY_SOURCE),
+            )
             await db.execute(
                 """
                 INSERT INTO readings (
@@ -824,7 +831,7 @@ class ReadingStore:
         ]
 
     async def upsert_history_minutes(
-        self, account_id: int, device_serial: str, minutes: Iterable[Any]
+        self, account_id: int, device_serial: str, minutes: Iterable[Any], *, profile_id: str | None = None
     ) -> int:
         """Upsert backfilled minutes (app.owlet_history.HistoryMinute); returns rows written.
         A live reading at the same timestamp is never overwritten."""
@@ -832,12 +839,26 @@ class ReadingStore:
         if not minutes:
             return 0
         async with self._connect() as db:
+            await db.execute("BEGIN IMMEDIATE")
+            if profile_id is not None:
+                cursor = await db.execute("SELECT dashboard_preferences, status FROM accounts WHERE id = ?", (account_id,))
+                row = await cursor.fetchone()
+                prefs = json.loads(row[0]) if row else {}
+                if (not row or row[1] != "active" or prefs.get("history_backfill_enabled", True) is False
+                        or prefs.get("owlet_profile_id") != profile_id):
+                    raise ValueError("Backfill settings changed before import")
             cursor = await db.executemany(
                 """
                 INSERT INTO readings (
                     account_id, device_serial, recorded_at, heart_rate, oxygen_saturation,
                     movement, sleep_state, raw_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM readings live
+                    WHERE live.account_id = ? AND live.device_serial = ?
+                      AND live.recorded_at >= ? AND live.recorded_at < ?
+                      AND json_extract(live.raw_json, '$.source') IS NOT ?
+                )
                 ON CONFLICT(account_id, device_serial, recorded_at) DO UPDATE SET
                     heart_rate=excluded.heart_rate,
                     oxygen_saturation=excluded.oxygen_saturation,
@@ -856,7 +877,10 @@ class ReadingStore:
                         minute.movement,
                         minute.sleep_state,
                         json.dumps(minute.raw),
-                        HISTORY_SOURCE,
+                        account_id, device_serial,
+                        (minute.recorded_at - timedelta(minutes=1)).isoformat(),
+                        (minute.recorded_at + timedelta(minutes=2)).isoformat(),
+                        HISTORY_SOURCE, HISTORY_SOURCE,
                     )
                     for minute in minutes
                 ],

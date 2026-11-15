@@ -153,6 +153,14 @@ class Poller:
                 logger.exception("Readiness report failed; will retry")
             await asyncio.sleep(self.interval_seconds)
 
+    async def restart_history(self, enabled: bool) -> None:
+        if self._history_task is not None:
+            self._history_task.cancel()
+            await asyncio.gather(self._history_task, return_exceptions=True)
+            self._history_task = None
+        if enabled and self.history is not None and not self._stop.is_set():
+            self._history_task = asyncio.create_task(self._run_history(), name="owlet-history-backfill")
+
     async def _run_history(self) -> None:
         """Backfill shortly after start, then on an interval (sooner after a failure)."""
         await asyncio.sleep(self.history_initial_delay_seconds)
@@ -164,7 +172,10 @@ class Poller:
                 raise
             except Exception:
                 delay = min(delay, self.history_retry_seconds)
-                logger.exception("Owlet history backfill failed; retrying in %.0f s", delay)
+                logger.warning("Owlet history backfill failed; retrying in %.0f s", delay)
+                await self.store.update_account_preferences(self.account_id, dashboard_preferences={
+                    "history_backfill_status": {"state": "failed", "checked_at": datetime.now(timezone.utc).isoformat()}
+                })
             await asyncio.sleep(delay)
 
     async def _check_custom_alert(self, reading: OwletReading) -> None:
