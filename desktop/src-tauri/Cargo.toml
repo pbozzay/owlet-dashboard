@@ -1,6 +1,6 @@
 [package]
 name = "owlet-dashboard-desktop"
-version = "0.1.0"
+version = "0.1.13"
 description = "Unofficial Owlet sock history dashboard - desktop shell"
 edition = "2021"
 
