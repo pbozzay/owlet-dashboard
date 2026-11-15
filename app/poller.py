@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.models import OwletReading
 from app.owlet_client import OwletClient
+from app.owlet_profiles import sync_profiles
 from app.quality import is_offline_reading
 from app.store import ReadingStore
 
@@ -314,6 +315,7 @@ async def create_account_poller(
         refresh_token=client.tokens.get("refresh"),
         status="active",
     )
+    await sync_profiles(store, int(account["id"]), client)
     poller = Poller(
         store=store,
         read_once=client.read_once,

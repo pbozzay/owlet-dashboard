@@ -10,6 +10,17 @@ The Owlet app only exposes a short recent window. This server polls Owlet's unof
 
 > Safety note: this is for retrospective trend viewing only. Do **not** use it as a medical alerting system or as a replacement for the Owlet app/base station.
 
+## Baby profile settings
+
+The dashboard imports available name, birth date, and gender from the Owlet account
+profile API when an account connects. One profile is selected automatically; if
+there are several, choose the correct child under **Settings → Baby**.
+
+You can still edit the name, date of birth, and she/he/they pronouns yourself.
+Manual edits take precedence and survive **Refresh from Owlet**. Choose
+**Use Owlet details instead of my edits** to clear those overrides. Missing or
+unavailable profile data never prevents live readings from being collected.
+
 ## Screenshots
 
 **Today** — live vitals with personal baselines, touch/drag/zoom charts, sleep at a glance,
