@@ -18,8 +18,26 @@ RHYTHMS_HEAD = """<style>
     h1 em { font-style: italic; color: var(--accent); }
     .lede { font-size: 16.5px; line-height: 1.6; color: var(--dim);
       margin: 18px 0 40px; }
+    /* Resolution picker sits in the panel header, right-aligned like the
+       range chip on the home page. */
+    .panel-head { display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 10px 16px; margin-bottom: 14px; }
+    .panel-head .section-title { margin: 0; }
+    .range-seg { display: flex; background: var(--accent-soft); border-radius: 999px;
+      padding: 3px; flex: 0 0 auto; }
+    .range-seg button { all: unset; cursor: pointer; font-size: 12px; font-weight: 600;
+      color: var(--dim); padding: 5px 11px; border-radius: 999px;
+      font-variant-numeric: tabular-nums; }
+    .range-seg button.active { background: var(--surface); color: var(--accent);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, .12); }
+    .range-seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     section { margin-bottom: 44px; }
-    .acto-card { padding: 22px; overflow-x: auto; }
+    /* The card itself must not scroll: only the wide actogram table does. */
+    .acto-card { padding: 22px; overflow: hidden; }
+    .acto-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+    .acto-scroll::-webkit-scrollbar { height: 8px; }
+    .acto-scroll::-webkit-scrollbar-thumb { background: var(--surface-line); border-radius: 4px; }
+    #dayGrids.is-loading { opacity: .55; transition: opacity .15s ease; }
     table.acto { border-collapse: collapse; width: 100%; min-width: 680px; }
     table.acto th { font-size: 9.5px; font-weight: 500; color: var(--faint);
       padding: 0 0 8px; text-align: left; }
@@ -161,13 +179,30 @@ RHYTHMS_BODY = """<h1 id="title">The shape of <em>the days</em></h1>
     <p class="lede" id="lede">Every row is a day, every column a half-hour. Purple is sleep
       (darker = deeper), amber is awake, blank is no signal. Over weeks, a rhythm emerges —
       this page is where you watch it happen.</p>
+    <div id="rangeDock" hidden>
+      <div class="range-seg" id="rangeSeg" role="group" aria-label="Aggregation interval">
+        <button type="button" data-bucket="5m" aria-pressed="false">5m</button>
+        <button type="button" data-bucket="10m" aria-pressed="false">10m</button>
+        <button type="button" data-bucket="15m" aria-pressed="false">15m</button>
+        <button type="button" data-bucket="30m" class="active" aria-pressed="true">30m</button>
+      </div>
+    </div>
     <div id="content"></div>"""
 
 RHYTHMS_SCRIPTS = """<script>
-    const BUCKET_MIN = 30;
-    const BUCKET_SEC = BUCKET_MIN * 60;
-    const COLS = 48;
+    // The actogram and dip map can be re-aggregated at any of these resolutions.
+    // 30m stays the default; 5m is the finest the collector can support without
+    // inventing points (the poller stores a reading roughly every 5 seconds).
+    const RESOLUTIONS = { '5m': 5, '10m': 10, '15m': 15, '30m': 30 };
+    const DEFAULT_BUCKET = '30m';
+    let BUCKET = DEFAULT_BUCKET;
+    let BUCKET_MIN = RESOLUTIONS[BUCKET];
+    let BUCKET_SEC = BUCKET_MIN * 60;
+    let COLS = (24 * 60) / BUCKET_MIN;
     const el = id => document.getElementById(id);
+    // Keep the picker node itself: re-rendering the actogram detaches it, and
+    // this reference lets us move it into the new header each time.
+    const rangeSegNode = el('rangeSeg');
     const pad = n => String(n).padStart(2, '0');
     const fmtDur = seconds => {
       const totalMinutes = Math.round(seconds / 60);
@@ -188,15 +223,27 @@ RHYTHMS_SCRIPTS = """<script>
     const section = (title, inner) => `<section><h2 class="section-title">${title}</h2>${inner}</section>`;
     const DOW = 'SMTWTFS';
 
+    // Human wording for the currently selected resolution.
+    function bucketName() {
+      return ({ 5: 'five minutes', 10: 'ten minutes', 15: 'quarter-hour', 30: 'half-hour' })[BUCKET_MIN]
+        || `${BUCKET_MIN} minutes`;
+    }
+    function applyBucket(bucket) {
+      BUCKET = RESOLUTIONS[bucket] ? bucket : DEFAULT_BUCKET;
+      BUCKET_MIN = RESOLUTIONS[BUCKET];
+      BUCKET_SEC = BUCKET_MIN * 60;
+      COLS = (24 * 60) / BUCKET_MIN;
+    }
+
     function dayGrid(rollups) {
-      // Map bucket rows into day rows x 48 half-hour columns (local time).
+      // Map bucket rows into day rows x (24h / resolution) columns (local time).
       const days = new Map();
       rollups.forEach(row => {
         const t = new Date(row.bucket_start);
         const key = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
         if (!days.has(key)) days.set(key, { date: new Date(t.getFullYear(), t.getMonth(), t.getDate()), cells: Array(COLS).fill(null) });
-        const col = t.getHours() * 2 + (t.getMinutes() >= 30 ? 1 : 0);
-        days.get(key).cells[col] = row;
+        const col = Math.floor((t.getHours() * 60 + t.getMinutes()) / BUCKET_MIN);
+        if (col >= 0 && col < COLS) days.get(key).cells[col] = row;
       });
       return [...days.values()].sort((a, b) => a.date - b.date);
     }
@@ -214,7 +261,7 @@ RHYTHMS_SCRIPTS = """<script>
     }
 
     function cellTitle(day, col, row) {
-      const when = `${day.date.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${fmtClock(col * 30)}`;
+      const when = `${day.date.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${fmtClock(col * BUCKET_MIN)}`;
       if (!row) return `${when} — no signal`;
       const parts = [];
       if (row.sleep_seconds) parts.push(`${fmtDur(row.sleep_seconds)} asleep`);
@@ -254,7 +301,8 @@ RHYTHMS_SCRIPTS = """<script>
 
     function actogramTable(days, ivs, colorOf, titleOf, labelOf) {
       const headers = ['<th></th>'];
-      for (let h = 0; h < 24; h += 3) headers.push(`<th colspan="6">${fmtClock(h * 60)}</th>`);
+      const perHour = 60 / BUCKET_MIN;
+      for (let h = 0; h < 24; h += 3) headers.push(`<th colspan="${perHour * 3}">${fmtClock(h * 60)}</th>`);
       const rows = days.map(day => {
         const cells = day.cells.map((row, col) => {
           const focus = encodeURIComponent(new Date(day.date.getTime() + col * BUCKET_SEC * 1000).toISOString());
@@ -264,20 +312,27 @@ RHYTHMS_SCRIPTS = """<script>
         const label = day.date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
         return `<tr><td class="day">${label}</td>${cells}</tr>` + ribbonRow(day, ivs);
       }).join('');
-      return `<table class="acto"><tr>${headers.join('')}</tr>${rows}</table>`;
+      // Keep a readable minimum cell width; at 5m the table scrolls sideways
+      // rather than squeezing 288 columns into a few pixels. The scroll lives
+      // on this wrapper so the surrounding card keeps clean edges.
+      return `<div class="acto-scroll"><table class="acto" style="min-width:${Math.max(680, COLS * 8)}px"><tr>${headers.join('')}</tr>${rows}</table></div>`;
     }
 
     const RIBBON_LEGEND = '<span><span class="rib"></span>On supplemental O₂</span>';
 
     function renderActogram(days, ivs) {
-      return section('Two weeks, half-hour by half-hour',
-        `<div class="acto-card card">${actogramTable(days, ivs, cellColor, cellTitle)}
+      const title = BUCKET_MIN === 30
+        ? 'Two weeks, half-hour by half-hour'
+        : `Two weeks, ${bucketName()} by ${bucketName()}`;
+      return `<section>
+        <div class="panel-head"><h2 class="section-title">${title}</h2><div class="range-host" id="rangeHost"></div></div>
+        <div class="acto-card card">${actogramTable(days, ivs, cellColor, cellTitle)}
         <div class="acto-legend">
           <span><span class="grad"><i style="background:var(--accent-soft)"></i><i style="background:var(--sleep-light)"></i><i style="background:var(--accent)"></i><i style="background:var(--sleep-deep)"></i></span>Sleep (light → deep)</span>
           <span><i style="background:var(--awake)"></i>Awake</span>
           <span><i style="background:var(--nodata)"></i>No signal</span>
           ${ivs.length ? RIBBON_LEGEND : ''}
-        </div></div>`);
+        </div></div></section>`;
     }
 
     // ----- #1: O₂ dip map ------------------------------------------------------
@@ -290,7 +345,7 @@ RHYTHMS_SCRIPTS = """<script>
       return 'color-mix(in srgb, var(--good) 10%, var(--surface))';
     }
     function dipTitle(day, col, row) {
-      const when = `${day.date.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${fmtClock(col * 30)}`;
+      const when = `${day.date.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${fmtClock(col * BUCKET_MIN)}`;
       if (!row || row.min_oxygen_saturation == null) return `${when} — no signal`;
       return `${when} — low ${Math.round(row.min_oxygen_saturation)}%`;
     }
@@ -299,7 +354,7 @@ RHYTHMS_SCRIPTS = """<script>
       if (!any) return '';
       return section('Where the dips live',
         `<div class="acto-card card">${actogramTable(days, ivs, dipColor, dipTitle,
-          (day, col, row) => row && row.min_oxygen_saturation != null ? `Low ${Math.round(row.min_oxygen_saturation)}%` : 'This half-hour')}
+          (day, col, row) => row && row.min_oxygen_saturation != null ? `Low ${Math.round(row.min_oxygen_saturation)}%` : `This ${bucketName()}`)}
         <div class="acto-legend">
           <span><i style="background:color-mix(in srgb, var(--good) 10%, var(--surface))"></i>Fine (≥${O2.warn + SOFT_BAND}%)</span>
           <span><i style="background:color-mix(in srgb, var(--warn) 28%, var(--surface))"></i>Soft (${O2.warn}–${O2.warn + SOFT_BAND}%)</span>
@@ -307,7 +362,7 @@ RHYTHMS_SCRIPTS = """<script>
           <span><i style="background:var(--bad)"></i>Deep dip (&lt;${O2.critical}%)</span>
           ${ivs.length ? RIBBON_LEGEND : ''}
         </div>
-        <p class="tile" style="padding:10px 0 0; font-size:13px; color:var(--dim)">Each cell is that half-hour's <b style="font-size:13px">lowest</b> reading. Recurring desats line up in columns — a 3 AM sag shows as a vertical stripe.</p>
+        <p class="tile" style="padding:10px 0 0; font-size:13px; color:var(--dim)">Each cell is the <b style="font-size:13px">lowest</b> reading in its ${bucketName()} window. Recurring desats line up in columns — a 3 AM sag shows as a vertical stripe.</p>
         </div>`);
     }
 
@@ -766,6 +821,10 @@ RHYTHMS_SCRIPTS = """<script>
         if (row) byTime.set(day.date.getTime() + col * BUCKET_SEC * 1000, row);
       }));
       const nights = [];
+      // Thresholds are expressed in minutes so a finer bucket doesn't turn
+      // "enough signal" or "sustained sleep" into a very different test.
+      const coveredBuckets = Math.round((3 * 60) / BUCKET_MIN);      // ≥3h of signal
+      const bedtimeBuckets = Math.max(2, Math.round(60 / BUCKET_MIN)); // ≥1h unbroken sleep
       days.forEach(day => {
         const startMin = Math.floor(NIGHT.start / BUCKET_MIN) * BUCKET_MIN;
         const endMin = 24 * 60 + Math.ceil(NIGHT.end / BUCKET_MIN) * BUCKET_MIN;
@@ -780,10 +839,12 @@ RHYTHMS_SCRIPTS = """<script>
           sleep += row.sleep_seconds || 0;
           if (asleep) {
             stretch += 1; bestStretch = Math.max(bestStretch, stretch);
-            if (bedtime === null && stretch >= 2) bedtime = t - BUCKET_SEC * 1000; // stretch began one bucket back
+            if (bedtime === null && stretch >= bedtimeBuckets) {
+              bedtime = t - (bedtimeBuckets - 1) * BUCKET_SEC * 1000;
+            }
           } else stretch = 0;
         }
-        if (covered >= 6) nights.push({ date: day.date, sleep, bedtime, bestStretch: bestStretch * BUCKET_SEC });
+        if (covered >= coveredBuckets) nights.push({ date: day.date, sleep, bedtime, bestStretch: bestStretch * BUCKET_SEC });
       });
       return nights;
     }
@@ -814,8 +875,10 @@ RHYTHMS_SCRIPTS = """<script>
       const longest = Math.max(...week.map(n => n.bestStretch), 0);
       const longestNight = week.find(n => n.bestStretch === longest);
 
-      const o2Week = avg(rollups.slice(-336).map(r => r.avg_oxygen_saturation).filter(v => v != null));
-      const o2Prior = avg(rollups.slice(0, -336).map(r => r.avg_oxygen_saturation).filter(v => v != null));
+      // One week at the selected resolution (336 half-hours, 2016 five-minute buckets).
+      const weekBuckets = Math.round((7 * 24 * 60) / BUCKET_MIN);
+      const o2Week = avg(rollups.slice(-weekBuckets).map(r => r.avg_oxygen_saturation).filter(v => v != null));
+      const o2Prior = avg(rollups.slice(0, -weekBuckets).map(r => r.avg_oxygen_saturation).filter(v => v != null));
 
       const deltaBadge = (delta, unit, invert = false) => {
         if (delta === null) return '';
@@ -850,18 +913,117 @@ RHYTHMS_SCRIPTS = """<script>
       return section(heading, caveat + `<div class="tiles">${tiles.join('')}</div>`);
     }
 
+    let rollups = [], rollups5 = [], careEvents = [], challenges = [], deviceName = null;
+    let o2iv = [];
+    let rollups5Fetch = null;
+    // Server-side rollups are deterministic per bucket, so a resolution switch
+    // only pays for its first fetch; subsequent clicks are instant.
+    const bucketCache = new Map();
+
+    function dayGridSections() {
+      const days = dayGrid(rollups);
+      if (!days.length) return '';
+      return renderActogram(days, o2iv) + renderDipMap(days, o2iv)
+        + renderTiles(days, rollups);
+    }
+
+    // The picker is static markup moved into whichever actogram header is
+    // currently on screen, so its click listener survives re-renders.
+    function mountRangeSeg() {
+      const host = el('rangeHost');
+      if (host && rangeSegNode && rangeSegNode.parentNode !== host) host.appendChild(rangeSegNode);
+    }
+
+    function renderDayGrids() {
+      const host = el('dayGrids');
+      if (!host) return;
+      host.classList.remove('is-loading');
+      host.innerHTML = dayGridSections();
+      mountRangeSeg();
+    }
+
+    function renderContent() {
+      const grids = dayGridSections();
+      if (!grids) {
+        el('content').innerHTML = `<div class="empty">Nothing to chart yet.<br/>
+          Give it a night or two — each day of readings adds a row here.</div>`;
+        return;
+      }
+      el('content').innerHTML = [
+        `<div id="dayGrids">${grids}</div>`,
+        renderCircadian(rollups5, deviceName),
+        renderDayPrep(rollups5),
+        renderDesatBurden(rollups5),
+        renderBaselineDrift(rollups5),
+        renderDeepGap(rollups5),
+        renderO2Report(rollups5, o2iv),
+        renderFeedRhythm(careEvents),
+        renderFeedResponse(rollups5, careEvents),
+        renderChallengeLedger(challenges),
+      ].join('');
+      mountRangeSeg();
+    }
+
+    function updateLede() {
+      const span = BUCKET_MIN === 30 ? 'a half-hour'
+        : BUCKET_MIN === 15 ? 'a quarter-hour'
+        : bucketName();
+      el('lede').textContent = `Every row is a day, every column ${span}. Purple is sleep `
+        + '(darker = deeper), amber is awake, blank is no signal. Over weeks, a rhythm emerges — '
+        + 'this page is where you watch it happen.';
+    }
+
+    function paintRangeSeg() {
+      rangeSegNode.querySelectorAll('button').forEach(button => {
+        const active = button.dataset.bucket === BUCKET;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+    }
+
+    async function selectBucket(bucket) {
+      if (!RESOLUTIONS[bucket] || bucket === BUCKET) return;
+      const host = el('dayGrids');
+      if (!bucketCache.has(bucket) && bucket === '5m' && rollups5Fetch) {
+        // The boot-time 5m request is already in flight — reuse it instead of
+        // asking the server to aggregate the same window twice.
+        const early = await rollups5Fetch;
+        if (Array.isArray(early.rollups)) bucketCache.set('5m', early.rollups);
+      }
+      if (!bucketCache.has(bucket)) {
+        if (host) host.classList.add('is-loading');
+        try {
+          const data = await fetch(`/api/rollups?bucket=${bucket}&hours=336&limit=100000`).then(r => r.json());
+          bucketCache.set(bucket, data.rollups || []);
+        } catch (error) {
+          if (host) host.classList.remove('is-loading');
+          return;   // keep showing the current resolution
+        }
+      }
+      applyBucket(bucket);
+      rollups = bucketCache.get(bucket) || [];
+      updateLede();
+      paintRangeSeg();
+      // Other sections don't depend on the actogram resolution, so only the
+      // day-grid panels and their summary tiles are rebuilt.
+      renderDayGrids();
+    }
+
     async function boot() {
-      let rollups = [], rollups5 = [], careEvents = [], challenges = [], deviceName = null;
+      // Fire all requests together, but paint the 30m day grids as soon as the
+      // lighter requests land; the 5m data fills the remaining sections after.
+      const r30Promise = fetch('/api/rollups?bucket=30m&hours=336&limit=100000').then(r => r.json());
+      rollups5Fetch = fetch('/api/rollups?bucket=5m&hours=336&limit=100000')
+        .then(r => r.json()).catch(() => ({}));
+      const eventsPromise = fetch('/api/events?hours=336&limit=2000').then(r => r.json()).catch(() => ({}));
+      const challengesPromise = fetch('/api/oxygen-challenges?hours=336&limit=100').then(r => r.json()).catch(() => ({}));
+      const accountsPromise = fetch('/api/accounts').then(r => r.json());
       try {
-        const [r30, r5, ev, ch, accounts] = await Promise.all([
-          fetch('/api/rollups?bucket=30m&hours=336&limit=100000').then(r => r.json()),
-          fetch('/api/rollups?bucket=5m&hours=336&limit=100000').then(r => r.json()).catch(() => ({})),
-          fetch('/api/events?hours=336&limit=2000').then(r => r.json()).catch(() => ({})),
-          fetch('/api/oxygen-challenges?hours=336&limit=100').then(r => r.json()).catch(() => ({})),
-          fetch('/api/accounts').then(r => r.json())
+        const [r30, ev, ch, accounts] = await Promise.all([
+          r30Promise, eventsPromise, challengesPromise, accountsPromise,
         ]);
         rollups = r30.rollups || [];
-        rollups5 = r5.rollups || [];
+        bucketCache.set(DEFAULT_BUCKET, rollups);
         careEvents = (ev.events || []).map(e => ({ ...e, t: Date.parse(e.at) }));
         challenges = ch.items || [];
         const account = (accounts.accounts || [])[0];
@@ -876,28 +1038,20 @@ RHYTHMS_SCRIPTS = """<script>
         return;
       }
       el('title').innerHTML = deviceName ? `The shape of <em>${deviceName}’s</em> days` : 'The shape of the days';
-      const days = dayGrid(rollups);
-      if (!days.length) {
-        el('content').innerHTML = `<div class="empty">Nothing to chart yet.<br/>
-          Give it a night or two — each day of readings adds a row here.</div>`;
-        return;
-      }
       const t1 = Date.now(), t0 = t1 - 336 * 3600e3;
-      const o2iv = o2Intervals(careEvents, t0, t1);
-      el('content').innerHTML = [
-        renderActogram(days, o2iv),
-        renderCircadian(rollups5, deviceName),
-        renderDipMap(days, o2iv),
-        renderTiles(days, rollups),
-        renderDayPrep(rollups5),
-        renderDesatBurden(rollups5),
-        renderBaselineDrift(rollups5),
-        renderDeepGap(rollups5),
-        renderO2Report(rollups5, o2iv),
-        renderFeedRhythm(careEvents),
-        renderFeedResponse(rollups5, careEvents),
-        renderChallengeLedger(challenges),
-      ].join('');
+      o2iv = o2Intervals(careEvents, t0, t1);
+      applyBucket(DEFAULT_BUCKET);
+      updateLede();
+      paintRangeSeg();
+      el('content').addEventListener('click', event => {
+        const button = event.target.closest('button[data-bucket]');
+        if (button) selectBucket(button.dataset.bucket);
+      });
+      renderContent();
+      const r5 = await rollups5Fetch;
+      if (Array.isArray(r5.rollups)) bucketCache.set('5m', r5.rollups);
+      rollups5 = r5.rollups || [];
+      renderContent();
     }
     boot();
   </script>"""
