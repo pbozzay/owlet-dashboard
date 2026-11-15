@@ -628,14 +628,16 @@ SHELL_JS = """<script>
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email, password: password, region: region, display_name: displayName })
     }).then(function (r) {
-      if (!r.ok) throw new Error(String(r.status));
-      return r.json();
+      return r.json().then(function (data) {
+        if (!r.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not link Owlet account.');
+        return data;
+      });
     }).then(function (data) {
       var event = new CustomEvent('owlet:account-added', { detail: data.account || null, cancelable: true });
       var handled = !document.dispatchEvent(event);
       if (!handled) window.location.reload();
-    }).catch(function () {
-      alert('Could not validate that Owlet account. Check the email/password/region and try again.');
+    }).catch(function (error) {
+      alert(error.message || 'Could not reach the dashboard. Check your connection and try again.');
     });
   });
 
