@@ -1,0 +1,24 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync('app/shell.py', 'utf8');
+const functions = source.slice(source.indexOf('  var viewAccountId'), source.indexOf('  var historyGloballyEnabled'));
+test('selected account scopes reads, event writes, preferences and navigation', async () => {
+  const calls = [], saved = {}, links = [{href: '/night', getAttribute() {return this.href;}}];
+  const accounts = [{id:1, dashboard_preferences:{baby_name:'First'}}, {id:2, dashboard_preferences:{baby_name:'Second',baby_pronouns:'they'}}];
+  const context = vm.createContext({URL, URLSearchParams, window:{location:{search:'?account=2',origin:'http://local'}}, document:{querySelectorAll:()=>links}, sessionStorage:{getItem:()=>'',setItem:(k,v)=>saved[k]=v}, fetch:async (url,options)=>{calls.push({url,options});return {json:async()=>({accounts})};}});
+  vm.runInContext(functions,context);
+  await context.window.owletFetch('/api/readings?hours=6');
+  await context.window.owletFetch('/api/events',{method:'POST',body:JSON.stringify({kind:'Feeding'})});
+  assert.equal(calls[1].url,'/api/readings?hours=6&account=2');
+  assert.equal(JSON.parse(calls[2].options.body).account_id,2);
+  assert.equal(context.window.owletSelectedFrom(accounts).dashboard_preferences.baby_name,'Second');
+  assert.equal(context.window.owletSelectedFrom(accounts).dashboard_preferences.baby_pronouns,'they');
+  assert.equal(links[0].href,'/night?account=2');
+  assert.equal(saved.owletViewAccount,'2');
+  await context.window.owletFetch('/api/readings/window?around=2026-01-01');
+  await context.window.owletFetch('/api/notifications/read', {method:'POST'});
+  assert.equal(calls[3].url, '/api/readings/window?around=2026-01-01&account=2');
+  assert.equal(calls[4].url, '/api/notifications/read?account=2');
+});

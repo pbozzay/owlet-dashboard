@@ -985,7 +985,7 @@ RHYTHMS_SCRIPTS = """<script>
     let bucketSelection = 0;
 
     async function fetchRollups(bucket) {
-      const response = await fetch(`/api/rollups?bucket=${bucket}&hours=336&limit=100000`);
+      const response = await window.owletFetch(`/api/rollups?bucket=${bucket}&hours=336&limit=100000`);
       if (!response.ok) throw new Error(`Rollups request failed: ${response.status}`);
       const data = await response.json();
       if (!Array.isArray(data.rollups)) throw new Error('Invalid rollups response');
@@ -1034,9 +1034,9 @@ RHYTHMS_SCRIPTS = """<script>
       // lighter requests land; the 5m data fills the remaining sections after.
       const r30Promise = fetchRollups('30m');
       rollups5Fetch = fetchRollups('5m').catch(() => ({}));
-      const eventsPromise = fetch('/api/events?hours=336&limit=2000').then(r => r.json()).catch(() => ({}));
-      const challengesPromise = fetch('/api/oxygen-challenges?hours=336&limit=100').then(r => r.json()).catch(() => ({}));
-      const accountsPromise = fetch('/api/accounts').then(r => r.json());
+      const eventsPromise = window.owletFetch('/api/events?hours=336&limit=2000').then(r => r.json()).catch(() => ({}));
+      const challengesPromise = window.owletFetch('/api/oxygen-challenges?hours=336&limit=100').then(r => r.json()).catch(() => ({}));
+      const accountsPromise = window.owletFetch('/api/accounts').then(r => r.json());
       try {
         const [r30, ev, ch, accounts] = await Promise.all([
           r30Promise, eventsPromise, challengesPromise, accountsPromise,
@@ -1045,7 +1045,7 @@ RHYTHMS_SCRIPTS = """<script>
         bucketCache.set(DEFAULT_BUCKET, rollups);
         careEvents = (ev.events || []).map(e => ({ ...e, t: Date.parse(e.at) }));
         challenges = ch.items || [];
-        const account = (accounts.accounts || [])[0];
+        const account = window.owletSelectedFrom(accounts.accounts || []);
         const prefs = (account && account.dashboard_preferences) || {};
         O2 = window.owletO2(prefs);
         deviceName = prefs.baby_name ? window.owletEscapeHtml(prefs.baby_name) : null;

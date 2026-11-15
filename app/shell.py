@@ -288,7 +288,7 @@ SHELL_JS = """<script>
   function loadDevicePanel() {
     if (devicePanelLoaded) return;
     devicePanelLoaded = true;
-    fetch('/api/device-info').then(function (r) { return r.json(); }).then(function (data) {
+    window.owletFetch('/api/device-info').then(function (r) { return r.json(); }).then(function (data) {
       var facts = byId('deviceFacts');
       if (!facts) return;
       var info = data.info;
@@ -316,7 +316,7 @@ SHELL_JS = """<script>
         return '<div class="dev-row"><span>' + row[0] + '</span><b>' + escapeHtml(String(row[1])) + '</b></div>';
       }).join('');
     }).catch(function () {});
-    fetch('/api/rollups?bucket=5m&hours=192&limit=100000').then(function (r) { return r.json(); })
+    window.owletFetch('/api/rollups?bucket=5m&hours=192&limit=100000').then(function (r) { return r.json(); })
       .then(function (data) {
         sigRollups = (data.rollups || []).filter(function (row) { return row.avg_signal_strength != null; });
         renderSignalDay();
@@ -368,6 +368,39 @@ SHELL_JS = """<script>
   });
 
   var shellAccounts = [];
+  var viewAccountId = new URLSearchParams(window.location.search).get('account') || sessionStorage.getItem('owletViewAccount') || '';
+  var accountReady = fetch('/api/accounts').then(function(r) { return r.json(); }).then(function(data) {
+    var accounts = data.accounts || [];
+    if (!accounts.some(function(a) { return String(a.id) === viewAccountId; })) viewAccountId = accounts.length ? String(accounts[0].id) : '';
+    if (viewAccountId) {
+      sessionStorage.setItem('owletViewAccount', viewAccountId);
+      document.querySelectorAll('a[href]').forEach(function(link) {
+        var url = new URL(link.getAttribute('href'), window.location.origin);
+        if (url.origin === window.location.origin && ['/', '/night', '/rhythms', '/data'].indexOf(url.pathname) >= 0) { url.searchParams.set('account', viewAccountId); link.href = url.pathname + url.search; }
+      });
+    }
+    return accounts;
+  }).catch(function() { return []; });
+  window.owletSelectedFrom = function(accounts) {
+    return accounts.find(function(a) { return String(a.id) === viewAccountId; }) || accounts[0];
+  };
+  window.owletFetch = async function(input, options) {
+    await accountReady;
+    var url = new URL(input, window.location.origin);
+    options = Object.assign({}, options || {});
+    if (viewAccountId && ['/api/readings', '/api/rollups', '/api/events', '/api/widget', '/api/devices', '/api/oxygen-challenges', '/api/device-info', '/api/readings/window', '/api/notifications', '/api/notifications/read'].indexOf(url.pathname) >= 0) {
+      url.searchParams.set('account', viewAccountId);
+      if (url.pathname === '/api/events' && options.method === 'POST') {
+        var body = JSON.parse(options.body); body.account_id = Number(viewAccountId); options.body = JSON.stringify(body);
+      }
+    }
+    return fetch(url.pathname + url.search, options);
+  };
+  var historyGloballyEnabled = true;
+  fetch('/api/history-settings').then(function(r) { return r.json(); }).then(function(data) {
+    historyGloballyEnabled = data.enabled;
+    renderShellMenu([]);
+  }).catch(function() {});
   function shellSelectedAccount() {
     var select = byId('accountSelect');
     var id = select && select.value;
@@ -408,6 +441,13 @@ SHELL_JS = """<script>
       byId('o2CritSetting').value = String(tiers.critical);
     }
     var prefs = (account && account.dashboard_preferences) || {};
+    if (byId('historyBackfillSetting')) {
+      byId('historyBackfillSetting').value = prefs.history_backfill_enabled === false ? 'off' : 'on';
+      byId('historyBackfillSetting').disabled = !historyGloballyEnabled;
+      var status = prefs.history_backfill_status || {};
+      var messages = {empty: 'No history available from Owlet.', current: 'Live readings already cover the available history.', failed: 'Could not check Owlet history. Will retry.', imported: String(status.minutes || 0) + ' minutes imported or refreshed.'};
+      byId('historyBackfillStatus').textContent = !historyGloballyEnabled ? 'Disabled by the server setting.' : prefs.history_backfill_enabled === false ? 'Off. Previously imported history is kept.' : (messages[status.state] || 'Waiting to check Owlet history.') + (status.checked_at ? ' Last checked: ' + new Date(status.checked_at).toLocaleString() : '');
+    }
     var profileSelect = byId('babyProfileSetting');
     if (profileSelect) {
       profileSelect.replaceChildren(new Option('Choose a baby profile', ''));
@@ -446,7 +486,7 @@ SHELL_JS = """<script>
         if (r.status === 401) { window.location.href = '/login'; throw new Error('unauthenticated'); }
         return r.json();
       }),
-      fetch('/api/devices').then(function (r) { return r.json(); })
+      window.owletFetch('/api/devices').then(function (r) { return r.json(); })
     ]).then(function (results) {
       shellAccounts = results[0].accounts || [];
       var account = shellAccounts[0];
@@ -464,7 +504,7 @@ SHELL_JS = """<script>
       // the select's contents; everywhere else the shell fills it.
       var select = byId('accountSelect');
       if (select && !window.__pageOwnsAccountSelect) {
-        var current = select.value;
+        var current = viewAccountId || select.value;
         select.innerHTML = shellAccounts.map(function (a) {
           return '<option value="' + a.id + '">' + (a.display_name || a.email) + '</option>';
         }).join('');
@@ -491,6 +531,12 @@ SHELL_JS = """<script>
   if (byId('pollIntervalSetting')) byId('pollIntervalSetting').addEventListener('change', function (event) {
     patchSelectedAccount({ poll_interval_seconds: Number(event.target.value) }).then(function (account) {
       if (account && account.poll_interval_seconds) pollInterval = account.poll_interval_seconds;
+    });
+  });
+  if (byId('historyBackfillSetting')) byId('historyBackfillSetting').addEventListener('change', function(event) {
+    patchSelectedAccount({dashboard_preferences: {history_backfill_enabled: event.target.value === 'on'}}).then(function(account) {
+      if (account) loadShellAccounts();
+      else byId('historyBackfillStatus').textContent = 'Could not save. Please try again.';
     });
   });
   function refreshBabyView(account) {
@@ -652,7 +698,12 @@ SHELL_JS = """<script>
     } });
   });
   if (byId('accountSelect')) byId('accountSelect').addEventListener('change', function () {
-    renderShellMenu([]);
+    viewAccountId = byId('accountSelect').value;
+    sessionStorage.setItem('owletViewAccount', viewAccountId);
+    if (!window.__pageOwnsAccountSelect) {
+      var url = new URL(window.location.href); url.searchParams.set('account', viewAccountId);
+      window.location.assign(url.pathname + url.search);
+    } else renderShellMenu([]);
   });
   if (byId('addAccount')) byId('addAccount').addEventListener('click', function () {
     var email = prompt('Owlet email');
@@ -783,7 +834,7 @@ SHELL_JS = """<script>
     bellPop.hidden = false;
     bellButton.setAttribute('aria-expanded', 'true');
     byId('bellList').innerHTML = '<div class="bell-empty">Loading…</div>';
-    fetch('/api/notifications?hours=168&limit=25')
+    window.owletFetch('/api/notifications?hours=168&limit=25')
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var items = data.items || [];
@@ -797,7 +848,7 @@ SHELL_JS = """<script>
             }).join('')
           : '<div class="bell-empty">Nothing yet — alerts from the sock land here.</div>';
         // Opening the panel is reading it.
-        if (unreadCount > 0) fetch('/api/notifications/read', { method: 'POST' }).catch(function () {});
+        if (unreadCount > 0) window.owletFetch('/api/notifications/read', { method: 'POST' }).catch(function () {});
         unreadCount = 0;
         paintBell();
       })
@@ -849,7 +900,7 @@ SHELL_JS = """<script>
     battButton.setAttribute('aria-expanded', 'true');
     loadBattWear(battWearGroup);
     byId('battBody').innerHTML = '<div class="bell-empty">Reading the last few hours…</div>';
-    fetch('/api/rollups?bucket=5m&hours=6&limit=200')
+    window.owletFetch('/api/rollups?bucket=5m&hours=6&limit=200')
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var series = (data.rollups || [])
@@ -946,7 +997,7 @@ SHELL_JS = """<script>
     var hours = group === 'day' ? 336 : group === 'week' ? 2016 : 4380;
     if (battWearCache[group]) { renderBattWear(battWearCache[group], group); return; }
     byId('battWear').innerHTML = '<div class="bell-empty">Reading history…</div>';
-    fetch('/api/rollups?bucket=30m&hours=' + hours + '&limit=100000')
+    window.owletFetch('/api/rollups?bucket=30m&hours=' + hours + '&limit=100000')
       .then(function (r) { return r.json(); })
       .then(function (data) {
         battWearCache[group] = data.rollups || [];
@@ -1090,7 +1141,7 @@ SHELL_JS = """<script>
     byId('focusDataLink').href = '/data?focus=' + encodeURIComponent(iso) + '&span=' + focusState.span;
     byId('focusCharts').innerHTML = '<div class="focus-empty">Loading…</div>';
     var requested = focusState;
-    fetch('/api/readings/window?around=' + encodeURIComponent(iso) + '&span=' + focusState.span)
+    window.owletFetch('/api/readings/window?around=' + encodeURIComponent(iso) + '&span=' + focusState.span)
       .then(function (r) { return r.json(); })
       .then(function (rows) {
         if (focusState !== requested) return;   // closed or changed meanwhile
@@ -1241,7 +1292,7 @@ SHELL_JS = """<script>
     status.innerHTML = '<span class="status-dot ' + dotClass + '"></span>' + label;
   }
   function pollFreshness() {
-    fetch('/api/widget?hours=1').then(function (r) { return r.json(); }).then(function (widget) {
+    window.owletFetch('/api/widget?hours=1').then(function (r) { return r.json(); }).then(function (widget) {
       if (widget.updated_at) lastReadingAt = Date.parse(widget.updated_at);
       sockReporting = widget.sock_reporting !== false;
       if (typeof widget.battery === 'number') { battLevel = widget.battery; paintBattery(); }
@@ -1315,8 +1366,9 @@ SHELL_JS = """<script>
     var notice = document.createElement('div');
     notice.className = 'desktop-notice';
     notice.innerHTML = '<b>Desktop app:</b> readings are collected only while this window is '
-      + 'open and the PC is awake — a closed laptop or sleeping PC leaves permanent gaps '
-      + '(Owlet cannot backfill). If you already run the Docker server version, use its web '
+      + 'open and the PC is awake — a closed laptop or sleeping PC leaves gaps that are later '
+      + 'filled only with 10-minute averages from Owlet. If you already run the Docker server '
+      + 'version, use its web '
       + 'page instead of this app: two collectors on one Owlet login sign each other out '
       + 'and BOTH end up with gaps. '
       + '<button type="button" id="desktopNoticeAck">Got it</button>';
@@ -1661,6 +1713,11 @@ def render_shell(
           </section>
           <section class="set-pane" data-pane="device">
             <h3>Device</h3>
+            <div class="set-row">
+              <div class="set-lab"><b>Fill gaps from Owlet history</b><small>Historical vitals use 10-minute averages. Turning this off keeps existing history.</small></div>
+              <select id="historyBackfillSetting" aria-label="Fill gaps from Owlet history"><option value="on">On</option><option value="off">Off</option></select>
+            </div>
+            <p class="set-lede" id="historyBackfillStatus">Waiting to check Owlet history.</p>
             <p class="set-lede">The sock and base as Owlet reports them — captured once, refreshed
               when firmware or settings change.</p>
             <div class="dev-facts" id="deviceFacts"><small class="pp-hint">Loading device details…</small></div>

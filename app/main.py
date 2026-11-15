@@ -32,7 +32,7 @@ from app.now_page import render_now_page
 from app.owlet_client import OwletClient
 from app.owlet_errors import link_error
 from app.owlet_profiles import BABY_FIELDS, effective_preferences, fetch_profiles, save_profiles, sync_profiles
-from app.poller import Poller, create_account_poller, create_owlet_poller
+from app.poller import Poller, create_account_poller, create_owlet_poller, history_for_client
 from app.pwa import MANIFEST, SERVICE_WORKER_JS
 from app.quality import is_offline_reading
 from app.ratelimit import RateLimiter
@@ -159,6 +159,8 @@ def create_app(
                                 account.get("poll_interval_seconds") or settings.poll_interval_seconds
                             ),
                             password=account.get("owlet_password"),
+                            history_days=settings.history_days,
+                            history_interval_seconds=settings.history_interval_seconds,
                         )
                         poller.start()
                         pollers.append(poller)
@@ -187,6 +189,8 @@ def create_app(
                         region=settings.owlet_region,
                         interval_seconds=settings.poll_interval_seconds,
                         account_id=default_account_id,
+                        history_days=settings.history_days,
+                        history_interval_seconds=settings.history_interval_seconds,
                     )
                     poller.start()
                     pollers.append(poller)
@@ -460,7 +464,16 @@ def create_app(
             for poller in state.get("pollers", []):  # type: ignore[union-attr]
                 if getattr(poller, "account_id", None) == account_id:
                     poller.interval_seconds = poll_interval
+        if "owlet_profile_id" in payload or (dashboard_preferences and "history_backfill_enabled" in dashboard_preferences):
+            enabled = settings.history_backfill and (account.get("dashboard_preferences") or {}).get("history_backfill_enabled", True)
+            for poller in state.get("pollers", []):
+                if getattr(poller, "account_id", None) == account_id:
+                    await poller.restart_history(bool(enabled))
         return {"account": _public_account(account)}
+
+    @app.get("/api/history-settings")
+    async def history_settings(user: dict = Depends(require_user)):
+        return {"enabled": settings.history_backfill, "days": settings.history_days}
 
     async def _scope(user: dict, account: int | None) -> list[int]:
         owned = [int(a["id"]) for a in await store.list_accounts(user_id=user["id"])]
@@ -537,6 +550,10 @@ def create_app(
                     interval_seconds=settings.poll_interval_seconds,
                     account_id=account_id,
                     token_snapshot=lambda client=client_for_poller: client.tokens,
+                    history=history_for_client(
+                        store, account_id, region, client_for_poller, settings.history_days
+                    ),
+                    history_interval_seconds=settings.history_interval_seconds,
                 )
                 poller.start()
                 live.append(poller)
@@ -967,8 +984,8 @@ def create_app(
         return [_reading_response(row) for row in rows]
 
     @app.post("/api/notifications/read")
-    async def mark_notifications_read(user: dict = Depends(require_user)):
-        marked = await store.mark_notifications_read(account_ids=await _scope(user, None))
+    async def mark_notifications_read(account: int | None = Query(default=None, ge=1), user: dict = Depends(require_user)):
+        marked = await store.mark_notifications_read(account_ids=await _scope(user, account))
         return {"ok": True, "marked": marked}
 
     @app.get("/api/events")
@@ -1109,6 +1126,8 @@ def _public_dashboard_preferences_patch(value: object) -> dict[str, object] | No
     if not isinstance(value, dict):
         return None
     allowed: dict[str, object] = {}
+    if isinstance(value.get("history_backfill_enabled"), bool):
+        allowed["history_backfill_enabled"] = value["history_backfill_enabled"]
     chart_visibility = value.get("chart_visibility")
     if isinstance(chart_visibility, dict):
         allowed["chart_visibility"] = {
