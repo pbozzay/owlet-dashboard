@@ -320,6 +320,7 @@ RHYTHMS_SCRIPTS = """<script>
     let NIGHT = { start: 19 * 60, end: 7 * 60 };
     let BIRTH = null;   // ISO 'YYYY-MM-DD' once known, for age-adjusted framing
     let FEEDS = true;   // feed-tracking preference gates the feed sections
+    let PRON = window.owletPronouns(null);   // she / he / they, from Settings → Baby
 
     function ageContext() {
       if (!BIRTH) return '';
@@ -329,7 +330,7 @@ RHYTHMS_SCRIPTS = """<script>
       if (days < 0) return '';
       const weeks = Math.floor(days / 7), months = Math.floor(days / 30.44);
       if (weeks < 6) return ` At ${weeks} week${weeks === 1 ? '' : 's'} old, a clear day-night rhythm usually hasn't emerged yet — it typically begins around 6 weeks.`;
-      if (weeks <= 16) return ` At ${weeks} weeks she's right in the 6–16 week window when the body clock switches on and night sleep consolidates fastest.`;
+      if (weeks <= 16) return ` At ${weeks} weeks ${PRON.subjIs} right in the 6–16 week window when the body clock switches on and night sleep consolidates fastest.`;
       return ` At ${months} month${months === 1 ? '' : 's'}, a consolidated night is typical — steadier and higher is better.`;
     }
     function nightWindowFrom(prefs) {
@@ -380,9 +381,9 @@ RHYTHMS_SCRIPTS = """<script>
       const half = Math.max(1, Math.floor(days.length / 3));
       const early = avg(days.slice(0, half).map(d => d.share));
       const late = avg(days.slice(-half).map(d => d.share));
-      const who = name ? name + '’s' : 'her';
+      const who = name ? name + '’s' : PRON.poss;
       let note = `About ${Math.round(late * 100)}% of ${who} sleep now lands at night`;
-      if (early != null && late != null && late - early > 0.04) note += `, up from ${Math.round(early * 100)}% at the start of this window — her body clock is organizing.`;
+      if (early != null && late != null && late - early > 0.04) note += `, up from ${Math.round(early * 100)}% at the start of this window — ${PRON.poss} body clock is organizing.`;
       else if (early != null && late != null && early - late > 0.04) note += `, down from ${Math.round(early * 100)}% here — single weeks bounce around, so watch the longer trend.`;
       else note += `, holding about steady across this window.`;
       return section('Day-night rhythm',
@@ -400,7 +401,7 @@ RHYTHMS_SCRIPTS = """<script>
     }
 
     // ----- day prep vs night sleep ---------------------------------------------
-    // The question this answers: "has she been awake enough today to sleep
+    // The question this answers: "has the baby been awake enough today to sleep
     // well tonight?" Pairs each day's awake time with that night's sleep.
     function renderDayPrep(r5) {
       const dateKey = d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -714,7 +715,7 @@ RHYTHMS_SCRIPTS = """<script>
       const before = avg(offsets.map((m, i) => m < 0 ? series[i] : null).filter(v => v != null));
       const after = avg(offsets.map((m, i) => (m >= 5 && m <= 30) ? series[i] : null).filter(v => v != null));
       const note = before != null && after != null && before - after > 0.8
-        ? `Feeds pull her down about ${(before - after).toFixed(1)} points in the half-hour after — a known pattern in O₂-dependent infants, worth watching during feeds.`
+        ? `Feeds pull ${PRON.obj} down about ${(before - after).toFixed(1)} points in the half-hour after — a known pattern in O₂-dependent infants, worth watching during feeds.`
         : 'No consistent feed-associated drop in this window.';
       return section('Around feeds',
         `<div class="tile card"><h3>Median SpO₂ around ${feeds.length} logged feeds</h3>
@@ -870,6 +871,7 @@ RHYTHMS_SCRIPTS = """<script>
         deviceName = prefs.baby_name || null;
         NIGHT = nightWindowFrom(prefs);
         BIRTH = prefs.birth_date || null;
+        PRON = window.owletPronouns(prefs);
         FEEDS = prefs.feed_tracking !== false;
       } catch (error) {
         el('content').innerHTML = '<div class="empty">Could not load readings — is the collector running?</div>';

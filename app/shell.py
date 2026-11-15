@@ -49,6 +49,19 @@ SHELL_JS = """<script>
     return { warn: warn, critical: critical };
   };
 
+  // ---- baby pronouns, shared by every page's narrative copy ---------------
+  // she / he / they. Defaults to "she" so copy reads as it always has until
+  // the parent picks otherwise in Settings → Baby.
+  window.OWLET_PRONOUNS = {
+    she:  { subj: 'she',  obj: 'her',  poss: 'her',   subjIs: "she's",   does: 'does' },
+    he:   { subj: 'he',   obj: 'him',  poss: 'his',   subjIs: "he's",    does: 'does' },
+    they: { subj: 'they', obj: 'them', poss: 'their', subjIs: "they're", does: 'do' }
+  };
+  window.owletPronouns = function (prefs) {
+    var key = prefs && prefs.baby_pronouns;
+    return window.OWLET_PRONOUNS[key] || window.OWLET_PRONOUNS.she;
+  };
+
   // ---- theme: auto | light | dark, segmented control in the profile menu ----
   function currentSetting() { return localStorage.getItem('owletTheme') || 'auto'; }
   function applyTheme(setting) {
@@ -406,6 +419,7 @@ SHELL_JS = """<script>
     if (byId('movementSourceSetting')) byId('movementSourceSetting').value = prefs.movement_source || 'raw';
     if (byId('o2DisplaySetting')) byId('o2DisplaySetting').value = prefs.o2_display || 'raw';
     if (byId('feedTrackingSetting')) byId('feedTrackingSetting').value = prefs.feed_tracking === false ? 'off' : 'on';
+    if (byId('babyPronounsSetting')) byId('babyPronounsSetting').value = window.owletPronouns(prefs).subj;
     var tzSelect = byId('timezoneSetting');
     if (tzSelect) {
       tzSelect.dataset.pendingValue = prefs.timezone || '';
@@ -590,6 +604,9 @@ SHELL_JS = """<script>
   });
   if (byId('feedTrackingSetting')) byId('feedTrackingSetting').addEventListener('change', function (event) {
     patchSelectedAccount({ dashboard_preferences: { feed_tracking: event.target.value === 'on' } });
+  });
+  if (byId('babyPronounsSetting')) byId('babyPronounsSetting').addEventListener('change', function (event) {
+    patchSelectedAccount({ dashboard_preferences: { baby_pronouns: event.target.value } });
   });
   if (byId('timezoneSetting')) byId('timezoneSetting').addEventListener('change', function (event) {
     patchSelectedAccount({ dashboard_preferences: {
@@ -1452,11 +1469,20 @@ def render_shell(
         <div class="set-panes">
           <section class="set-pane active" data-pane="baby">
             <h3>Baby</h3>
-            <p class="set-lede">Who the dashboard watches over, and when her night runs.</p>
+            <p class="set-lede">Who the dashboard watches over, and when the night runs.</p>
             <div class="set-row">
               <div class="set-lab"><b>Name</b><small>Replaces “the baby” across every page.</small></div>
               <input id="babyNameSetting" type="text" maxlength="40" placeholder="e.g. Hazel"
                 autocomplete="off" />
+            </div>
+            <div class="set-row">
+              <div class="set-lab"><b>Pronouns</b><small>Used in the written insights on Today and
+                Rhythms.</small></div>
+              <select id="babyPronounsSetting">
+                <option value="she">She / her</option>
+                <option value="he">He / him</option>
+                <option value="they">They / them</option>
+              </select>
             </div>
             <div class="set-row">
               <div class="set-lab"><b>Date of birth</b><small id="birthDateHint">Owlet's API doesn't share
