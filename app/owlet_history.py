@@ -25,6 +25,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiohttp
 from pyowletapi.const import REGION_INFO
@@ -114,12 +115,34 @@ def _round(value: float | None, digits: int) -> float | None:
     return None if value is None else round(value, digits)
 
 
+def history_timezone(prefs: dict[str, Any]) -> str:
+    name = prefs.get("timezone")
+    if isinstance(name, str):
+        try:
+            ZoneInfo(name)
+            return name
+        except (ValueError, ZoneInfoNotFoundError):
+            pass
+    return "UTC"
+
+
+def _valid_vital(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value > 0
+    )
+
+
 def _windows(payload: Any) -> Iterable[dict[str, Any]]:
     data = _data(payload)
     heart, oxygen = data.get("heartRate") or {}, data.get("oxygen") or {}
     movement = data.get("movement") or {}
     valid = (data.get("counts") or {}).get("validSamples")
     for i, start in enumerate(data.get("timeWindowStartTimes") or []):
+        if not all(_valid_vital(_at(series.get("avg"), i)) for series in (heart, oxygen)):
+            continue
         yield {
             "start": int(start),
             "first": _at(data.get("firstReadingTimes"), i),
@@ -368,7 +391,8 @@ async def backfill_account(
 
 
 async def _record_completed(
-    store: ReadingStore, account_id: int, days: int, written: int, profile_id: str
+    store: ReadingStore, account_id: int, days: int, written: int, profile_id: str,
+    *, initial_days: int | None = None
 ) -> None:
     await store.set_history_backfill_state(
         account_id,
@@ -376,6 +400,7 @@ async def _record_completed(
             "completed_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "profile_id": profile_id,
             "days": days,
+            "initial_lookback_days": initial_days if initial_days is not None else days,
             "minutes": written,
         },
     )
@@ -392,7 +417,7 @@ class HistoryBackfill:
         *,
         refresh_token: Callable[[], str | None],
         device_serial: Callable[[], str | None],
-        initial_days: int = 90,
+        initial_days: int = 150,
         recent_days: int = RECENT_DAYS,
         client_factory: Callable[..., Any] = OwletHistoryClient,
         pause: Callable[[], Awaitable[None]] | None = None,
@@ -433,10 +458,13 @@ class HistoryBackfill:
                 if completed.tzinfo is None:
                     raise ValueError("Missing timezone")
                 elapsed = max(0, (datetime.now(UTC) - completed).total_seconds())
-                days = min(self.initial_days, max(self.recent_days, math.ceil(elapsed / 86400) + 1))
+                if completed_before.get("initial_lookback_days", 90) >= self.initial_days:
+                    days = min(self.initial_days, max(self.recent_days, math.ceil(elapsed / 86400) + 1))
             except (KeyError, TypeError, ValueError):
                 pass
-        client = self.client_factory(self.region, token, profile_id=profile_id)
+        client = self.client_factory(
+            self.region, token, profile_id=profile_id, timezone=history_timezone(prefs)
+        )
         try:
             written = await backfill_account(
                 self.store,
@@ -462,7 +490,9 @@ class HistoryBackfill:
             },
         )
         if written.has_history:
-            await _record_completed(self.store, self.account_id, days, written, profile_id)
+            await _record_completed(
+                self.store, self.account_id, days, written, profile_id, initial_days=self.initial_days
+            )
         logger.info(
             "history backfill account_id=%s days=%s minutes=%s", self.account_id, days, written
         )
@@ -518,6 +548,7 @@ async def main(argv: list[str] | None = None) -> int:
             str(account.get("region") or "world"),
             str(account["refresh_token"]),
             profile_id=profile_id,
+            timezone=history_timezone(account.get("dashboard_preferences") or {}),
         )
         try:
             written = await backfill_account(

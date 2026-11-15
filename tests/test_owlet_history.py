@@ -406,7 +406,8 @@ class RecordingClient:
 
     instances: list["RecordingClient"] = []
 
-    def __init__(self, region, refresh_token, *, profile_id=None):
+    def __init__(self, region, refresh_token, *, profile_id=None, timezone="UTC"):
+        self.timezone = timezone
         self.profile_id = profile_id
         self.region, self.refresh_token, self.vitals_calls = region, refresh_token, 0
         RecordingClient.instances.append(self)
@@ -585,7 +586,7 @@ async def test_a_failed_history_run_is_retried_well_before_the_next_daily_run(tm
 
 
 def test_history_backfill_setting_can_be_turned_off():
-    assert Settings(_env_file=None).history_days == 90  # type: ignore[call-arg]
+    assert Settings(_env_file=None).history_days == 150  # type: ignore[call-arg]
     assert Settings(_env_file=None, HISTORY_BACKFILL=False).history_days == 0  # type: ignore[call-arg]
     assert Settings(_env_file=None, HISTORY_BACKFILL_DAYS=30).history_days == 30  # type: ignore[call-arg]
 
@@ -842,3 +843,41 @@ async def test_turning_off_cancels_history_task_without_stopping_live(tmp_path):
     assert poller._history_task is None
     assert poller._task is not None and not poller._task.done()
     await poller.stop()
+
+@pytest.mark.parametrize('invalid', [None, 0, -1, float('nan'), float('inf'), True, '120'])
+@pytest.mark.parametrize('field', ['heartRate', 'oxygen'])
+def test_invalid_vitals_are_skipped_without_losing_valid_windows(invalid, field):
+    payload = vitals_payload((T0, T0, T0 + 599, 120), (T0 + 600, T0 + 600, T0 + 1199, 125))
+    payload['data'][field]['avg'][0] = invalid
+    rows = oh.history_minutes([payload], [])
+    assert len(rows) == 10
+    assert rows[0].recorded_at == datetime.fromtimestamp(T0 + 600, UTC)
+
+@pytest.mark.parametrize('name,expected', [('America/Denver', 'America/Denver'), ('Europe/Zurich', 'Europe/Zurich'), ('bad/zone', 'UTC'), (None, 'UTC')])
+def test_history_timezone_uses_valid_iana_zone(name, expected):
+    assert oh.history_timezone({'timezone': name}) == expected
+
+@pytest.mark.asyncio
+async def test_larger_lookback_rescans_old_completion_once_and_passes_timezone(tmp_path):
+    store, aid = await seeded_store(tmp_path)
+    await store.update_account_preferences(aid, dashboard_preferences={'timezone': 'Europe/Zurich'})
+    await store.set_history_backfill_state(aid, {'profile_id': 'accounts/acct1/profiles/prof1', 'completed_at': datetime.now(UTC).isoformat(), 'days': 7})
+    job = recording_job(store, aid, initial_days=150)
+    await job.run_once()
+    state = await store.history_backfill_state(aid)
+    assert state['days'] == state['initial_lookback_days'] == 150
+    assert RecordingClient.instances[-1].timezone == 'Europe/Zurich'
+    await job.run_once()
+    state = await store.history_backfill_state(aid)
+    assert state['days'] == 7 and state['initial_lookback_days'] == 150
+
+@pytest.mark.asyncio
+async def test_sleep_request_preserves_epoch_range_across_dst():
+    from urllib.parse import urlsplit, parse_qs
+    fake = FakeOwlet()
+    client = oh.OwletHistoryClient('europe', 'refresh-1', profile_id='accounts/acct1/profiles/prof1', timezone='Europe/Zurich', fetch=fake)
+    start = int(datetime(2026, 10, 24, tzinfo=UTC).timestamp())
+    await client.sleep(start, start + 2 * DAY)
+    query = parse_qs(urlsplit(fake.urls('/sleep?')[0]).query)
+    assert query['timeZone'] == ['Europe/Zurich']
+    assert query['startTime'] == [str(start)] and query['endTime'] == [str(start + 2 * DAY)]
