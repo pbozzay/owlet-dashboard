@@ -981,40 +981,58 @@ RHYTHMS_SCRIPTS = """<script>
       });
     }
 
+    let bucketSelection = 0;
+
+    async function fetchRollups(bucket) {
+      const response = await fetch(`/api/rollups?bucket=${bucket}&hours=336&limit=100000`);
+      if (!response.ok) throw new Error(`Rollups request failed: ${response.status}`);
+      const data = await response.json();
+      if (!Array.isArray(data.rollups)) throw new Error('Invalid rollups response');
+      return data;
+    }
+
     async function selectBucket(bucket) {
-      if (!RESOLUTIONS[bucket] || bucket === BUCKET) return;
+      if (!RESOLUTIONS[bucket]) return;
+      // Even clicking the displayed bucket cancels a pending selection.
+      const selection = ++bucketSelection;
       const host = el('dayGrids');
-      if (!bucketCache.has(bucket) && bucket === '5m' && rollups5Fetch) {
-        // The boot-time 5m request is already in flight — reuse it instead of
-        // asking the server to aggregate the same window twice.
-        const early = await rollups5Fetch;
-        if (Array.isArray(early.rollups)) bucketCache.set('5m', early.rollups);
+      if (bucket === BUCKET) {
+        if (host) host.classList.remove('is-loading');
+        return;
       }
-      if (!bucketCache.has(bucket)) {
-        if (host) host.classList.add('is-loading');
-        try {
-          const data = await fetch(`/api/rollups?bucket=${bucket}&hours=336&limit=100000`).then(r => r.json());
-          bucketCache.set(bucket, data.rollups || []);
-        } catch (error) {
-          if (host) host.classList.remove('is-loading');
-          return;   // keep showing the current resolution
+      if (host) host.classList.add('is-loading');
+      try {
+        if (!bucketCache.has(bucket) && bucket === '5m' && rollups5Fetch) {
+          // Reuse the boot request, but retry if it failed.
+          const early = await rollups5Fetch;
+          if (selection !== bucketSelection) return;
+          if (Array.isArray(early.rollups)) bucketCache.set('5m', early.rollups);
         }
+        if (!bucketCache.has(bucket)) {
+          const data = await fetchRollups(bucket);
+          if (selection !== bucketSelection) return;
+          bucketCache.set(bucket, data.rollups);
+        }
+        if (selection !== bucketSelection) return;
+        applyBucket(bucket);
+        rollups = bucketCache.get(bucket);
+        updateLede();
+        paintRangeSeg();
+        // Only the day-grid panels and summary tiles depend on resolution.
+        renderDayGrids();
+      } catch (error) {
+        // Preserve the current charts and picker; the next click can retry.
+      } finally {
+        // A superseded request must not clear the latest request's spinner.
+        if (selection === bucketSelection && host) host.classList.remove('is-loading');
       }
-      applyBucket(bucket);
-      rollups = bucketCache.get(bucket) || [];
-      updateLede();
-      paintRangeSeg();
-      // Other sections don't depend on the actogram resolution, so only the
-      // day-grid panels and their summary tiles are rebuilt.
-      renderDayGrids();
     }
 
     async function boot() {
       // Fire all requests together, but paint the 30m day grids as soon as the
       // lighter requests land; the 5m data fills the remaining sections after.
-      const r30Promise = fetch('/api/rollups?bucket=30m&hours=336&limit=100000').then(r => r.json());
-      rollups5Fetch = fetch('/api/rollups?bucket=5m&hours=336&limit=100000')
-        .then(r => r.json()).catch(() => ({}));
+      const r30Promise = fetchRollups('30m');
+      rollups5Fetch = fetchRollups('5m').catch(() => ({}));
       const eventsPromise = fetch('/api/events?hours=336&limit=2000').then(r => r.json()).catch(() => ({}));
       const challengesPromise = fetch('/api/oxygen-challenges?hours=336&limit=100').then(r => r.json()).catch(() => ({}));
       const accountsPromise = fetch('/api/accounts').then(r => r.json());
