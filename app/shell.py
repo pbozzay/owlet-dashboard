@@ -288,7 +288,7 @@ SHELL_JS = """<script>
   function loadDevicePanel() {
     if (devicePanelLoaded) return;
     devicePanelLoaded = true;
-    fetch('/api/device-info').then(function (r) { return r.json(); }).then(function (data) {
+    window.owletFetch('/api/device-info').then(function (r) { return r.json(); }).then(function (data) {
       var facts = byId('deviceFacts');
       if (!facts) return;
       var info = data.info;
@@ -316,7 +316,7 @@ SHELL_JS = """<script>
         return '<div class="dev-row"><span>' + row[0] + '</span><b>' + escapeHtml(String(row[1])) + '</b></div>';
       }).join('');
     }).catch(function () {});
-    fetch('/api/rollups?bucket=5m&hours=192&limit=100000').then(function (r) { return r.json(); })
+    window.owletFetch('/api/rollups?bucket=5m&hours=192&limit=100000').then(function (r) { return r.json(); })
       .then(function (data) {
         sigRollups = (data.rollups || []).filter(function (row) { return row.avg_signal_strength != null; });
         renderSignalDay();
@@ -388,7 +388,7 @@ SHELL_JS = """<script>
     await accountReady;
     var url = new URL(input, window.location.origin);
     options = Object.assign({}, options || {});
-    if (viewAccountId && ['/api/readings', '/api/rollups', '/api/events', '/api/widget', '/api/devices', '/api/oxygen-challenges'].indexOf(url.pathname) >= 0) {
+    if (viewAccountId && ['/api/readings', '/api/rollups', '/api/events', '/api/widget', '/api/devices', '/api/oxygen-challenges', '/api/device-info', '/api/readings/window', '/api/notifications', '/api/notifications/read'].indexOf(url.pathname) >= 0) {
       url.searchParams.set('account', viewAccountId);
       if (url.pathname === '/api/events' && options.method === 'POST') {
         var body = JSON.parse(options.body); body.account_id = Number(viewAccountId); options.body = JSON.stringify(body);
@@ -486,7 +486,7 @@ SHELL_JS = """<script>
         if (r.status === 401) { window.location.href = '/login'; throw new Error('unauthenticated'); }
         return r.json();
       }),
-      fetch('/api/devices').then(function (r) { return r.json(); })
+      window.owletFetch('/api/devices').then(function (r) { return r.json(); })
     ]).then(function (results) {
       shellAccounts = results[0].accounts || [];
       var account = shellAccounts[0];
@@ -834,7 +834,7 @@ SHELL_JS = """<script>
     bellPop.hidden = false;
     bellButton.setAttribute('aria-expanded', 'true');
     byId('bellList').innerHTML = '<div class="bell-empty">Loading…</div>';
-    fetch('/api/notifications?hours=168&limit=25')
+    window.owletFetch('/api/notifications?hours=168&limit=25')
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var items = data.items || [];
@@ -848,7 +848,7 @@ SHELL_JS = """<script>
             }).join('')
           : '<div class="bell-empty">Nothing yet — alerts from the sock land here.</div>';
         // Opening the panel is reading it.
-        if (unreadCount > 0) fetch('/api/notifications/read', { method: 'POST' }).catch(function () {});
+        if (unreadCount > 0) window.owletFetch('/api/notifications/read', { method: 'POST' }).catch(function () {});
         unreadCount = 0;
         paintBell();
       })
@@ -900,7 +900,7 @@ SHELL_JS = """<script>
     battButton.setAttribute('aria-expanded', 'true');
     loadBattWear(battWearGroup);
     byId('battBody').innerHTML = '<div class="bell-empty">Reading the last few hours…</div>';
-    fetch('/api/rollups?bucket=5m&hours=6&limit=200')
+    window.owletFetch('/api/rollups?bucket=5m&hours=6&limit=200')
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var series = (data.rollups || [])
@@ -997,7 +997,7 @@ SHELL_JS = """<script>
     var hours = group === 'day' ? 336 : group === 'week' ? 2016 : 4380;
     if (battWearCache[group]) { renderBattWear(battWearCache[group], group); return; }
     byId('battWear').innerHTML = '<div class="bell-empty">Reading history…</div>';
-    fetch('/api/rollups?bucket=30m&hours=' + hours + '&limit=100000')
+    window.owletFetch('/api/rollups?bucket=30m&hours=' + hours + '&limit=100000')
       .then(function (r) { return r.json(); })
       .then(function (data) {
         battWearCache[group] = data.rollups || [];
@@ -1141,7 +1141,7 @@ SHELL_JS = """<script>
     byId('focusDataLink').href = '/data?focus=' + encodeURIComponent(iso) + '&span=' + focusState.span;
     byId('focusCharts').innerHTML = '<div class="focus-empty">Loading…</div>';
     var requested = focusState;
-    fetch('/api/readings/window?around=' + encodeURIComponent(iso) + '&span=' + focusState.span)
+    window.owletFetch('/api/readings/window?around=' + encodeURIComponent(iso) + '&span=' + focusState.span)
       .then(function (r) { return r.json(); })
       .then(function (rows) {
         if (focusState !== requested) return;   // closed or changed meanwhile
@@ -1292,7 +1292,7 @@ SHELL_JS = """<script>
     status.innerHTML = '<span class="status-dot ' + dotClass + '"></span>' + label;
   }
   function pollFreshness() {
-    fetch('/api/widget?hours=1').then(function (r) { return r.json(); }).then(function (widget) {
+    window.owletFetch('/api/widget?hours=1').then(function (r) { return r.json(); }).then(function (widget) {
       if (widget.updated_at) lastReadingAt = Date.parse(widget.updated_at);
       sockReporting = widget.sock_reporting !== false;
       if (typeof widget.battery === 'number') { battLevel = widget.battery; paintBattery(); }

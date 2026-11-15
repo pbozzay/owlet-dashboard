@@ -17,4 +17,8 @@ test('selected account scopes reads, event writes, preferences and navigation', 
   assert.equal(context.window.owletSelectedFrom(accounts).dashboard_preferences.baby_pronouns,'they');
   assert.equal(links[0].href,'/night?account=2');
   assert.equal(saved.owletViewAccount,'2');
+  await context.window.owletFetch('/api/readings/window?around=2026-01-01');
+  await context.window.owletFetch('/api/notifications/read', {method:'POST'});
+  assert.equal(calls[3].url, '/api/readings/window?around=2026-01-01&account=2');
+  assert.equal(calls[4].url, '/api/notifications/read?account=2');
 });

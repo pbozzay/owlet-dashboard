@@ -984,8 +984,8 @@ def create_app(
         return [_reading_response(row) for row in rows]
 
     @app.post("/api/notifications/read")
-    async def mark_notifications_read(user: dict = Depends(require_user)):
-        marked = await store.mark_notifications_read(account_ids=await _scope(user, None))
+    async def mark_notifications_read(account: int | None = Query(default=None, ge=1), user: dict = Depends(require_user)):
+        marked = await store.mark_notifications_read(account_ids=await _scope(user, account))
         return {"ok": True, "marked": marked}
 
     @app.get("/api/events")
