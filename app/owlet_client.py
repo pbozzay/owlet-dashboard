@@ -67,6 +67,10 @@ class OwletClient:
         self.sock = Sock(self.api, device_data)
         logger.info("Connected to Owlet device serial=%s", self.sock.serial)
 
+    async def profiles(self) -> list[dict]:
+        from app.owlet_profiles import fetch_profiles
+        return await fetch_profiles(self.region, self.tokens.get("refresh") or "")
+
     async def read_once(self) -> OwletReading:
         if self.sock is None:
             await self.connect()

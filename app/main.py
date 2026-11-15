@@ -31,6 +31,7 @@ from app.night_page import render_night_page
 from app.now_page import render_now_page
 from app.owlet_client import OwletClient
 from app.owlet_errors import link_error
+from app.owlet_profiles import BABY_FIELDS, effective_preferences, fetch_profiles, save_profiles, sync_profiles
 from app.poller import Poller, create_account_poller, create_owlet_poller
 from app.pwa import MANIFEST, SERVICE_WORKER_JS
 from app.quality import is_offline_reading
@@ -409,6 +410,21 @@ def create_app(
             ]
         }
 
+    @app.post("/api/accounts/{account_id}/profiles/refresh")
+    async def refresh_profiles(account_id: int, user: dict = Depends(require_user)):
+        try:
+            account = await store.get_account(account_id, user_id=user["id"])
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Account not found") from exc
+        if not app.state.rate_limiter.allow(f"profile-sync:{account_id}", max_hits=5, window_seconds=60):
+            raise HTTPException(status_code=429, detail="Please wait before refreshing profiles again")
+        try:
+            profiles = await asyncio.wait_for(fetch_profiles(account["region"], account.get("refresh_token") or ""), timeout=20)
+            updated = await save_profiles(store, account_id, profiles)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Could not refresh baby profiles. Your saved settings are unchanged.") from exc
+        return {"account": _public_account(updated)}
+
     @app.patch("/api/accounts/{account_id}")
     async def update_account(
         account_id: int = Path(ge=1),
@@ -424,12 +440,19 @@ def create_app(
             else None
         )
         try:
-            await store.get_account(account_id, user_id=user["id"])  # ownership check -> KeyError
+            current = await store.get_account(account_id, user_id=user["id"])
+            if "owlet_profile_id" in payload:
+                identifier = payload["owlet_profile_id"]
+                profiles = (current.get("dashboard_preferences") or {}).get("owlet_profiles") or []
+                if identifier is not None and (not isinstance(identifier, str) or identifier not in {p["id"] for p in profiles}):
+                    raise HTTPException(status_code=400, detail="Choose a profile from this Owlet account")
+                dashboard_preferences = dict(dashboard_preferences or {}, owlet_profile_id=identifier)
             account = await store.update_account_preferences(
                 account_id,
                 display_name=str(display_name).strip() if isinstance(display_name, str) else None,
                 dashboard_preferences=dashboard_preferences,
                 poll_interval_seconds=poll_interval,
+                reset_baby_overrides=payload.get("use_owlet_baby_details") is True,
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Account not found") from exc
@@ -498,6 +521,8 @@ def create_app(
                     owlet_password=password if settings.desktop_mode else None,
                 )
             account_id = int(account["id"])
+            await sync_profiles(store, account_id, client)
+            account = await store.get_account(account_id)
             if start_poller:
                 # Exactly one poller per account: stop any already running for
                 # this account (e.g. started on boot) before attaching the new client.
@@ -1208,6 +1233,8 @@ def _valid_birth_date(value: object) -> str | None:
 
 
 def _public_account(account: dict[str, object]) -> dict[str, object]:
+    prefs = account.get("dashboard_preferences")
+    prefs = prefs if isinstance(prefs, dict) else {}
     return {
         "id": account.get("id"),
         "email": account.get("email"),
@@ -1215,7 +1242,8 @@ def _public_account(account: dict[str, object]) -> dict[str, object]:
         "display_name": account.get("display_name"),
         "status": account.get("status"),
         "poll_interval_seconds": account.get("poll_interval_seconds"),
-        "dashboard_preferences": account.get("dashboard_preferences") if isinstance(account.get("dashboard_preferences"), dict) else {},
+        "dashboard_preferences": effective_preferences(prefs),
+        "baby_overrides": [key for key in BABY_FIELDS if key in prefs],
         "last_validated_at": account.get("last_validated_at"),
         "created_at": account.get("created_at"),
         "updated_at": account.get("updated_at"),

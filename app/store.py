@@ -580,6 +580,7 @@ class ReadingStore:
         display_name: str | None = None,
         dashboard_preferences: dict[str, Any] | None = None,
         poll_interval_seconds: int | None = None,
+        reset_baby_overrides: bool = False,
     ) -> dict[str, Any]:
         await self.init()
         current = await self.get_account(account_id)
@@ -593,11 +594,18 @@ class ReadingStore:
         if poll_interval_seconds is not None:
             assignments.append("poll_interval_seconds = ?")
             values.append(int(poll_interval_seconds))
-        if dashboard_preferences is not None:
+        if dashboard_preferences is not None or reset_baby_overrides:
             merged_preferences = _deep_merge_preferences(
                 dict(current.get("dashboard_preferences") or {}),
-                dashboard_preferences,
+                dashboard_preferences or {},
             )
+            # A deliberately cleared baby field still overrides imported data.
+            for key in ("baby_name", "birth_date", "baby_pronouns"):
+                if dashboard_preferences is not None and key in dashboard_preferences:
+                    merged_preferences[key] = dashboard_preferences[key]
+            if reset_baby_overrides:
+                for key in ("baby_name", "birth_date", "baby_pronouns"):
+                    merged_preferences.pop(key, None)
             assignments.append("dashboard_preferences = ?")
             values.append(json.dumps(merged_preferences, sort_keys=True))
         if not assignments:

@@ -1987,7 +1987,7 @@ NOW_SCRIPTS = """<script src="/insights.js"></script>
         ]);
         const account = (accounts.accounts || [])[0];
         const prefs = (account && account.dashboard_preferences) || {};
-        if (prefs.baby_name) deviceName = prefs.baby_name;
+        if (prefs.baby_name) deviceName = window.owletEscapeHtml(prefs.baby_name);
         O2 = window.owletO2(prefs);
         PRON = window.owletPronouns(prefs);
         NIGHT = nightWindowFrom(prefs);

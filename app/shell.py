@@ -408,6 +408,20 @@ SHELL_JS = """<script>
       byId('o2CritSetting').value = String(tiers.critical);
     }
     var prefs = (account && account.dashboard_preferences) || {};
+    var profileSelect = byId('babyProfileSetting');
+    if (profileSelect) {
+      profileSelect.replaceChildren(new Option('Choose a baby profile', ''));
+      (prefs.owlet_profiles || []).forEach(function (profile, index) {
+        profileSelect.add(new Option(profile.baby_name || 'Baby profile ' + (index + 1), profile.id));
+      });
+      profileSelect.value = prefs.owlet_profile_id || '';
+    }
+    if (byId('babyDetailsSource')) {
+      var overridden = (account && account.baby_overrides) || [];
+      byId('babyDetailsSource').textContent = prefs.owlet_profile_id
+        ? (overridden.length ? 'Using your edits where set; other details come from Owlet.' : 'Using details from the selected Owlet profile.')
+        : 'Refresh and choose an Owlet profile, or enter details below.';
+    }
     if (byId('birthDateSetting') && document.activeElement !== byId('birthDateSetting')) {
       byId('birthDateSetting').value = prefs.birth_date || '';
       var hint = byId('birthDateHint');
@@ -478,6 +492,29 @@ SHELL_JS = """<script>
     patchSelectedAccount({ poll_interval_seconds: Number(event.target.value) }).then(function (account) {
       if (account && account.poll_interval_seconds) pollInterval = account.poll_interval_seconds;
     });
+  });
+  function refreshBabyView(account) {
+    if (account) window.location.reload();
+    else byId('babyDetailsSource').textContent = 'Could not save your settings. Please try again.';
+  }
+  if (byId('babyProfileSetting')) byId('babyProfileSetting').addEventListener('change', function (event) {
+    patchSelectedAccount({ owlet_profile_id: event.target.value || null }).then(refreshBabyView);
+  });
+  if (byId('useOwletBabyDetails')) byId('useOwletBabyDetails').addEventListener('click', function () {
+    patchSelectedAccount({ use_owlet_baby_details: true }).then(refreshBabyView);
+  });
+  if (byId('refreshBabyProfiles')) byId('refreshBabyProfiles').addEventListener('click', function () {
+    var account = shellSelectedAccount();
+    if (!account) return;
+    var button = byId('refreshBabyProfiles'); button.disabled = true;
+    fetch('/api/accounts/' + account.id + '/profiles/refresh', { method: 'POST' })
+      .then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok) throw new Error(data.detail || 'Could not refresh profiles.');
+          refreshBabyView(data.account);
+        });
+      }).catch(function (error) { byId('babyDetailsSource').textContent = error.message; })
+      .finally(function () { button.disabled = false; });
   });
   if (byId('babyNameSetting')) byId('babyNameSetting').addEventListener('change', function (event) {
     patchSelectedAccount({ dashboard_preferences: { baby_name: event.target.value.trim() } })
@@ -709,6 +746,7 @@ SHELL_JS = """<script>
   var bellButton = byId('shellBell');
   var bellPop = byId('bellPop');
   var unreadCount = 0;
+  window.owletEscapeHtml = escapeHtml;
   function escapeHtml(text) {
     return String(text == null ? '' : text).replace(/[&<>"]/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
@@ -1473,6 +1511,14 @@ def render_shell(
             <h3>Baby</h3>
             <p class="set-lede">Who the dashboard watches over, and when the night runs.</p>
             <div class="set-row">
+              <div class="set-lab"><b>Owlet baby profile</b><small id="babyDetailsSource">Import details or enter them below.</small></div>
+              <select id="babyProfileSetting"><option value="">Choose a baby profile</option></select>
+            </div>
+            <div class="set-row">
+              <button type="button" id="refreshBabyProfiles">Refresh from Owlet</button>
+              <button type="button" id="useOwletBabyDetails">Use Owlet details instead of my edits</button>
+            </div>
+            <div class="set-row">
               <div class="set-lab"><b>Name</b><small>Replaces “the baby” across every page.</small></div>
               <input id="babyNameSetting" type="text" maxlength="40" placeholder="e.g. Hazel"
                 autocomplete="off" />
@@ -1487,8 +1533,7 @@ def render_shell(
               </select>
             </div>
             <div class="set-row">
-              <div class="set-lab"><b>Date of birth</b><small id="birthDateHint">Owlet's API doesn't share
-                this — set it so milestones can be age-adjusted.</small></div>
+              <div class="set-lab"><b>Date of birth</b><small id="birthDateHint">Imported from Owlet when available. You can change it here.</small></div>
               <input id="birthDateSetting" type="date" autocomplete="off" />
             </div>
             <div class="set-row">
