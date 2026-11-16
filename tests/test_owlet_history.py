@@ -939,3 +939,22 @@ async def test_sleep_request_preserves_epoch_range_across_dst():
     query = parse_qs(urlsplit(fake.urls('/sleep?')[0]).query)
     assert query['timeZone'] == ['Europe/Zurich']
     assert query['startTime'] == [str(start)] and query['endTime'] == [str(start + 2 * DAY)]
+
+@pytest.mark.parametrize('offset', [float('nan'), float('inf'), -float('inf'), 60.5, True])
+def test_malformed_device_offset_falls_back_to_utc(offset):
+    assert oh.history_timezone({'tz_offset_minutes': offset}) == 'UTC'
+
+@pytest.mark.asyncio
+async def test_first_short_manual_import_only_credits_requested_days(tmp_path, monkeypatch, capsys):
+    store, aid = await seeded_store(tmp_path)
+    assert oh._covered_days(None) == 0
+    monkeypatch.setattr(oh, 'OwletHistoryClient', RecordingClient)
+    monkeypatch.setattr(oh, 'PAUSE_SECONDS', 0)
+    monkeypatch.setenv('DATABASE_PATH', str(store.db_path))
+    assert await oh.main(['--days', '7']) == 0
+    capsys.readouterr()
+    state = await store.history_backfill_state(aid)
+    assert state['initial_lookback_days'] == 7
+    await recording_job(store, aid, initial_days=90).run_once()
+    state = await store.history_backfill_state(aid)
+    assert state['days'] == state['initial_lookback_days'] == 90

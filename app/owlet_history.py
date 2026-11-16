@@ -145,7 +145,12 @@ def history_timezone(prefs: dict[str, Any]) -> str:
         except (ValueError, ZoneInfoNotFoundError):
             pass
     offset = prefs.get("tz_offset_minutes")
-    if isinstance(offset, (int, float)) and not isinstance(offset, bool):
+    if (
+        isinstance(offset, (int, float))
+        and not isinstance(offset, bool)
+        and math.isfinite(offset)
+        and offset == int(offset)
+    ):
         zone = _fixed_offset_zone(int(offset))
         if zone is not None:
             return zone
@@ -426,7 +431,9 @@ def _covered_days(state: dict[str, Any] | None) -> int:
     State written before the lookback was recorded only ever reached the old
     default, so credit it with that instead of forcing a needless rescan.
     """
-    value = (state or {}).get("initial_lookback_days", LEGACY_LOOKBACK_DAYS)
+    if not state:
+        return 0
+    value = state.get("initial_lookback_days", LEGACY_LOOKBACK_DAYS)
     if isinstance(value, int) and not isinstance(value, bool):
         return max(0, value)
     return 0
