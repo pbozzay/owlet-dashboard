@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     desktop_mode: bool = Field(default=False, alias="OWLET_DESKTOP")
     # Gap backfill from Owlet's history services; see app/owlet_history.py.
     history_backfill: bool = Field(default=True, alias="HISTORY_BACKFILL")
-    history_backfill_days: int = Field(default=150, alias="HISTORY_BACKFILL_DAYS")
+    history_backfill_days: int = Field(default=365, alias="HISTORY_BACKFILL_DAYS")
     history_backfill_interval_hours: float = Field(
         default=24, alias="HISTORY_BACKFILL_INTERVAL_HOURS"
     )
