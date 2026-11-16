@@ -586,7 +586,7 @@ async def test_a_failed_history_run_is_retried_well_before_the_next_daily_run(tm
 
 
 def test_history_backfill_setting_can_be_turned_off():
-    assert Settings(_env_file=None).history_days == 150  # type: ignore[call-arg]
+    assert Settings(_env_file=None).history_days == 365  # type: ignore[call-arg]
     assert Settings(_env_file=None, HISTORY_BACKFILL=False).history_days == 0  # type: ignore[call-arg]
     assert Settings(_env_file=None, HISTORY_BACKFILL_DAYS=30).history_days == 30  # type: ignore[call-arg]
 
@@ -857,19 +857,77 @@ def test_invalid_vitals_are_skipped_without_losing_valid_windows(invalid, field)
 def test_history_timezone_uses_valid_iana_zone(name, expected):
     assert oh.history_timezone({'timezone': name}) == expected
 
+@pytest.mark.parametrize(
+    'prefs,expected',
+    [
+        ({'timezone': 'Europe/Zurich', 'tz_offset_minutes': 120}, 'Europe/Zurich'),
+        ({'timezone': None, 'tz_offset_minutes': 120}, 'Etc/GMT-2'),
+        ({'timezone': None, 'tz_offset_minutes': -300}, 'Etc/GMT+5'),
+        ({'timezone': None, 'tz_offset_minutes': 0}, 'UTC'),
+        ({'timezone': None, 'tz_offset_minutes': 330}, 'UTC'),
+        ({'timezone': None, 'tz_offset_minutes': 840}, 'Etc/GMT-14'),
+        ({'timezone': None, 'tz_offset_minutes': -840}, 'UTC'),
+        ({'timezone': None}, 'UTC'),
+    ],
+)
+def test_history_timezone_falls_back_to_the_stored_device_offset(prefs, expected):
+    assert oh.history_timezone(prefs) == expected
+
 @pytest.mark.asyncio
 async def test_larger_lookback_rescans_old_completion_once_and_passes_timezone(tmp_path):
     store, aid = await seeded_store(tmp_path)
     await store.update_account_preferences(aid, dashboard_preferences={'timezone': 'Europe/Zurich'})
     await store.set_history_backfill_state(aid, {'profile_id': 'accounts/acct1/profiles/prof1', 'completed_at': datetime.now(UTC).isoformat(), 'days': 7})
-    job = recording_job(store, aid, initial_days=150)
+    job = recording_job(store, aid, initial_days=365)
     await job.run_once()
     state = await store.history_backfill_state(aid)
-    assert state['days'] == state['initial_lookback_days'] == 150
+    assert state['days'] == state['initial_lookback_days'] == 365
     assert RecordingClient.instances[-1].timezone == 'Europe/Zurich'
     await job.run_once()
     state = await store.history_backfill_state(aid)
-    assert state['days'] == 7 and state['initial_lookback_days'] == 150
+    assert state['days'] == 7 and state['initial_lookback_days'] == 365
+
+@pytest.mark.asyncio
+async def test_lowering_then_raising_the_lookback_does_not_rescan_covered_history(tmp_path):
+    store, aid = await seeded_store(tmp_path)
+    await store.set_history_backfill_state(
+        aid,
+        {
+            'profile_id': 'accounts/acct1/profiles/prof1',
+            'completed_at': datetime.now(UTC).isoformat(),
+            'days': 7,
+            'initial_lookback_days': 365,
+        },
+    )
+    RecordingClient.instances = []
+    await recording_job(store, aid, initial_days=30).run_once()
+    assert RecordingClient.instances[-1].vitals_calls == 1  # recent refresh, not a rescan
+    assert (await store.history_backfill_state(aid))['initial_lookback_days'] == 365
+    await recording_job(store, aid, initial_days=365).run_once()
+    assert RecordingClient.instances[-1].vitals_calls == 1
+    state = await store.history_backfill_state(aid)
+    assert state['days'] == 7 and state['initial_lookback_days'] == 365
+
+@pytest.mark.asyncio
+async def test_command_line_refresh_keeps_the_covered_lookback(tmp_path, monkeypatch, capsys):
+    store, aid = await seeded_store(tmp_path)
+    await store.set_history_backfill_state(
+        aid,
+        {
+            'profile_id': 'accounts/acct1/profiles/prof1',
+            'completed_at': datetime.now(UTC).isoformat(),
+            'days': 7,
+            'initial_lookback_days': 365,
+        },
+    )
+    RecordingClient.instances = []
+    monkeypatch.setattr(oh, 'OwletHistoryClient', RecordingClient)
+    monkeypatch.setattr(oh, 'PAUSE_SECONDS', 0)
+    monkeypatch.setenv('DATABASE_PATH', str(store.db_path))
+    assert await oh.main(['--days', '7']) == 0
+    capsys.readouterr()
+    state = await store.history_backfill_state(aid)
+    assert state['days'] == 7 and state['initial_lookback_days'] == 365
 
 @pytest.mark.asyncio
 async def test_sleep_request_preserves_epoch_range_across_dst():
