@@ -25,6 +25,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiohttp
 from pyowletapi.const import REGION_INFO
@@ -46,6 +47,7 @@ DEVICE_VERSION = "smartSock4"  # what the Owlet app sends for a Dream Sock; "SS3
 CHUNK_SECONDS = 7 * 86400
 PAUSE_SECONDS = 2.5  # sleep-data allows ~25 requests/min, vital-data ~45/min
 RECENT_DAYS = 7  # daily refresh window once the first run has completed
+LEGACY_LOOKBACK_DAYS = 90  # assumed coverage for state written before it recorded the lookback
 MAX_RATE_LIMIT_WAIT_SECONDS = 120
 MINUTE = 60
 
@@ -114,12 +116,66 @@ def _round(value: float | None, digits: int) -> float | None:
     return None if value is None else round(value, digits)
 
 
+def _fixed_offset_zone(minutes: int) -> str | None:
+    """IANA name for a whole-hour UTC offset, or None when there is no equivalent.
+
+    ``Etc/GMT`` signs are inverted: ``Etc/GMT+5`` is UTC-05:00. Fractional-hour
+    offsets (for example +05:30) have no fixed-offset IANA name.
+    """
+    if minutes % 60:
+        return None
+    hours = minutes // 60
+    if not -12 <= hours <= 14:
+        return None
+    return "UTC" if hours == 0 else f"Etc/GMT{-hours:+d}"
+
+
+def history_timezone(prefs: dict[str, Any]) -> str:
+    """The account's IANA zone for history requests.
+
+    An explicit zone wins. The "Auto (this device)" setting stores a UTC offset
+    instead, so fall back to the matching fixed-offset zone (which, unlike a
+    named zone, cannot follow DST); anything else becomes UTC.
+    """
+    name = prefs.get("timezone")
+    if isinstance(name, str):
+        try:
+            ZoneInfo(name)
+            return name
+        except (ValueError, ZoneInfoNotFoundError):
+            pass
+    offset = prefs.get("tz_offset_minutes")
+    if (
+        isinstance(offset, (int, float))
+        and not isinstance(offset, bool)
+        and math.isfinite(offset)
+        and offset == int(offset)
+    ):
+        zone = _fixed_offset_zone(int(offset))
+        if zone is not None:
+            return zone
+    return "UTC"
+
+
+def _valid_vital(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value > 0
+    )
+
+
 def _windows(payload: Any) -> Iterable[dict[str, Any]]:
     data = _data(payload)
     heart, oxygen = data.get("heartRate") or {}, data.get("oxygen") or {}
     movement = data.get("movement") or {}
     valid = (data.get("counts") or {}).get("validSamples")
+    skipped = 0
     for i, start in enumerate(data.get("timeWindowStartTimes") or []):
+        if not all(_valid_vital(_at(series.get("avg"), i)) for series in (heart, oxygen)):
+            skipped += 1
+            continue
         yield {
             "start": int(start),
             "first": _at(data.get("firstReadingTimes"), i),
@@ -137,6 +193,8 @@ def _windows(payload: Any) -> Iterable[dict[str, Any]]:
                 "valid_samples": _at(valid, i),
             },
         }
+    if skipped:
+        logger.info("Skipped %s history buckets with missing or invalid vitals", skipped)
 
 
 def history_minutes(
@@ -367,8 +425,28 @@ async def backfill_account(
     return BackfillResult(written, True)
 
 
+def _covered_days(state: dict[str, Any] | None) -> int:
+    """The largest lookback a completed run has covered.
+
+    State written before the lookback was recorded only ever reached the old
+    default, so credit it with that instead of forcing a needless rescan.
+    """
+    if not state:
+        return 0
+    value = state.get("initial_lookback_days", LEGACY_LOOKBACK_DAYS)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return max(0, value)
+    return 0
+
+
 async def _record_completed(
-    store: ReadingStore, account_id: int, days: int, written: int, profile_id: str
+    store: ReadingStore,
+    account_id: int,
+    days: int,
+    written: int,
+    profile_id: str,
+    *,
+    initial_days: int,
 ) -> None:
     await store.set_history_backfill_state(
         account_id,
@@ -376,6 +454,7 @@ async def _record_completed(
             "completed_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "profile_id": profile_id,
             "days": days,
+            "initial_lookback_days": initial_days,
             "minutes": written,
         },
     )
@@ -392,7 +471,7 @@ class HistoryBackfill:
         *,
         refresh_token: Callable[[], str | None],
         device_serial: Callable[[], str | None],
-        initial_days: int = 90,
+        initial_days: int = 365,
         recent_days: int = RECENT_DAYS,
         client_factory: Callable[..., Any] = OwletHistoryClient,
         pause: Callable[[], Awaitable[None]] | None = None,
@@ -422,6 +501,7 @@ class HistoryBackfill:
         if not profile_id:
             return 0
         completed_before = await self.store.history_backfill_state(self.account_id)
+        covered_days = _covered_days(completed_before)
         days = self.initial_days
         if completed_before:
             if completed_before.get("profile_id") != profile_id:
@@ -433,10 +513,16 @@ class HistoryBackfill:
                 if completed.tzinfo is None:
                     raise ValueError("Missing timezone")
                 elapsed = max(0, (datetime.now(UTC) - completed).total_seconds())
-                days = min(self.initial_days, max(self.recent_days, math.ceil(elapsed / 86400) + 1))
+                if covered_days >= self.initial_days:
+                    days = min(
+                        self.initial_days,
+                        max(self.recent_days, math.ceil(elapsed / 86400) + 1),
+                    )
             except (KeyError, TypeError, ValueError):
                 pass
-        client = self.client_factory(self.region, token, profile_id=profile_id)
+        client = self.client_factory(
+            self.region, token, profile_id=profile_id, timezone=history_timezone(prefs)
+        )
         try:
             written = await backfill_account(
                 self.store,
@@ -462,7 +548,14 @@ class HistoryBackfill:
             },
         )
         if written.has_history:
-            await _record_completed(self.store, self.account_id, days, written, profile_id)
+            await _record_completed(
+                self.store,
+                self.account_id,
+                days,
+                written,
+                profile_id,
+                initial_days=max(covered_days, self.initial_days),
+            )
         logger.info(
             "history backfill account_id=%s days=%s minutes=%s", self.account_id, days, written
         )
@@ -518,6 +611,7 @@ async def main(argv: list[str] | None = None) -> int:
             str(account.get("region") or "world"),
             str(account["refresh_token"]),
             profile_id=profile_id,
+            timezone=history_timezone(account.get("dashboard_preferences") or {}),
         )
         try:
             written = await backfill_account(
@@ -526,7 +620,14 @@ async def main(argv: list[str] | None = None) -> int:
         finally:
             await client.close()
         if written.has_history:
-            await _record_completed(store, account_id, days, written, profile_id)
+            await _record_completed(
+                store,
+                account_id,
+                days,
+                written,
+                profile_id,
+                initial_days=max(_covered_days(completed), days),
+            )
         print(f"account {account_id}: {written} minutes added or refreshed ({days} days)")
     return 0
 

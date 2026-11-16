@@ -93,9 +93,13 @@ account toggles. The explicit command-line import below remains a manual action.
 Empty responses do not mark the initial scan complete. Live readings take priority
 even if they arrive during or after an import; adjacent averaged rows are removed.
 
-- The first run reaches back `HISTORY_BACKFILL_DAYS` (default 90). Later runs refresh the
-  last week, or the time since the last successful run plus overlap after a longer
-  outage, capped at `HISTORY_BACKFILL_DAYS`.
+- The first run reaches back `HISTORY_BACKFILL_DAYS` (default 365). Later runs refresh
+  the last week, or the time since the last successful run plus overlap after a longer
+  outage, capped at `HISTORY_BACKFILL_DAYS`. An increased lookback triggers a full rescan
+  before returning to daily refreshes; the largest lookback already covered is remembered,
+  so lowering and re-raising the setting does not rescan twice. Existing explicit
+  settings are respected. Sleep requests use the account's explicit IANA timezone, or its
+  stored UTC offset when the zone is left on "Auto"; imported timestamps remain UTC.
 - Choose the correct child under **Settings → Baby** before backfilling. No profile
   means no import; the first child in an account is never assumed. If you need to
   change children after importing, remove the old backfilled rows first with the
@@ -114,7 +118,7 @@ even if they arrive during or after an import; adjacent averaged rows are remove
 | Setting | Default | |
 | --- | --- | --- |
 | `HISTORY_BACKFILL` | `true` | set `false` to turn it off |
-| `HISTORY_BACKFILL_DAYS` | `90` | how far back the first run reaches |
+| `HISTORY_BACKFILL_DAYS` | `365` | how far back the first run reaches |
 | `HISTORY_BACKFILL_INTERVAL_HOURS` | `24` | how often it runs |
 
 Run it by hand, or undo it:

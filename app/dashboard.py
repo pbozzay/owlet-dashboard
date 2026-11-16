@@ -1096,7 +1096,9 @@ DATA_BODY = r"""
     }
 
     function metricValue(row, key) {
-      const value = Number(row?.[key]);
+      const raw = row?.[key];
+      if (raw === null || raw === undefined || raw === '') return null;
+      const value = Number(raw);
       if (!Number.isFinite(value)) return null;
       if (key === 'skin_temperature' && (isOffline(row) || value <= 0)) return null;
       return value;
